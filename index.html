@@ -725,9 +725,28 @@ function toast(msg, tipo='success') {
 }
 
 // ============ USUARIO Y ROLES ============
-// Lista de admins. Si tu nombre está acá, podés agregar/quitar/editar.
+// Lista de admins. Si tu nombre está acá Y conocés la clave, podés agregar/quitar/editar.
 // Si no, solo podés tildar dosis y agregar comentarios.
 const ADMIN_NAMES = ['Maxi', 'Maxi Martin', 'Administrador'];
+// Hash SHA-256 de la clave de administrador. Para cambiar la clave, regenerá este hash.
+const ADMIN_PASSWORD_HASH = '88a9293378ceff3f271a925de098cccc3f3c1db623ee95ab1a6cf83c7c4dc04e';
+const ADMIN_AUTH_KEY = 'med_geri_admin_auth';
+
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function nombreEsAdmin() {
+  const u = (getCurrentUser() || '').trim().toLowerCase();
+  return ADMIN_NAMES.some(n => n.toLowerCase() === u);
+}
+function adminAutorizado() {
+  return sessionStorage.getItem(ADMIN_AUTH_KEY) === 'yes';
+}
+function setAdminAutorizado(v) {
+  if (v) sessionStorage.setItem(ADMIN_AUTH_KEY, 'yes');
+  else sessionStorage.removeItem(ADMIN_AUTH_KEY);
+}
 
 function getCurrentUser() {
   return localStorage.getItem(USER_KEY) || '';
@@ -736,12 +755,60 @@ function setCurrentUser(nombre) {
   localStorage.setItem(USER_KEY, nombre);
 }
 function esAdmin() {
-  const u = (getCurrentUser() || '').trim().toLowerCase();
-  return ADMIN_NAMES.some(n => n.toLowerCase() === u);
+  return nombreEsAdmin() && adminAutorizado();
 }
+
+function pedirClaveAdmin(nombre) {
+  return new Promise((resolve) => {
+    const modalBg = document.createElement('div');
+    modalBg.className = 'modal-bg';
+    modalBg.innerHTML =
+      '<div class="modal" style="max-width:420px">' +
+        '<h3>🔒 Clave de administrador</h3>' +
+        '<p style="font-size:13px;color:#6c7a8a;margin-bottom:12px">' +
+          'El nombre "' + escapeHtml(nombre) + '" requiere clave para entrar como administrador. ' +
+          'Si no la sabés, dejá vacío y entrás como operador (solo lectura + tildes + comentarios).' +
+        '</p>' +
+        '<label>Clave</label>' +
+        '<input type="password" id="admin-pwd" placeholder="Tu clave..." style="margin-bottom:14px" autocomplete="current-password">' +
+        '<div class="btn-group">' +
+          '<button class="btn" id="admin-ok">✅ Entrar</button>' +
+          '<button class="btn secondary" id="admin-skip">Entrar como operador</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modalBg);
+    setTimeout(() => { document.getElementById('admin-pwd').focus(); }, 50);
+    const validar = async () => {
+      const pwd = document.getElementById('admin-pwd').value;
+      if (!pwd) { setAdminAutorizado(false); modalBg.remove(); resolve(false); return; }
+      const hash = await sha256Hex(pwd);
+      if (hash === ADMIN_PASSWORD_HASH) {
+        setAdminAutorizado(true);
+        modalBg.remove();
+        resolve(true);
+      } else {
+        toast('❌ Clave incorrecta', 'error');
+        document.getElementById('admin-pwd').value = '';
+        document.getElementById('admin-pwd').focus();
+      }
+    };
+    modalBg.querySelector('#admin-ok').onclick = validar;
+    modalBg.querySelector('#admin-skip').onclick = () => { setAdminAutorizado(false); modalBg.remove(); resolve(false); };
+    modalBg.querySelector('#admin-pwd').onkeypress = (e) => { if (e.key === 'Enter') validar(); };
+  });
+}
+
 function pedirUsuario(forzar = false) {
   return new Promise((resolve) => {
-    if (!forzar && getCurrentUser()) { resolve(getCurrentUser()); return; }
+    if (!forzar && getCurrentUser()) {
+      // Si el usuario ya existe y es nombre de admin pero no está autorizado, pedir clave
+      if (nombreEsAdmin() && !adminAutorizado()) {
+        pedirClaveAdmin(getCurrentUser()).then(() => { resolve(getCurrentUser()); render(); });
+      } else {
+        resolve(getCurrentUser());
+      }
+      return;
+    }
     const modalBg = document.createElement('div');
     modalBg.className = 'modal-bg';
     const actual = getCurrentUser();
@@ -764,13 +831,20 @@ function pedirUsuario(forzar = false) {
       inp.focus();
       inp.select();
     }, 50);
-    const aceptar = () => {
+    const aceptar = async () => {
       const nombre = document.getElementById('user-input').value.trim();
       if (!nombre) { toast('Necesito tu nombre', 'error'); return; }
       setCurrentUser(nombre);
       modalBg.remove();
-      const rol = esAdmin() ? 'administrador' : 'operador';
-      toast('Bienvenido/a ' + nombre + ' (' + rol + ')');
+      // Si el nombre coincide con admin, pedir clave
+      if (nombreEsAdmin()) {
+        const ok = await pedirClaveAdmin(nombre);
+        const rol = ok ? 'administrador' : 'operador';
+        toast('Bienvenido/a ' + nombre + ' (' + rol + ')');
+      } else {
+        setAdminAutorizado(false);
+        toast('Bienvenido/a ' + nombre + ' (operador)');
+      }
       resolve(nombre);
       render();
     };
@@ -2379,85 +2453,4 @@ async function sincronizarWhatsapp() {
       if (!state.semanal.ingresos) state.semanal.ingresos = [];
       state.semanal.ingresos.push({
         fecha: new Date(ing.fecha).toLocaleDateString('es-AR') + ' ' + new Date(ing.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'}),
-        residente: match.residente, medicamento: match.med.med, cantidad: Number(ing.cantidad),
-        recibido: 'WhatsApp: ' + (ing.recibido || ''), obs: ing.obs
-      });
-    });
-    saveData(); saveSem();
-    setLastSync(json.ahora);
-    toast('✅ ' + aplicados + ' aplicados' + (sinMatch ? ', ' + sinMatch + ' no se aplicaron' : ''), 'success');
-    mostrarResultadoSync(detalle);
-    render();
-  } catch (err) {
-    toast('❌ Error al sincronizar: ' + err.message, 'error');
-  }
-}
-
-function buscarMedSimilar(residenteInput, medInput) {
-  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-  const rin = norm(residenteInput);
-  const min = norm(medInput);
-  for (const r of state.residentes) {
-    const rn = norm(r.nombre);
-    if (rn === rin || rn.includes(rin) || rin.includes(rn)) {
-      for (const m of r.meds) {
-        const mn = norm(m.med);
-        if (mn === min || mn.includes(min) || min.includes(mn)) {
-          return { residente: r.nombre, med: m };
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function mostrarResultadoSync(lineas) {
-  const modalBg = document.createElement('div');
-  modalBg.className = 'modal-bg';
-  modalBg.innerHTML =
-    '<div class="modal" style="max-width:600px">' +
-      '<h3>📋 Resultado de sincronización</h3>' +
-      '<div style="max-height:400px;overflow-y:auto;font-family:monospace;font-size:12px;background:#F5F7FA;padding:12px;border-radius:6px;margin-bottom:14px">' +
-        lineas.map(l => '<div style="padding:3px 0">' + escapeHtml(l) + '</div>').join('') +
-      '</div>' +
-      '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Cerrar</button>' +
-    '</div>';
-  document.body.appendChild(modalBg);
-  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
-}
-
-// ============ LISTENERS ============
-function attachListeners() {
-  document.querySelectorAll('.res-card[data-residente]').forEach(el => {
-    el.onclick = () => navigate('residente', el.dataset.residente);
-  });
-  const search = document.getElementById('search-stock');
-  if (search) {
-    search.oninput = (e) => {
-      state.search = e.target.value;
-      // Re-renderizar solo si necesario
-      render();
-      setTimeout(() => {
-        const s = document.getElementById('search-stock');
-        if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
-      }, 0);
-    };
-  }
-}
-
-document.querySelectorAll('.nav-item[data-view]').forEach(el => {
-  el.onclick = () => navigate(el.dataset.view);
-});
-document.getElementById('btn-export').onclick = exportarExcel;
-document.getElementById('btn-reset').onclick = resetDatos;
-document.getElementById('btn-nuevo-residente').onclick = nuevoResidente;
-document.getElementById('btn-sync').onclick = sincronizarWhatsapp;
-document.getElementById('btn-sync-cloud').onclick = () => cloudPull(false);
-document.getElementById('btn-config-sync-v2').onclick = configurarSyncV2;
-document.getElementById('btn-cambiar-usuario').onclick = () => pedirUsuario(true);
-
-// Función para actualizar el badge de usuario en el sidebar
-function actualizarUserDisplay() {
-  const el = document.getElementById('user-display');
-  if (!el) return;
-  const 
+        res
