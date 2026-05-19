@@ -1,0 +1,2463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema Medicamentos - Geriátrico</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --azul-1: #1F4E78;
+  --azul-2: #2E75B6;
+  --azul-claro: #EAF1FA;
+  --gris-bg: #F5F7FA;
+  --gris-borde: #DDE3EB;
+  --texto: #2B3A4A;
+  --rojo: #C00000;
+  --rojo-claro: #F8CBAD;
+  --amarillo: #FFE699;
+  --verde: #C6EFCE;
+  --verde-oscuro: #006100;
+  --negro-fill: #1a1a1a;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+  background: var(--gris-bg);
+  color: var(--texto);
+  font-size: 14px;
+  line-height: 1.5;
+}
+#app { display: flex; min-height: 100vh; }
+
+/* SIDEBAR */
+.sidebar {
+  width: 240px;
+  background: var(--azul-1);
+  color: white;
+  padding: 18px 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.sidebar h1 {
+  font-size: 16px;
+  padding: 0 20px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.15);
+  margin-bottom: 12px;
+  letter-spacing: .3px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: 11px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  color: rgba(255,255,255,.85);
+  transition: all .15s;
+  border-left: 3px solid transparent;
+  gap: 10px;
+}
+.nav-item:hover { background: rgba(255,255,255,.07); color: white; }
+.nav-item.active {
+  background: rgba(255,255,255,.1);
+  border-left-color: #6BB1FF;
+  color: white;
+  font-weight: 600;
+}
+.nav-section {
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 16px 20px 6px;
+  color: rgba(255,255,255,.5);
+  letter-spacing: .5px;
+}
+.badge {
+  margin-left: auto;
+  background: var(--rojo);
+  color: white;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* MAIN */
+.main {
+  flex: 1;
+  padding: 22px 28px;
+  overflow-x: auto;
+}
+.main h2 {
+  font-size: 22px;
+  margin-bottom: 4px;
+  color: var(--azul-1);
+}
+.main .subtitle {
+  color: #6c7a8a;
+  margin-bottom: 22px;
+  font-size: 13px;
+}
+
+/* KPIs */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.kpi {
+  background: white;
+  padding: 16px 18px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  border-left: 4px solid var(--azul-2);
+}
+.kpi .num { font-size: 28px; font-weight: 700; color: var(--azul-1); }
+.kpi .label { font-size: 12px; color: #6c7a8a; text-transform: uppercase; letter-spacing: .3px; }
+.kpi.critico { border-left-color: var(--rojo); }
+.kpi.critico .num { color: var(--rojo); }
+.kpi.atencion { border-left-color: #d99000; }
+.kpi.atencion .num { color: #d99000; }
+.kpi.sinstock { border-left-color: var(--negro-fill); }
+.kpi.sinstock .num { color: var(--negro-fill); }
+.kpi.ok { border-left-color: var(--verde-oscuro); }
+.kpi.ok .num { color: var(--verde-oscuro); }
+
+/* CARDS */
+.card {
+  background: white;
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  margin-bottom: 18px;
+}
+.card h3 { font-size: 16px; margin-bottom: 12px; color: var(--azul-1); }
+
+/* RESIDENTES GRID */
+.residentes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.res-card {
+  background: white;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  cursor: pointer;
+  border-left: 4px solid var(--azul-2);
+  transition: all .15s;
+}
+.res-card:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,.08); }
+.res-card .nombre { font-weight: 600; font-size: 15px; margin-bottom: 6px; color: var(--azul-1); }
+.res-card .info { display: flex; gap: 10px; font-size: 12px; }
+.res-card .info span { display: flex; align-items: center; gap: 3px; }
+.res-card.tiene-criticos { border-left-color: var(--rojo); }
+.res-card.tiene-atencion { border-left-color: #d99000; }
+
+.pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.pill.critico { background: var(--rojo-claro); color: #9C0006; }
+.pill.sinstock { background: var(--negro-fill); color: white; }
+.pill.atencion { background: var(--amarillo); color: #9C5700; }
+.pill.ok { background: var(--verde); color: var(--verde-oscuro); }
+.pill.sos { background: #E5E7EB; color: #4B5563; }
+
+/* TABLA */
+.tabla {
+  width: 100%;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  border-collapse: collapse;
+}
+.tabla th {
+  background: var(--azul-2);
+  color: white;
+  padding: 11px 12px;
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.tabla td {
+  padding: 10px 12px;
+  border-top: 1px solid var(--gris-borde);
+  font-size: 13px;
+  vertical-align: middle;
+}
+.tabla tr:nth-child(even) td { background: #FAFBFD; }
+.tabla tr:hover td { background: var(--azul-claro); }
+.tabla input[type="number"] {
+  width: 70px;
+  padding: 4px 6px;
+  border: 1px solid var(--gris-borde);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+/* FORMS */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+label { font-size: 12px; color: #6c7a8a; font-weight: 600; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .3px; }
+input[type=text], input[type=number], select, textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--gris-borde);
+  border-radius: 5px;
+  font-size: 14px;
+  font-family: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--azul-2);
+  box-shadow: 0 0 0 2px rgba(46,117,182,.15);
+}
+.btn {
+  background: var(--azul-2);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all .15s;
+}
+.btn:hover { background: var(--azul-1); }
+.btn.secondary { background: white; color: var(--azul-1); border: 1px solid var(--azul-2); }
+.btn.secondary:hover { background: var(--azul-claro); }
+.btn.danger { background: var(--rojo); }
+.btn.danger:hover { background: #8B0000; }
+.btn.small { padding: 4px 10px; font-size: 12px; }
+.btn-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* TOOLBAR */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.search {
+  flex: 1;
+  max-width: 320px;
+}
+
+/* PLANILLA SEMANAL */
+.semanal {
+  background: white;
+  border-radius: 8px;
+  overflow: auto;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.semanal table { width: 100%; border-collapse: collapse; }
+.semanal th { background: var(--azul-1); color: white; padding: 8px 6px; font-size: 11px; text-align: center; }
+.semanal th.med { text-align: left; padding-left: 12px; min-width: 200px; }
+.semanal td { padding: 6px; border-top: 1px solid var(--gris-borde); text-align: center; font-size: 12px; }
+.semanal td.med-name { text-align: left; padding-left: 12px; font-weight: 500; }
+.semanal .check {
+  display: inline-block;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--gris-borde);
+  border-radius: 5px;
+  cursor: pointer;
+  background: white;
+  transition: all .1s;
+}
+.semanal .check.done {
+  background: var(--verde);
+  border-color: var(--verde-oscuro);
+  position: relative;
+}
+.semanal .check.done::after {
+  content: "✓";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -55%);
+  color: var(--verde-oscuro);
+  font-weight: 700;
+  font-size: 17px;
+}
+.semanal tr:nth-child(even) td { background: #FAFBFD; }
+
+/* MODAL */
+.modal-bg {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal {
+  background: white;
+  border-radius: 10px;
+  padding: 24px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal h3 { margin-bottom: 14px; color: var(--azul-1); }
+
+/* TOAST */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--azul-1);
+  color: white;
+  padding: 12px 18px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.2);
+  z-index: 2000;
+  animation: slideIn .3s;
+}
+.toast.success { background: var(--verde-oscuro); }
+.toast.error { background: var(--rojo); }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } }
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  #app { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: relative; padding: 10px 0; }
+  .nav-item { padding: 8px 16px; }
+  .main { padding: 14px; }
+  .form-row { grid-template-columns: 1fr; }
+}
+.hidden { display: none !important; }
+.btn.icon-only { padding: 4px 8px; font-size: 13px; line-height: 1; }
+.btn.icon-only.delete { background: #fff; color: var(--rojo); border: 1px solid var(--rojo); }
+.btn.icon-only.delete:hover { background: var(--rojo); color: white; }
+.title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+.title-row h2 { margin: 0; }
+.title-row .actions { display: flex; gap: 6px; margin-left: auto; }
+.title-row .edit-name-btn { background: transparent; border: 1px solid var(--gris-borde); color: var(--azul-2); padding: 5px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; }
+.title-row .edit-name-btn:hover { background: var(--azul-claro); }
+
+/* ALERTAS DE HORARIO EN PLANILLA SEMANAL */
+.alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  border-left: 5px solid;
+}
+.alert-banner.atrasada { background: #FDECEA; border-left-color: var(--rojo); color: #8B0000; }
+.alert-banner.ahora { background: #FFF8E1; border-left-color: #E58E26; color: #8B5A00; }
+.alert-banner.todo-ok { background: #E8F5E9; border-left-color: var(--verde-oscuro); color: var(--verde-oscuro); }
+.alert-banner .icon-big { font-size: 22px; }
+.alert-banner .text strong { display: block; font-size: 15px; margin-bottom: 2px; }
+.alert-banner .text { flex: 1; line-height: 1.4; }
+
+/* Estados de fila en planilla semanal */
+.semanal tr.row-atrasada td { background: #FDECEA !important; }
+.semanal tr.row-atrasada td.med-name { border-left: 4px solid var(--rojo); padding-left: 8px; }
+.semanal tr.row-ahora td { background: #FFF8E1 !important; }
+.semanal tr.row-ahora td.med-name { border-left: 4px solid #E58E26; padding-left: 8px; animation: pulseBg 1.6s infinite; }
+@keyframes pulseBg { 0%,100%{background:#FFF8E1;} 50%{background:#FFEFB8;} }
+.semanal tr.row-al-dia td.med-name { border-left: 4px solid var(--verde-oscuro); padding-left: 8px; }
+
+.tag-estado {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.tag-estado.atrasada { background: var(--rojo); color: white; }
+.tag-estado.ahora { background: #E58E26; color: white; }
+.tag-estado.al-dia { background: var(--verde); color: var(--verde-oscuro); }
+.tag-estado.proxima { background: #E5E7EB; color: #4B5563; }
+
+/* HISTORIAL */
+.hist-card {
+  background: white;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  cursor: pointer;
+  border-left: 4px solid var(--azul-2);
+  transition: all .15s;
+  margin-bottom: 10px;
+}
+.hist-card:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,.08); }
+.hist-card .head { display: flex; justify-content: space-between; align-items: center; }
+.hist-card .head .fecha { font-weight: 700; color: var(--azul-1); font-size: 15px; }
+.hist-card .head .origen { font-size: 11px; color: #6c7a8a; background: var(--gris-bg); padding: 2px 8px; border-radius: 10px; }
+.hist-card .stats { display: flex; gap: 14px; margin-top: 6px; font-size: 12px; color: #6c7a8a; }
+.hist-card .stats strong { color: var(--texto); }
+
+.semanal td.cell-atrasada { background: #FDECEA !important; }
+.semanal td.cell-pendiente { background: #FFF8E1 !important; }
+.horario-input { width: 100%; min-width: 120px; padding: 4px 6px; border: 1px solid var(--gris-borde); border-radius: 4px; font-size: 12px; }
+.horario-cell { background: #FFF8E1; }
+.semanal th.horario-col { background: #B45309; min-width: 140px; }
+.aviso-horario { background: #FFF8E1; border-left: 4px solid #F59E0B; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; color: #92400E; }
+.text-center { text-align: center; }
+.flex { display: flex; gap: 8px; align-items: center; }
+.spacer { flex: 1; }
+.last-update { font-size: 11px; color: #6c7a8a; }
+.dose-times { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.dose-time-input {
+  width: 60px;
+  padding: 2px 4px;
+  border: 1px solid var(--gris-borde);
+  border-radius: 3px;
+  font-size: 11px;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <h1>🏥 Geriátrico<br><span style="font-size:11px;font-weight:400;opacity:.7">Sistema de medicamentos</span></h1>
+    <div class="nav-section">Panel</div>
+    <div class="nav-item" data-view="dashboard">📊 <span>Dashboard</span></div>
+    <div class="nav-item" data-view="alertas">🚨 <span>Alertas</span><span class="badge" id="badge-alertas">0</span></div>
+    <div class="nav-section">Gestión</div>
+    <div class="nav-item" data-view="stock">📦 <span>Stock general</span></div>
+    <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
+    <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
+    <div class="nav-item" data-view="historial">📚 <span>Historial semanas</span></div>
+    <div class="nav-section">Residentes</div>
+    <div id="lista-residentes-sidebar"></div>
+    <div class="nav-section">Acciones</div>
+    <div class="nav-item" id="btn-nuevo-residente">➕ <span>Nuevo residente</span></div>
+    <div class="nav-item" id="btn-sync-cloud">⬇️ <span>Sincronizar nube</span></div>
+    <div class="nav-item" id="btn-config-sync-v2">⚙️ <span>Configurar nube</span></div>
+    <div class="nav-item" id="btn-sync">📲 <span>Sincronizar WhatsApp</span></div>
+    <div class="nav-section">Datos</div>
+    <div class="nav-item" id="btn-export">💾 <span>Exportar Excel</span></div>
+    <div class="nav-item" id="btn-reset">♻️ <span>Restaurar datos</span></div>
+    <div class="nav-section">Cuenta</div>
+    <div class="nav-item" id="btn-cambiar-usuario" style="font-size:12px">
+      👤 <span id="user-display">Sin usuario</span>
+    </div>
+    <div style="padding:6px 20px;font-size:11px" id="sync-status">☁️ Sin sync</div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ============ DATOS INICIALES ============
+const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda Arenas__0", "med": "ESOMEPRAZOL 20 MG", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__1", "med": "DIOSMINA", "stock": 0.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__2", "med": "TELMISARTAN 40 mg", "stock": 28.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__3", "med": "102 PLUS", "stock": 8.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__4", "med": "HUMORAP 20 mg", "stock": 9.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__5", "med": "TRIMEBUTINA 200 mg", "stock": 50.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__6", "med": "VALSARTAN 80 mg", "stock": 47.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__7", "med": "QUETIAPINA 25 mg", "stock": 18.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__8", "med": "CREMA (PROCTOVENART)", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 POMADA", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__9", "med": "FLUCONAZOL", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 COMP POR SEMANA", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__10", "med": "AMLODIPINA 10 mg", "stock": 40.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOLO SI TA > 0 = 150/90 mmHg", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__11", "med": "METOCLOPRAMIDA", "stock": null, "stockTxt": "1 FRASCO", "consumo": null, "consumoTxt": "40 Gotas", "horario": "", "notas": ""}, {"id": "Fernanda Arenas__12", "med": "TAFIROL", "stock": 20.0, "stockTxt": "", "consumo": null, "consumoTxt": "500 mg", "horario": "", "notas": ""}]}, {"nombre": "Irma Peduzzi", "meds": [{"id": "Irma Peduzzi__0", "med": "OMEPRAZOL 40 MG", "stock": 6.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__1", "med": "ATENOLOL", "stock": 4.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__2", "med": "ASPIRINA PREVENT", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__3", "med": "TAFIROL 1G", "stock": 25.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__4", "med": "ATORVASTATINA", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__5", "med": "PRAMIPEXOL", "stock": 6.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__6", "med": "LASIX", "stock": 5.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Irma Peduzzi__7", "med": "ALDACTONE", "stock": 4.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Roberto Niewolski", "meds": [{"id": "Roberto Niewolski__0", "med": "PRONTAL", "stock": 2.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Roberto Niewolski__1", "med": "SUPRADIN", "stock": 4.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Roberto Niewolski__2", "med": "ARMONIL NOCHE", "stock": 14.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Roberto Niewolski__3", "med": "RIATUL 1,25", "stock": 20.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Roberto Niewolski__4", "med": "TAFIROL 1G S.O.S", "stock": 24.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Federico Ledesma", "meds": [{"id": "Federico Ledesma__0", "med": "LOGICAL 400", "stock": 13.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__1", "med": "ENDOCLAR 10", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__2", "med": "QUETIAPINA 50", "stock": 10.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__3", "med": "PARKINEL", "stock": 0.0, "stockTxt": "", "consumo": 4.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__4", "med": "PRONTAL", "stock": 9.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__5", "med": "GOTAS SIMBRIZA", "stock": 1.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__6", "med": "GORAS DROPSTAR", "stock": 1.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Federico Ledesma__7", "med": "GOTAS XALACOM", "stock": 1.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Stella Maris Garcia", "meds": [{"id": "Stella Maris Garcia__0", "med": "LEVOTIROXINA 100 MCG", "stock": 6.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__1", "med": "PANTOPRAZOL (GASTEC)40 MG", "stock": 36.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__2", "med": "QUETIAPINA 75 MG", "stock": 2.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__3", "med": "DONEPECILO (ENDOCLAR 10)", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__4", "med": "PRONTAL", "stock": 5.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__5", "med": "PAROXETINA (MEPLAR 10) 5 MG", "stock": 15.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__6", "med": "NITROFURANTOINA (FURADANTINA)100 MG", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__7", "med": "ROSUVASTATINA", "stock": 10.0, "stockTxt": "", "consumo": null, "consumoTxt": "MAR - JUE", "horario": "", "notas": ""}, {"id": "Stella Maris Garcia__8", "med": "DIOXA FLEX B 12", "stock": 13.0, "stockTxt": "", "consumo": null, "consumoTxt": "S.O.S", "horario": "", "notas": ""}]}, {"nombre": "Ana María Galante", "meds": [{"id": "Ana María Galante__0", "med": "ESOMEPRAZOL 40", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__1", "med": "TELMISARTAN 40", "stock": 42.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__2", "med": "SOLIFENACINA 10", "stock": 5.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__3", "med": "ASPIRINA", "stock": 21.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__4", "med": "ANEMIDOX", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__5", "med": "NIMODIPINA", "stock": 10.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__6", "med": "ROSUVASTATINA 20", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__7", "med": "DIAZEPAM (VALIUM) 5", "stock": 2.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__8", "med": "BISACODILO", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__9", "med": "PREGABALINA 150", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__10", "med": "KETEROLAC 20", "stock": 13.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Ana María Galante__11", "med": "MOTRAX", "stock": 8.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Nélida Usandivaras", "meds": [{"id": "Nélida Usandivaras__0", "med": "Omeprazol 20 mg", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__1", "med": "Paracetamol 1 gr", "stock": 25.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__2", "med": "Espironolactona 25 mg", "stock": 19.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__3", "med": "Clonazepam 0,5 mg dup", "stock": 59.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__4", "med": "Escitalopram 20 mg", "stock": 15.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__5", "med": "Diosmina", "stock": 24.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__6", "med": "Memantine 20 mg dup", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__7", "med": "Losartan 100mg", "stock": 16.0, "stockTxt": "", "consumo": 0.25, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__8", "med": "Levotiroxina 50 mg", "stock": 63.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__9", "med": "Miopropan S", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__10", "med": "Cilostazol 100 mg", "stock": 15.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__11", "med": "Somit 10", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__12", "med": "tramadol", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__13", "med": "Risperidona 1 mg/ml", "stock": null, "stockTxt": "1 Fco 30 ml", "consumo": null, "consumoTxt": "16 gotas", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__14", "med": "Motrax", "stock": 18.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__15", "med": "Probiótico", "stock": null, "stockTxt": "80 gotas", "consumo": null, "consumoTxt": "20 gotas", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__16", "med": "Crema Esberiven", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "70gr", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__17", "med": "Espesan", "stock": null, "stockTxt": "3 latas 300 Grs NO TIENE", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__18", "med": "GASAS CINTA", "stock": 4.0, "stockTxt": "", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__19", "med": "VENDAS", "stock": 5.0, "stockTxt": "", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Nélida Usandivaras__20", "med": "PERVINOX SOL FC", "stock": 2.0, "stockTxt": "", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Alicia Rosso", "meds": [{"id": "Alicia Rosso__0", "med": "Madopar Hbs", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__1", "med": "Aldactone A25", "stock": 17.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__2", "med": "Nidib 5", "stock": 15.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__3", "med": "Solifen 10", "stock": 5.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__4", "med": "Nulite", "stock": 0.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__5", "med": "Daflon", "stock": 24.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__6", "med": "Control K", "stock": 24.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__7", "med": "Nodis", "stock": 6.0, "stockTxt": "", "consumo": null, "consumoTxt": "3 veces a la semana", "horario": "", "notas": ""}, {"id": "Alicia Rosso__8", "med": "Lecardip", "stock": 32.0, "stockTxt": "", "consumo": null, "consumoTxt": "2 veces a la semana", "horario": "", "notas": ""}, {"id": "Alicia Rosso__9", "med": "Emotival", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__10", "med": "Prontal", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__11", "med": "Pilas  A312", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "2 pilas por semana", "horario": "", "notas": ""}, {"id": "Alicia Rosso__12", "med": "Pregabalina 75 dup", "stock": 17.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__13", "med": "Melatol plus", "stock": 8.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia Rosso__14", "med": "Polietilenglicol", "stock": 2.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 SOBRE 3 DIAS", "horario": "", "notas": ""}, {"id": "Alicia Rosso__15", "med": "Miopropam S", "stock": 26.0, "stockTxt": "", "consumo": null, "consumoTxt": "S.O.S", "horario": "", "notas": ""}]}, {"nombre": "María Eugenia López Sosa", "meds": [{"id": "María Eugenia López Sosa__0", "med": "Omeprazol  20 mg", "stock": 25.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__1", "med": "Aspirina 100 mg", "stock": 26.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__2", "med": "Memantina 10mg dup", "stock": 24.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__3", "med": "Rosuvastatina 20 mg", "stock": 31.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__4", "med": "Quetiapina XR 50mg", "stock": 0.0, "stockTxt": "", "consumo": 0.75, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__5", "med": "Urosedac Probiotic", "stock": 32.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__6", "med": "Clonazepam", "stock": null, "stockTxt": "1 Frasco", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__7", "med": "ITRACONAZOL", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__8", "med": "SUPRADYN", "stock": 10.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__9", "med": "Alprazolam 0.25 mg", "stock": 124.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__10", "med": "tafirol 1gr", "stock": 50.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__11", "med": "Amlodipina 10 MG", "stock": 30.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__12", "med": "Somit 10", "stock": 60.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__13", "med": "Aldactone 25mg", "stock": 87.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "María Eugenia López Sosa__14", "med": "Espesan", "stock": null, "stockTxt": "3 latas 300 Grs por mes NO TIENE P/MAYO", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Alain Tresca", "meds": [{"id": "Alain Tresca__0", "med": "ATENOLOL 25 dup", "stock": 3.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__1", "med": "ALPRAZOLAN dup", "stock": 30.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__2", "med": "APIXABAN", "stock": 8.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__3", "med": "DONEPECILO 10 dup", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__4", "med": "VITAMINA D3", "stock": 2.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 POR MES", "horario": "", "notas": ""}, {"id": "Alain Tresca__5", "med": "ACIDO FOLICO", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__6", "med": "CILOSTAZOL", "stock": 18.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__7", "med": "MEMANTINA 20 dup", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__8", "med": "FUNGO NAIL", "stock": 2.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 PINCEL MENSUAL", "horario": "", "notas": ""}, {"id": "Alain Tresca__9", "med": "MOTRAX 75", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alain Tresca__10", "med": "FORTISHIP", "stock": null, "stockTxt": "3 LATAS MENSUAL", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Marta Giralt", "meds": [{"id": "Marta Giralt__0", "med": "LEVOTIROXINA 50 mg", "stock": 13.0, "stockTxt": "", "consumo": null, "consumoTxt": "Lunes a Viernes 1 Comp", "horario": "", "notas": ""}, {"id": "Marta Giralt__1", "med": "LEVOTIROXINA 75 mg", "stock": 31.0, "stockTxt": "", "consumo": null, "consumoTxt": "Sabado y Domingo 1 Comp", "horario": "", "notas": ""}, {"id": "Marta Giralt__2", "med": "LOTRIAL 10 mg", "stock": 44.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Marta Giralt__3", "med": "ECITALOPRAM 10 mg", "stock": 11.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Marta Giralt__4", "med": "QUETIAPINA 100 mg", "stock": 4.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Marta Giralt__5", "med": "ALPLAX 1 mg", "stock": 11.0, "stockTxt": "", "consumo": null, "consumoTxt": "75 MG (25 MG SOS) 1 MG", "horario": "", "notas": ""}, {"id": "Marta Giralt__6", "med": "VASELINA LIQUIDA", "stock": 2.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 LTS MENSUAL", "horario": "", "notas": ""}, {"id": "Marta Giralt__7", "med": "MIOPROPAM 200 mg", "stock": 27.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Germana Boden", "meds": [{"id": "Germana Boden__0", "med": "Levotiroxina 75 MG", "stock": 8.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__1", "med": "Armonil Noche", "stock": 21.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__2", "med": "Armonil sedante", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__3", "med": "Memantina 10mg", "stock": 9.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__4", "med": "Barex/OSTILAX", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__5", "med": "Donapecilo 10 mg", "stock": 18.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__6", "med": "Diosmina 500 mg", "stock": 28.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__7", "med": "Quetiapina", "stock": 10.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__8", "med": "Escitalopam 10 mg", "stock": 0.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__9", "med": "Urosedac", "stock": 11.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Germana Boden__10", "med": "Clonazepam", "stock": null, "stockTxt": "1 frascos", "consumo": null, "consumoTxt": "5 GOTAS", "horario": "", "notas": ""}, {"id": "Germana Boden__11", "med": "lactulon", "stock": null, "stockTxt": "1frasco 250ml", "consumo": null, "consumoTxt": "Cubre mes", "horario": "", "notas": ""}, {"id": "Germana Boden__12", "med": "Gotas Zypred", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "3gts", "horario": "", "notas": ""}, {"id": "Germana Boden__13", "med": "Riatul 1", "stock": 12.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Germana Boden__14", "med": "Paracetamol 1 g", "stock": 40.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Germana Boden__15", "med": "Motrax", "stock": 16.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}]}, {"nombre": "Carlos Rubio", "meds": [{"id": "Carlos Rubio__0", "med": "ENALAPRIL 10", "stock": 10.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__1", "med": "CLOPIDOGREL 75", "stock": 15.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__2", "med": "ROSUVASTATINA 40", "stock": 14.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__3", "med": "TAMSULOSINA 0.4 MG", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__4", "med": "POLPER B 12", "stock": 24.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__5", "med": "QUETIAPINA 25 MG dup", "stock": 15.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__6", "med": "LORAZEPAM 2.5 MG", "stock": 15.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Carlos Rubio__7", "med": "Kyojin gotas 50 ml", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 Gotero mensual", "horario": "", "notas": ""}]}, {"nombre": "María Angélica Veinovich", "meds": [{"id": "María Angélica Veinovich__0", "med": "LEVOTIROXINA 50", "stock": 9.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__1", "med": "VALSARTAN 160", "stock": 21.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__2", "med": "RISPERIDONA 1 DUP", "stock": 56.0, "stockTxt": "", "consumo": 0.25, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__3", "med": "OLANZAPINA", "stock": 1.5, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__4", "med": "NUMENCIAL 8", "stock": 4.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__5", "med": "SOMIT 10", "stock": 20.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__6", "med": "TRAMADOL 50", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__7", "med": "TAFIROL", "stock": 40.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__8", "med": "VITAN¡MINA D3", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__9", "med": "SUPRADYN", "stock": 9.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__10", "med": "=Alan!A15", "stock": null, "stockTxt": "=Alan!B15", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Angélica Veinovich__11", "med": "Kyojin gotas 60 ml", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 Gotero mensual", "horario": "", "notas": ""}]}, {"nombre": "María Rosa Campanella", "meds": [{"id": "María Rosa Campanella__0", "med": "LEVOTIROXINA 150mg", "stock": 23.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__1", "med": "BELOZOK 100", "stock": 6.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__2", "med": "ASPIRINA", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__3", "med": "GOTAS CLONAZEPAM", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "20 gotas diarias", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__4", "med": "CLONAGIN 2", "stock": 0.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__5", "med": "PILAS 312 PR41", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "2 PILAS SEMANAL", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__6", "med": "SUPRADYN", "stock": 18.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__7", "med": "ROSUVASTATINA", "stock": 14.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__8", "med": "PARACETAMOL", "stock": 50.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 comp", "horario": "", "notas": ""}, {"id": "María Rosa Campanella__9", "med": "AMLODIPINA 5/10", "stock": 20.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 comp", "horario": "", "notas": ""}]}, {"nombre": "Dolores del Carmen Triana", "meds": [{"id": "Dolores del Carmen Triana__0", "med": "LANSOPRAZOL 30 MG", "stock": 3.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__1", "med": "PLENICA 75 MGS", "stock": 12.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__2", "med": "TAFIROL 1G", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__3", "med": "ASPIRINA PREVENT", "stock": 28.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__4", "med": "CLONAGIN (CLONAZEPAM)", "stock": 21.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__5", "med": "GOMITAS", "stock": 0.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__6", "med": "COLTIC GOTAS", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__7", "med": "VIT D3", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 X MES", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__8", "med": "KIDEX GEL", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__9", "med": "UROSEDAC", "stock": 11.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__10", "med": "EUMOTIL S", "stock": 18.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__11", "med": "CORPRES D", "stock": 6.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__12", "med": "HUMORAP 20", "stock": 29.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__13", "med": "NUMENCIAL 4", "stock": 44.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__14", "med": "LIPEX PLUS", "stock": 3.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__15", "med": "TRELEGY FLLIPTA", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__16", "med": "MOTRAX 72", "stock": 32.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__17", "med": "SALBUTAMOL PAF", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__18", "med": "CALMADOR PLUS", "stock": 8.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__19", "med": "DICLOFENAC", "stock": 30.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__20", "med": "ESPIRONOLACTONA", "stock": 51.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Dolores del Carmen Triana__21", "med": "Espesan", "stock": null, "stockTxt": "3 latas 300 Grs NO TIENE P/MAYO", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Eduardo Vallejo", "meds": [{"id": "Eduardo Vallejo__0", "med": "FUROSEMIDA 20 MG", "stock": 4.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Eduardo Vallejo__1", "med": "DAPAGLIFOZINA 10 MG", "stock": 15.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Eduardo Vallejo__2", "med": "LANX EPLERENONA 25mg", "stock": 13.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Eduardo Vallejo__3", "med": "OMEPRAZOL 20 mg", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Eduardo Vallejo__4", "med": "LOSARTAN 50 mg", "stock": 17.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Eduardo Vallejo__5", "med": "FORTISIP MAX SIN SABOR", "stock": null, "stockTxt": "4 LATAS 700 GRS MENSUAL - NO TIENE P/MAYO", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "María Teresa Bazterrica", "meds": [{"id": "María Teresa Bazterrica__0", "med": "PANTOCAS 40", "stock": 16.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Teresa Bazterrica__1", "med": "LOSACOR 100", "stock": 22.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Teresa Bazterrica__2", "med": "CLONAGIN 0,5", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Teresa Bazterrica__3", "med": "QUETIAPINA 25", "stock": 2.0, "stockTxt": "", "consumo": 0.75, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "María Teresa Bazterrica__4", "med": "PARACETAMOL 1 GR", "stock": 30.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "María Teresa Bazterrica__5", "med": "ESPESAN", "stock": null, "stockTxt": "300gr", "consumo": null, "consumoTxt": "4 LATAS MENSUAL", "horario": "", "notas": ""}]}, {"nombre": "Juan José Vedoya", "meds": [{"id": "Juan José Vedoya__0", "med": "Aspirina 100 mg", "stock": 19.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__1", "med": "Hierroquick 40 mg", "stock": 14.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__2", "med": "Levotiroxina 175 mg", "stock": 19.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__3", "med": "Omeprazol 20 mg", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__4", "med": "Paracetamol 1gr", "stock": 2.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__5", "med": "Polper B12", "stock": 5.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__6", "med": "Quetiapina 100 mg", "stock": 48.0, "stockTxt": "", "consumo": 0.25, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__7", "med": "Rosuvastatina 10 mg", "stock": 5.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__8", "med": "Reduprost Duo", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__9", "med": "Miopropan 200", "stock": 0.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__10", "med": "Valcote 500 mg", "stock": 0.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Juan José Vedoya__11", "med": "fluconazol", "stock": 10.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 por semana", "horario": "", "notas": ""}]}, {"nombre": "María Cristina D'Andrea", "meds": [{"id": "María Cristina D'Andrea__0", "med": "LEVOTIROXINA 100 MG", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "06:00 HS", "horario": "", "notas": ""}, {"id": "María Cristina D'Andrea__1", "med": "ESCITALOPRAM 20 MG", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "08:00 HS", "horario": "", "notas": ""}, {"id": "María Cristina D'Andrea__2", "med": "MEMANTINA DUO", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "21:00 HS (POS-CENA)", "horario": "", "notas": ""}]}, {"nombre": "Alicia D'Andrea", "meds": [{"id": "Alicia D'Andrea__0", "med": "LEVOTIROXINA 88 MG", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "06:00 HS", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__1", "med": "MEMANTINA 10 MG", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "10:00 (POS-DESAYUNO)", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__2", "med": "HUMORAP 20 MG", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "10:00 (POS-DESAYUNO)", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__3", "med": "DONEPECILO 10 MG", "stock": null, "stockTxt": "1 COMP", "consumo": null, "consumoTxt": "16:00 (PRE-MERIENDA)", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__4", "med": "DERMEXANE 30 GR", "stock": null, "stockTxt": "CREMA FACIAL", "consumo": null, "consumoTxt": "ANTES DE DORMIR", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__5", "med": "RELIVERAN GOTAS", "stock": null, "stockTxt": "S.O.S", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__6", "med": "QUIDEX", "stock": null, "stockTxt": "S.O.S", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Alicia D'Andrea__7", "med": "COLIRIO 15 ML", "stock": null, "stockTxt": "S.O.S", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}]}, {"nombre": "Luis Fernando Garat", "meds": [{"id": "Luis Fernando Garat__0", "med": "ESCITALOPRAM 20 MG", "stock": 10.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__1", "med": "POLPER B12", "stock": 26.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__2", "med": "PREGABALINA", "stock": 7.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__3", "med": "INSULINA HUMULIN", "stock": 7.0, "stockTxt": "", "consumo": null, "consumoTxt": "12 UN", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__4", "med": "VALSARTAN 80 MG", "stock": 17.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__5", "med": "CLONAZEPAM 2 MG", "stock": 15.0, "stockTxt": "", "consumo": 0.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__6", "med": "METADONA", "stock": 17.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__7", "med": "REDUPROST DUO", "stock": 18.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__8", "med": "LOPERAMIDA", "stock": 6.0, "stockTxt": "", "consumo": null, "consumoTxt": "S.O.S", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__9", "med": "SENSOR FREESTILE", "stock": 1.0, "stockTxt": "", "consumo": null, "consumoTxt": "CADA CONTROL HGT", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__10", "med": "TIRAS REACTIVAS", "stock": 50.0, "stockTxt": "", "consumo": null, "consumoTxt": "3/4 CONTROLES", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__11", "med": "AGUJAS DERMICAS", "stock": 14.0, "stockTxt": "", "consumo": null, "consumoTxt": "2 POR DIA", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__12", "med": "VASELINA LIQUIDA", "stock": 0.0, "stockTxt": "", "consumo": null, "consumoTxt": "1 LTS X MES", "horario": "", "notas": ""}, {"id": "Luis Fernando Garat__13", "med": "MOTRAX", "stock": 18.0, "stockTxt": "", "consumo": null, "consumoTxt": "SEGÚN NECESIDAD", "horario": "", "notas": ""}]}, {"nombre": "Clara López de Echazú", "meds": [{"id": "Clara López de Echazú__0", "med": "Gastec/Omeprazol 20 mg", "stock": 21.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__1", "med": "Quetiapina 10mg Dup Dentrix", "stock": 5.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__2", "med": "Paracetamol 1 G", "stock": 15.0, "stockTxt": "", "consumo": 3.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__3", "med": "clonagin 0,5", "stock": 30.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__4", "med": "Lasix 40", "stock": 8.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__5", "med": "METADONA", "stock": 10.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__6", "med": "SUSPENDIDO POR EL MOMENTO", "stock": null, "stockTxt": "", "consumo": null, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__7", "med": "Somit 10 Dup", "stock": 3.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__8", "med": "Parkinel 250/25", "stock": 0.0, "stockTxt": "", "consumo": 1.5, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__9", "med": "Citalopram 40 Dup", "stock": 7.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__10", "med": "Pregabalina", "stock": 36.0, "stockTxt": "", "consumo": 0.3333333333333333, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__11", "med": "Aspirina", "stock": 0.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__12", "med": "tramadol 50", "stock": 4.0, "stockTxt": "", "consumo": 4.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__13", "med": "Domperidona", "stock": 13.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__14", "med": "Polper B12 Forte", "stock": 20.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__15", "med": "Diosmina", "stock": 18.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__16", "med": "Paracetamol 1 G", "stock": 38.0, "stockTxt": "", "consumo": 2.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__17", "med": "Urosedac Probiotic", "stock": 19.0, "stockTxt": "", "consumo": 1.0, "consumoTxt": "", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__18", "med": "Amlodipina", "stock": 20.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__19", "med": "Bisacodilo", "stock": 12.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__20", "med": "Clonazepam 1 Dup", "stock": 31.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}, {"id": "Clara López de Echazú__21", "med": "Calmador", "stock": 10.0, "stockTxt": "", "consumo": null, "consumoTxt": "SOS", "horario": "", "notas": ""}]}];
+
+// ============ STORAGE ============
+const STORAGE_KEY = 'med_geri_v1';
+const SEM_KEY = 'med_geri_sem_v1';
+const HIST_KEY = 'med_geri_hist_v1';
+const USER_KEY = 'med_geri_user';
+const SYNC_LASTPULL_KEY = 'med_geri_lastpull';
+const SYNC_AUTO_KEY = 'med_geri_autosync';
+
+function loadData() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return structuredClone(DATOS_INICIALES);
+}
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.residentes));
+  if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('residentes', state.residentes);
+}
+function loadSem() {
+  try { return JSON.parse(localStorage.getItem(SEM_KEY)) || {}; } catch(e) { return {}; }
+}
+function saveSem() {
+  localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
+  if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('semanal', state.semanal);
+}
+function loadHist() {
+  try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch(e) { return []; }
+}
+function saveHist() {
+  localStorage.setItem(HIST_KEY, JSON.stringify(state.historial));
+  if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('historial', state.historial);
+}
+
+// ============ STATE ============
+const state = {
+  view: 'dashboard',
+  residenteSel: null,
+  residentes: loadData(),
+  semanal: loadSem(),
+  historial: loadHist(),
+  search: '',
+  historialSel: null,
+};
+
+// ============ CÁLCULOS ============
+function calcDiasRestantes(med) {
+  if (typeof med.stock !== 'number' || typeof med.consumo !== 'number' || med.consumo <= 0) return null;
+  return Math.floor(med.stock / med.consumo);
+}
+function estadoMed(med) {
+  const d = calcDiasRestantes(med);
+  if (d === null) return { tipo: 'sos', label: 'S.O.S.', clase: 'sos' };
+  if (d === 0) return { tipo: 'sinstock', label: '⚫ SIN STOCK', clase: 'sinstock', dias: 0 };
+  if (d <= 7) return { tipo: 'critico', label: '🔴 CRÍTICO', clase: 'critico', dias: d };
+  if (d <= 14) return { tipo: 'atencion', label: '🟡 ATENCIÓN', clase: 'atencion', dias: d };
+  return { tipo: 'ok', label: '🟢 OK', clase: 'ok', dias: d };
+}
+function fechaAgotamiento(med) {
+  const d = calcDiasRestantes(med);
+  if (d === null) return '—';
+  // Si hay fecha de ingreso, calcular desde esa fecha; sino, desde hoy
+  let base;
+  if (med.fechaIngreso) {
+    base = new Date(med.fechaIngreso + 'T00:00:00');
+    if (isNaN(base.getTime())) base = new Date();
+  } else {
+    base = new Date();
+  }
+  base.setDate(base.getDate() + d);
+  return base.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+function todosMedicamentos() {
+  const out = [];
+  state.residentes.forEach(r => r.meds.forEach(m => out.push({ ...m, residente: r.nombre })));
+  return out;
+}
+function resumenResidente(res) {
+  let cri=0, aten=0, sin=0, ok=0, sos=0;
+  res.meds.forEach(m => {
+    const e = estadoMed(m);
+    if (e.tipo === 'critico') cri++;
+    else if (e.tipo === 'atencion') aten++;
+    else if (e.tipo === 'sinstock') sin++;
+    else if (e.tipo === 'ok') ok++;
+    else sos++;
+  });
+  return { cri, aten, sin, ok, sos, total: res.meds.length };
+}
+function totales() {
+  let cri=0, aten=0, sin=0, ok=0, sos=0;
+  todosMedicamentos().forEach(m => {
+    const e = estadoMed(m);
+    if (e.tipo === 'critico') cri++;
+    else if (e.tipo === 'atencion') aten++;
+    else if (e.tipo === 'sinstock') sin++;
+    else if (e.tipo === 'ok') ok++;
+    else sos++;
+  });
+  return { cri, aten, sin, ok, sos, total: cri+aten+sin+ok+sos };
+}
+
+// ============ SEMANA / ALERTAS DE HORARIOS ============
+// Devuelve el lunes (00:00) de la semana que contiene la fecha dada, en formato YYYY-MM-DD
+function getLunesISO(date) {
+  const d = date ? new Date(date) : new Date();
+  d.setHours(0, 0, 0, 0);
+  const dow = d.getDay() || 7; // 1..7 (Lun..Dom)
+  d.setDate(d.getDate() - dow + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function formatearLunes(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+// Día de la semana de hoy en formato 0..6 (Lun..Dom)
+function diaHoyIdx() {
+  const dow = new Date().getDay() || 7;
+  return dow - 1;
+}
+// Parsea "08:00, 14:00, 20:00" -> [{h:8,m:0},{h:14,m:0},{h:20,m:0}]
+function parseHorarios(str) {
+  if (!str) return [];
+  return String(str).split(/[,;]/).map(s => s.trim()).filter(Boolean).map(s => {
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return { h: parseInt(m[1],10), m: parseInt(m[2],10) };
+  }).filter(Boolean);
+}
+// Estado de cumplimiento de la dosis de HOY para un medicamento
+// Retorna { tipo: 'sin-horario'|'al-dia'|'proxima'|'atrasada', detalle: '...' }
+function estadoDosisHoy(med) {
+  const idx = diaHoyIdx();
+  const horarioStr = state.semanal[med.id + '_horario'] || '';
+  const horarios = parseHorarios(horarioStr);
+  if (horarios.length === 0) return { tipo: 'sin-horario' };
+  const marcado = state.semanal[med.id + '_' + idx] === true;
+  if (marcado) return { tipo: 'al-dia' };
+  const ahora = new Date();
+  const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+  // Buscar el horario más relevante hoy
+  let proxima = null, atrasada = null;
+  for (const hh of horarios) {
+    const min = hh.h * 60 + hh.m;
+    const diff = min - minutosAhora;
+    if (diff >= -15 && diff <= 30) {
+      // dentro de ventana "ahora" (15 min antes a 30 min después)
+      proxima = { ...hh, diff };
+      break;
+    } else if (diff < -30) {
+      // pasó hace más de 30 min
+      if (!atrasada || (hh.h*60+hh.m) > (atrasada.h*60+atrasada.m)) atrasada = hh;
+    } else if (diff > 30) {
+      // futura
+      if (!proxima || (hh.h*60+hh.m) < (proxima.h*60+proxima.m)) proxima = { ...hh, diff };
+    }
+  }
+  if (atrasada && !proxima) {
+    return { tipo: 'atrasada', detalle: String(atrasada.h).padStart(2,'0')+':'+String(atrasada.m).padStart(2,'0') };
+  }
+  if (proxima && proxima.diff >= -15 && proxima.diff <= 30) {
+    return { tipo: 'ahora', detalle: String(proxima.h).padStart(2,'0')+':'+String(proxima.m).padStart(2,'0') };
+  }
+  // Si no hay nada para hoy, ver si hay próxima dosis en el futuro o si todas ya pasaron sin atrasada destacable
+  if (atrasada) {
+    return { tipo: 'atrasada', detalle: String(atrasada.h).padStart(2,'0')+':'+String(atrasada.m).padStart(2,'0') };
+  }
+  if (proxima) {
+    return { tipo: 'proxima', detalle: String(proxima.h).padStart(2,'0')+':'+String(proxima.m).padStart(2,'0') };
+  }
+  return { tipo: 'sin-horario' };
+}
+// Resumen para un residente: cuántas atrasadas y cuántas próximas/en curso
+function resumenAlertasResidente(r) {
+  let atrasadas = 0, ahora = 0, proximas = 0, alDia = 0, conHorario = 0;
+  r.meds.forEach(m => {
+    const e = estadoDosisHoy(m);
+    if (e.tipo === 'sin-horario') return;
+    conHorario++;
+    if (e.tipo === 'atrasada') atrasadas++;
+    else if (e.tipo === 'ahora') ahora++;
+    else if (e.tipo === 'proxima') proximas++;
+    else if (e.tipo === 'al-dia') alDia++;
+  });
+  return { atrasadas, ahora, proximas, alDia, conHorario };
+}
+// Detecta si cambió de semana respecto a la última guardada; si sí, archiva y limpia
+function chequearCambioSemana() {
+  const lunesHoy = getLunesISO();
+  const lunesGuardado = state.semanal.semanaActualLunes;
+  if (!lunesGuardado) {
+    state.semanal.semanaActualLunes = lunesHoy;
+    saveSem();
+    return false;
+  }
+  if (lunesGuardado !== lunesHoy) {
+    archivarSemana(lunesGuardado, 'auto');
+    limpiarMarcasSemanaActual();
+    state.semanal.semanaActualLunes = lunesHoy;
+    saveSem();
+    toast('📅 Semana nueva. Se archivó la semana del ' + formatearLunes(lunesGuardado), 'success');
+    return true;
+  }
+  return false;
+}
+function archivarSemana(lunesISO, origen = 'manual') {
+  if (!state.historial) state.historial = [];
+  // Evitar duplicar la misma semana
+  state.historial = state.historial.filter(h => h.semanaLunes !== lunesISO);
+  const snapshot = {
+    semanaLunes: lunesISO,
+    cerradoAt: new Date().toISOString(),
+    origen,
+    residentes: state.residentes.map(r => ({
+      nombre: r.nombre,
+      meds: r.meds.map(m => ({
+        id: m.id,
+        med: m.med,
+        consumo: m.consumo,
+        horario: state.semanal[m.id + '_horario'] || '',
+        marcas: [0,1,2,3,4,5,6].map(i => state.semanal[m.id + '_' + i] === true)
+      })).filter(m => m.horario || m.marcas.some(x => x))
+    })).filter(r => r.meds.length > 0)
+  };
+  state.historial.push(snapshot);
+  // Ordenar por fecha descendente y limitar a últimas 26 (medio año)
+  state.historial.sort((a, b) => b.semanaLunes.localeCompare(a.semanaLunes));
+  if (state.historial.length > 26) state.historial = state.historial.slice(0, 26);
+  saveHist();
+}
+function limpiarMarcasSemanaActual() {
+  Object.keys(state.semanal).forEach(k => {
+    if (/_[0-6]$/.test(k)) delete state.semanal[k];
+  });
+}
+function cerrarSemanaManual() {
+  if (bloquearSiNoAdmin('cerrar la semana')) return;
+  const lunes = state.semanal.semanaActualLunes || getLunesISO();
+  if (!confirm('¿Cerrar la semana actual y empezar una nueva?\n\nLa semana del ' + formatearLunes(lunes) + ' se va a archivar en Historial y los tildes se borran.\nLos horarios y medicamentos se mantienen.')) return;
+  archivarSemana(lunes, 'manual');
+  limpiarMarcasSemanaActual();
+  state.semanal.semanaActualLunes = getLunesISO();
+  saveSem();
+  toast('✅ Semana cerrada y archivada', 'success');
+  render();
+}
+
+// ============ TOAST ============
+function toast(msg, tipo='success') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + tipo;
+  t.textContent = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ============ USUARIO Y ROLES ============
+// Lista de admins. Si tu nombre está acá, podés agregar/quitar/editar.
+// Si no, solo podés tildar dosis y agregar comentarios.
+const ADMIN_NAMES = ['Maxi', 'Maxi Martin', 'Administrador'];
+
+function getCurrentUser() {
+  return localStorage.getItem(USER_KEY) || '';
+}
+function setCurrentUser(nombre) {
+  localStorage.setItem(USER_KEY, nombre);
+}
+function esAdmin() {
+  const u = (getCurrentUser() || '').trim().toLowerCase();
+  return ADMIN_NAMES.some(n => n.toLowerCase() === u);
+}
+function pedirUsuario(forzar = false) {
+  return new Promise((resolve) => {
+    if (!forzar && getCurrentUser()) { resolve(getCurrentUser()); return; }
+    const modalBg = document.createElement('div');
+    modalBg.className = 'modal-bg';
+    const actual = getCurrentUser();
+    modalBg.innerHTML =
+      '<div class="modal" style="max-width:440px">' +
+        '<h3>👋 ¿Quién sos?</h3>' +
+        '<p style="font-size:13px;color:#6c7a8a;margin-bottom:12px">' +
+          'Necesitamos saber quién está usando el sistema para registrar quién hace cada acción. ' +
+          'Si sos el administrador, escribí tu nombre exacto. El resto del equipo puede poner su nombre o apodo.' +
+        '</p>' +
+        '<label>Tu nombre</label>' +
+        '<input type="text" id="user-input" value="' + escapeHtml(actual) + '" placeholder="Ej: María, Maxi, Juan..." style="margin-bottom:14px">' +
+        '<div class="btn-group">' +
+          '<button class="btn" id="user-ok">✅ Entrar</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modalBg);
+    setTimeout(() => {
+      const inp = document.getElementById('user-input');
+      inp.focus();
+      inp.select();
+    }, 50);
+    const aceptar = () => {
+      const nombre = document.getElementById('user-input').value.trim();
+      if (!nombre) { toast('Necesito tu nombre', 'error'); return; }
+      setCurrentUser(nombre);
+      modalBg.remove();
+      const rol = esAdmin() ? 'administrador' : 'operador';
+      toast('Bienvenido/a ' + nombre + ' (' + rol + ')');
+      resolve(nombre);
+      render();
+    };
+    modalBg.querySelector('#user-ok').onclick = aceptar;
+    modalBg.querySelector('#user-input').onkeypress = (e) => { if (e.key === 'Enter') aceptar(); };
+  });
+}
+function bloquearSiNoAdmin(accion = 'editar') {
+  if (!esAdmin()) {
+    toast('⛔ Solo el administrador puede ' + accion, 'error');
+    return true;
+  }
+  return false;
+}
+
+// ============ SYNC: GOOGLE SHEETS (multi-dispositivo) ============
+const SYNC_URL_KEY = 'med_geri_sync_url';
+// URL del Web App de Apps Script preconfigurada (Maxi - mayo 2026)
+const DEFAULT_SYNC_URL = ''; // Sin URL hardcoded: cada dispositivo debe configurarla en 'Configurar nube'
+function getCloudUrl() { return localStorage.getItem(SYNC_URL_KEY) || DEFAULT_SYNC_URL; }
+function setCloudUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
+function getLastPull() { return localStorage.getItem(SYNC_LASTPULL_KEY) || ''; }
+function setLastPull(iso) { localStorage.setItem(SYNC_LASTPULL_KEY, iso); }
+function syncHabilitado() { return !!getCloudUrl(); }
+function syncAutoActivado() { return localStorage.getItem(SYNC_AUTO_KEY) !== 'off'; }
+function setSyncAuto(on) { localStorage.setItem(SYNC_AUTO_KEY, on ? 'on' : 'off'); }
+
+let syncState = { running: false, lastOk: null, lastError: null, pushPending: false };
+
+async function cloudPull(silencioso = false) {
+  if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
+  if (syncState.running) return { ok: false, error: 'Ya hay sync en curso' };
+  syncState.running = true;
+  actualizarBadgeSync('🔄 Trayendo...');
+  try {
+    const url = getCloudUrl() + '?action=pull&t=' + Date.now();
+    const r = await fetch(url, { method: 'GET' });
+    const json = await r.json();
+    if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
+
+    // Aplicar datos remotos
+    let cambios = 0;
+    if (json.data.residentes !== undefined && Array.isArray(json.data.residentes) && json.data.residentes.length > 0) {
+      const remoto = JSON.stringify(json.data.residentes);
+      const local = JSON.stringify(state.residentes);
+      if (remoto !== local) {
+        state.residentes = json.data.residentes;
+        localStorage.setItem(STORAGE_KEY, remoto);
+        cambios++;
+      }
+    }
+    if (json.data.semanal !== undefined && json.data.semanal && typeof json.data.semanal === 'object') {
+      const remoto = JSON.stringify(json.data.semanal);
+      const local = JSON.stringify(state.semanal);
+      if (remoto !== local) {
+        state.semanal = json.data.semanal;
+        localStorage.setItem(SEM_KEY, remoto);
+        cambios++;
+      }
+    }
+    if (json.data.historial !== undefined && Array.isArray(json.data.historial)) {
+      const remoto = JSON.stringify(json.data.historial);
+      const local = JSON.stringify(state.historial);
+      if (remoto !== local) {
+        state.historial = json.data.historial;
+        localStorage.setItem(HIST_KEY, remoto);
+        cambios++;
+      }
+    }
+    setLastPull(json.ahora);
+    syncState.lastOk = new Date().toISOString();
+    syncState.lastError = null;
+    if (cambios > 0) {
+      if (!silencioso) toast('✅ Trajimos ' + cambios + ' cambio' + (cambios>1?'s':'') + ' de la nube', 'success');
+      render();
+    } else if (!silencioso) {
+      toast('✓ Sin cambios nuevos');
+    }
+    actualizarBadgeSync();
+    return { ok: true, cambios };
+  } catch (err) {
+    syncState.lastError = err.message;
+    if (!silencioso) toast('❌ Error al traer: ' + err.message, 'error');
+    actualizarBadgeSync();
+    return { ok: false, error: err.message };
+  } finally {
+    syncState.running = false;
+  }
+}
+
+async function cloudPush(key, valueObj, silencioso = true) {
+  if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
+  if (!key || !['residentes','semanal','historial'].includes(key)) return { ok: false, error: 'Key inválida' };
+  try {
+    const url = getCloudUrl();
+    const fd = new URLSearchParams();
+    fd.append('action', 'push');
+    fd.append('key', key);
+    fd.append('value', JSON.stringify(valueObj));
+    fd.append('user', getCurrentUser() || 'anónimo');
+    fd.append('lastSeenAt', getLastPull() || '');
+    const r = await fetch(url, { method: 'POST', body: fd });
+    const json = await r.json();
+    if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
+    syncState.lastOk = new Date().toISOString();
+    syncState.lastError = null;
+    if (json.hayConflicto && !silencioso) {
+      toast('⚠️ Sobrescribiste cambios de otro usuario para "' + key + '"', 'error');
+    }
+    actualizarBadgeSync();
+    return { ok: true };
+  } catch (err) {
+    syncState.lastError = err.message;
+    actualizarBadgeSync();
+    if (!silencioso) toast('❌ No se pudo guardar en la nube: ' + err.message, 'error');
+    return { ok: false, error: err.message };
+  }
+}
+
+// Versiones "cloud-aware" de los save existentes
+function saveDataCloud() {
+  saveData();
+  if (syncHabilitado()) cloudPush('residentes', state.residentes);
+}
+function saveSemCloud() {
+  saveSem();
+  if (syncHabilitado()) cloudPush('semanal', state.semanal);
+}
+function saveHistCloud() {
+  saveHist();
+  if (syncHabilitado()) cloudPush('historial', state.historial);
+}
+
+function actualizarBadgeSync(textoForzado) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  if (textoForzado) { el.textContent = textoForzado; el.style.color = '#FFC107'; return; }
+  if (!syncHabilitado()) { el.textContent = '☁️ Sin sync'; el.style.color = 'rgba(255,255,255,.5)'; return; }
+  if (syncState.lastError) { el.textContent = '❌ Error sync'; el.style.color = '#FF6B6B'; return; }
+  if (syncState.lastOk) {
+    const diff = Date.now() - new Date(syncState.lastOk).getTime();
+    const min = Math.floor(diff / 60000);
+    el.textContent = '☁️ ' + (min === 0 ? 'Recién' : 'Hace ' + min + ' min');
+    el.style.color = '#A8E6CF';
+    return;
+  }
+  el.textContent = '☁️ Conectado';
+  el.style.color = 'rgba(255,255,255,.7)';
+}
+
+function configurarSyncV2() {
+  if (bloquearSiNoAdmin('configurar la sincronización')) return;
+  const actual = getCloudUrl();
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal" style="max-width:580px">' +
+      '<h3>⚙️ Configurar sincronización en la nube</h3>' +
+      '<p style="font-size:13px;color:#6c7a8a;margin-bottom:12px">' +
+        'Pegá la URL del Web App de Apps Script v2 (paso 5.6 de la guía PDF actualizada).' +
+      '</p>' +
+      '<div style="margin-bottom:12px">' +
+        '<label>URL del Apps Script</label>' +
+        '<input type="text" id="sync2-url" value="' + escapeHtml(actual) + '" placeholder="https://script.google.com/macros/s/.../exec">' +
+      '</div>' +
+      '<div style="background:#FFF8E1;padding:10px;border-radius:6px;font-size:12px;color:#92400E;margin-bottom:12px">' +
+        '⚠️ El Apps Script debe estar deployado con "Who has access: Anyone". Y la primera vez correr la función <b>inicializarHojas</b> desde el editor.' +
+      '</div>' +
+      '<div style="margin-bottom:14px">' +
+        '<label><input type="checkbox" id="sync2-auto" ' + (syncAutoActivado() ? 'checked' : '') + '> Sincronización automática cada 30 segundos</label>' +
+      '</div>' +
+      '<div class="btn-group">' +
+        '<button class="btn" id="sync2-save">💾 Guardar</button>' +
+        '<button class="btn secondary" id="sync2-test">🧪 Probar</button>' +
+        '<button class="btn secondary" id="sync2-pull">⬇️ Traer todo ahora</button>' +
+        '<button class="btn secondary" id="sync2-push">⬆️ Subir lo mío ahora</button>' +
+        '<button class="btn secondary" id="sync2-cancel">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+  modalBg.querySelector('#sync2-cancel').onclick = () => modalBg.remove();
+  modalBg.querySelector('#sync2-save').onclick = () => {
+    setCloudUrl(document.getElementById('sync2-url').value.trim());
+    setSyncAuto(document.getElementById('sync2-auto').checked);
+    toast('Guardado. Probá hacer Pull para verificar.');
+    actualizarBadgeSync();
+    modalBg.remove();
+  };
+  modalBg.querySelector('#sync2-test').onclick = async () => {
+    const u = document.getElementById('sync2-url').value.trim();
+    if (!u) return toast('Cargá la URL primero', 'error');
+    try {
+      const r = await fetch(u + '?action=ping&t=' + Date.now());
+      const j = await r.json();
+      if (j.ok) toast('✅ Conexión OK (' + (j.version||'?') + ')'); else toast('❌ ' + (j.error||'?'), 'error');
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+  };
+  modalBg.querySelector('#sync2-pull').onclick = async () => {
+    setCloudUrl(document.getElementById('sync2-url').value.trim());
+    await cloudPull(false);
+  };
+  modalBg.querySelector('#sync2-push').onclick = async () => {
+    setCloudUrl(document.getElementById('sync2-url').value.trim());
+    if (!confirm('Vas a sobrescribir lo que esté en la nube con TUS datos actuales. ¿Seguro?')) return;
+    await cloudPush('residentes', state.residentes, false);
+    await cloudPush('semanal', state.semanal, false);
+    await cloudPush('historial', state.historial, false);
+    toast('✅ Todo subido', 'success');
+  };
+}
+
+// ============ COMENTARIOS POR RESIDENTE ============
+function getComentarios(residente) {
+  return Array.isArray(residente.comentarios) ? residente.comentarios : [];
+}
+function agregarComentario(nombreResidente, texto) {
+  if (!texto || !texto.trim()) return;
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  if (!r) return;
+  if (!Array.isArray(r.comentarios)) r.comentarios = [];
+  r.comentarios.push({
+    texto: texto.trim(),
+    autor: getCurrentUser() || 'anónimo',
+    fecha: new Date().toISOString()
+  });
+  if (r.comentarios.length > 200) r.comentarios = r.comentarios.slice(-200);
+  saveDataCloud();
+  toast('💬 Comentario agregado');
+  render();
+}
+function eliminarComentario(nombreResidente, idx) {
+  if (!esAdmin()) {
+    // Operador puede borrar solo sus propios comentarios
+    const r = state.residentes.find(x => x.nombre === nombreResidente);
+    if (!r || !r.comentarios || !r.comentarios[idx]) return;
+    if (r.comentarios[idx].autor !== getCurrentUser()) {
+      return toast('⛔ Solo podés borrar tus propios comentarios', 'error');
+    }
+  }
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  if (!r || !r.comentarios) return;
+  if (!confirm('¿Eliminar este comentario?')) return;
+  r.comentarios.splice(idx, 1);
+  saveDataCloud();
+  toast('Comentario eliminado');
+  render();
+}
+
+// ============ NAVEGACIÓN ============
+function navigate(view, residente = null) {
+  state.view = view;
+  state.residenteSel = residente;
+  render();
+}
+
+// ============ RENDER PRINCIPAL ============
+function render() {
+  // Detectar cambio de semana antes de renderizar
+  chequearCambioSemana();
+
+  // Sidebar
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === state.view && !state.residenteSel);
+  });
+  const tot = totales();
+  document.getElementById('badge-alertas').textContent = tot.cri + tot.sin;
+  document.getElementById('badge-alertas').style.display = (tot.cri + tot.sin) > 0 ? 'inline-block' : 'none';
+
+  // Sidebar residentes (con indicador de dosis atrasadas/ahora)
+  const lista = document.getElementById('lista-residentes-sidebar');
+  lista.innerHTML = state.residentes.map(r => {
+    const res = resumenResidente(r);
+    const al = resumenAlertasResidente(r);
+    const active = state.residenteSel === r.nombre ? ' active' : '';
+    let badge = '';
+    if (al.atrasadas > 0) badge = `<span class="badge" title="Dosis atrasadas">⏰${al.atrasadas}</span>`;
+    else if (al.ahora > 0) badge = `<span class="badge" style="background:#E58E26" title="Dosis en curso">🔔${al.ahora}</span>`;
+    else if (res.cri > 0) badge = `<span class="badge">${res.cri}</span>`;
+    return `<div class="nav-item${active}" data-residente="${escapeHtml(r.nombre)}">👤 <span style="font-size:13px">${escapeHtml(r.nombre)}</span>${badge}</div>`;
+  }).join('');
+  lista.querySelectorAll('.nav-item').forEach(el => {
+    el.onclick = () => navigate('residente', el.dataset.residente);
+  });
+
+  // Main
+  const main = document.getElementById('main');
+  if (state.view === 'dashboard') main.innerHTML = viewDashboard();
+  else if (state.view === 'alertas') main.innerHTML = viewAlertas();
+  else if (state.view === 'stock') main.innerHTML = viewStock();
+  else if (state.view === 'ingresos') main.innerHTML = viewIngresos();
+  else if (state.view === 'semanal') main.innerHTML = viewSemanal();
+  else if (state.view === 'historial') main.innerHTML = viewHistorial();
+  else if (state.view === 'residente') main.innerHTML = viewResidente();
+
+  attachListeners();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ============ VISTAS ============
+function viewDashboard() {
+  const t = totales();
+  const cards = state.residentes.map(r => {
+    const s = resumenResidente(r);
+    const cls = s.cri > 0 ? 'tiene-criticos' : (s.aten > 0 ? 'tiene-atencion' : '');
+    return `
+      <div class="res-card ${cls}" data-residente="${escapeHtml(r.nombre)}">
+        <div class="nombre">👤 ${escapeHtml(r.nombre)}</div>
+        <div class="info">
+          <span>💊 ${s.total} meds</span>
+          ${s.cri > 0 ? `<span class="pill critico">🔴 ${s.cri} crít.</span>` : ''}
+          ${s.aten > 0 ? `<span class="pill atencion">🟡 ${s.aten} aten.</span>` : ''}
+          ${s.sin > 0 ? `<span class="pill sinstock">⚫ ${s.sin} sin stock</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <h2>📊 Dashboard</h2>
+    <div class="subtitle">Resumen general — ${new Date().toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="num">${state.residentes.length}</div><div class="label">Residentes</div></div>
+      <div class="kpi"><div class="num">${t.total}</div><div class="label">Medicamentos</div></div>
+      <div class="kpi critico"><div class="num">${t.cri}</div><div class="label">🔴 Críticos</div></div>
+      <div class="kpi atencion"><div class="num">${t.aten}</div><div class="label">🟡 Atención</div></div>
+      <div class="kpi sinstock"><div class="num">${t.sin}</div><div class="label">⚫ Sin stock</div></div>
+      <div class="kpi ok"><div class="num">${t.ok}</div><div class="label">🟢 OK</div></div>
+    </div>
+    <h3 style="margin-bottom:12px;color:var(--azul-1)">Residentes</h3>
+    <div class="residentes-grid">${cards}</div>
+  `;
+}
+
+function viewAlertas() {
+  const alertas = [];
+  state.residentes.forEach(r => {
+    r.meds.forEach(m => {
+      const e = estadoMed(m);
+      if (e.tipo === 'critico' || e.tipo === 'sinstock' || e.tipo === 'atencion') {
+        alertas.push({ ...m, residente: r.nombre, estado: e, dias: calcDiasRestantes(m) });
+      }
+    });
+  });
+  alertas.sort((a,b) => (a.dias ?? 999) - (b.dias ?? 999));
+
+  return `
+    <h2>🚨 Alertas</h2>
+    <div class="subtitle">Medicamentos con stock bajo (14 días o menos) ordenados por urgencia</div>
+    ${alertas.length === 0 ? `
+      <div class="card text-center" style="padding:48px">
+        <div style="font-size:48px;margin-bottom:8px">🟢</div>
+        <h3>¡No hay alertas críticas!</h3>
+        <p style="color:#6c7a8a;margin-top:6px">Todos los medicamentos tienen stock suficiente.</p>
+      </div>
+    ` : `
+      <table class="tabla">
+        <thead><tr>
+          <th>Estado</th><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Días restantes</th><th>Fecha agotamiento</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${alertas.map(a => `
+            <tr>
+              <td><span class="pill ${a.estado.clase}">${a.estado.label}</span></td>
+              <td><strong>${escapeHtml(a.residente)}</strong></td>
+              <td>${escapeHtml(a.med)}</td>
+              <td>${a.stock ?? '—'}</td>
+              <td>${a.consumo ?? a.consumoTxt}</td>
+              <td><strong>${a.dias ?? '—'}</strong></td>
+              <td>${fechaAgotamiento(a)}</td>
+              <td><button class="btn small" onclick="abrirIngresoRapido('${escapeHtml(a.residente)}','${a.id}')">+ Ingreso</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `}
+  `;
+}
+
+function viewStock() {
+  const meds = todosMedicamentos().filter(m => {
+    if (!state.search) return true;
+    const q = state.search.toLowerCase();
+    return m.med.toLowerCase().includes(q) || m.residente.toLowerCase().includes(q);
+  });
+  return `
+    <h2>📦 Stock general</h2>
+    <div class="subtitle">${meds.length} medicamentos en total. Hacé click en el stock para editarlo.</div>
+    <div class="toolbar">
+      <input type="text" class="search" id="search-stock" placeholder="🔍 Buscar por residente o medicamento..." value="${escapeHtml(state.search)}">
+      <span class="spacer"></span>
+      <button class="btn secondary" onclick="navigate('ingresos')">📥 Cargar ingreso</button>
+    </div>
+    <table class="tabla">
+      <thead><tr>
+        <th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Detalle</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>
+      </tr></thead>
+      <tbody>
+        ${meds.map(m => {
+          const e = estadoMed(m);
+          return `
+            <tr data-med-id="${m.id}">
+              <td><a href="#" onclick="navigate('residente','${escapeHtml(m.residente)}');return false;" style="color:var(--azul-1);text-decoration:none;font-weight:600">${escapeHtml(m.residente)}</a></td>
+              <td>${escapeHtml(m.med)}</td>
+              <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" onchange="actualizarStock('${escapeHtml(m.residente)}','${m.id}',this.value)"></td>
+              <td>${m.consumo ?? '—'}</td>
+              <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}</td>
+              <td>${calcDiasRestantes(m) ?? '—'}</td>
+              <td>${fechaAgotamiento(m)}</td>
+              <td><span class="pill ${e.clase}">${e.label}</span></td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function viewIngresos() {
+  return `
+    <h2>📥 Cargar ingreso de medicamentos</h2>
+    <div class="subtitle">Cuando llegan medicamentos nuevos, cargálos acá para sumar al stock.</div>
+    <div class="card" style="max-width:520px">
+      <div class="form-row">
+        <div>
+          <label>Residente</label>
+          <select id="ing-residente" onchange="onIngresoResidenteChange()">
+            <option value="">— Seleccionar —</option>
+            ${state.residentes.map(r => `<option>${escapeHtml(r.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label>Medicamento</label>
+          <select id="ing-medicamento">
+            <option value="">— Primero elegí residente —</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Cantidad recibida</label>
+          <input type="number" id="ing-cantidad" min="0" step="0.5" placeholder="Ej: 30">
+        </div>
+        <div>
+          <label>Fecha de ingreso</label>
+          <input type="date" id="ing-fecha" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Recibido por</label>
+          <input type="text" id="ing-recibido" placeholder="Ej: María (enfermera)">
+        </div>
+        <div>
+          <label>Observaciones (opcional)</label>
+          <input type="text" id="ing-obs" placeholder="Ej: receta nueva, vto mar 2027...">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn" onclick="registrarIngreso()">✅ Registrar ingreso</button>
+      </div>
+    </div>
+    <div class="card" style="max-width:520px;margin-top:18px">
+      <h3>Últimos ingresos</h3>
+      ${(state.semanal.ingresos || []).slice(-10).reverse().map(i => `
+        <div style="padding:6px 0;border-bottom:1px solid var(--gris-borde);font-size:13px">
+          <strong>${escapeHtml(i.fecha)}</strong> — ${escapeHtml(i.residente)} | ${escapeHtml(i.medicamento)} → +${i.cantidad}
+        </div>
+      `).join('') || '<p style="color:#6c7a8a;font-size:13px">Aún no hay ingresos registrados</p>'}
+    </div>
+  `;
+}
+
+function viewResidente() {
+  const r = state.residentes.find(x => x.nombre === state.residenteSel);
+  if (!r) return `<h2>Residente no encontrado</h2>`;
+  const s = resumenResidente(r);
+  const dias = ['LUN','MAR','MIE','JUE','VIE','SAB','DOM'];
+  const nombreEsc = escapeHtml(r.nombre).replace(/'/g, "\\'");
+  const admin = esAdmin();
+  const ro = admin ? '' : 'readonly';
+  const dis = admin ? '' : 'disabled style="opacity:.5;cursor:not-allowed"';
+  return `
+    <div class="title-row">
+      <h2>👤 ${escapeHtml(r.nombre)}</h2>
+      <div class="actions">
+        ${admin ? `<button class="edit-name-btn" onclick="renombrarResidente('${nombreEsc}')">✏️ Editar nombre</button>
+        <button class="btn icon-only delete" onclick="eliminarResidente('${nombreEsc}')">🗑️ Eliminar residente</button>` : ''}
+      </div>
+    </div>
+    <div class="subtitle">${s.total} medicamentos • ${s.cri} críticos • ${s.aten} en atención • ${s.sin} sin stock ${!admin ? '• <span style="color:var(--azul-2);font-weight:600">👁️ Modo operador (solo lectura + tildes + comentarios)</span>' : ''}</div>
+    <div class="card">
+      <div style="display:flex;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <h3 style="margin:0">📦 Stock y consumo</h3>
+        <span class="spacer"></span>
+        ${admin ? `<button class="btn small" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Nuevo medicamento</button>` : ''}
+      </div>
+      <table class="tabla">
+        <thead><tr>
+          <th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${r.meds.length === 0 ? `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados. ${admin ? 'Tocá ➕ Nuevo medicamento.' : ''}</td></tr>` : r.meds.map(m => {
+            const e = estadoMed(m);
+            return `
+              <tr>
+                <td><strong>${escapeHtml(m.med)}</strong></td>
+                <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" ${ro} onchange="actualizarStock('${nombreEsc}','${m.id}',this.value)"></td>
+                <td><input type="number" value="${m.consumo ?? ''}" step="0.25" min="0" ${ro} onchange="actualizarConsumo('${nombreEsc}','${m.id}',this.value)"></td>
+                <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}</td>
+                <td><input type="date" value="${m.fechaIngreso || ''}" ${ro} onchange="actualizarFechaIngreso('${nombreEsc}','${m.id}',this.value)" style="width:140px;font-size:12px"></td>
+                <td>${calcDiasRestantes(m) ?? '—'}</td>
+                <td>${fechaAgotamiento(m)}</td>
+                <td><span class="pill ${e.clase}">${e.label}</span></td>
+                ${admin ? `<td style="white-space:nowrap">
+                  <button class="btn small" onclick="abrirIngresoRapido('${nombreEsc}','${m.id}')">+ Ingreso</button>
+                  <button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${m.id}')" title="Eliminar">🗑️</button>
+                </td>` : ''}
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h3 style="margin:0">📅 Planilla semanal — Semana del ${formatearLunes(state.semanal.semanaActualLunes || getLunesISO())}</h3>
+        ${admin ? `<button class="btn" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Agregar medicamento</button>` : ''}
+      </div>
+      ${(() => {
+        const al = resumenAlertasResidente(r);
+        if (al.atrasadas > 0) {
+          return `<div class="alert-banner atrasada">
+            <span class="icon-big">⏰</span>
+            <div class="text"><strong>${al.atrasadas} dosis atrasada${al.atrasadas>1?'s':''} de hoy</strong>
+            Revisá los medicamentos marcados en rojo — falta tildar la dosis correspondiente.</div>
+          </div>`;
+        }
+        if (al.ahora > 0) {
+          return `<div class="alert-banner ahora">
+            <span class="icon-big">🔔</span>
+            <div class="text"><strong>${al.ahora} dosis para administrar ahora</strong>
+            Los medicamentos en amarillo están dentro de la ventana de horario.</div>
+          </div>`;
+        }
+        if (al.conHorario > 0) {
+          return `<div class="alert-banner todo-ok">
+            <span class="icon-big">✅</span>
+            <div class="text"><strong>Todo al día por ahora</strong>
+            ${al.alDia} de ${al.conHorario} dosis con horario ya marcadas hoy. ${al.proximas > 0 ? al.proximas + ' próximas en el día.' : ''}</div>
+          </div>`;
+        }
+        return '';
+      })()}
+      <div class="aviso-horario">
+        💡 <strong>Los horarios se modifican solo acá.</strong> Cambiarlos no afecta el stock ni el consumo diario. Podés poner uno (08:00) o varios separados por coma (08:00, 14:00, 20:00).
+      </div>
+      <div class="semanal">
+        <table>
+          <thead>
+            <tr>
+              <th class="med">Medicamento</th>
+              <th class="horario-col">⏰ Horarios</th>
+              ${dias.map((d,i) => `<th${i === diaHoyIdx() ? ' style="background:#0F4C75"' : ''}>${d}${i === diaHoyIdx() ? '<br><span style="font-size:9px;font-weight:400">HOY</span>' : ''}</th>`).join('')}
+              ${admin ? '<th style="min-width:50px">✖</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${r.meds.length === 0 ? `<tr><td colspan="${dias.length + (admin ? 3 : 2)}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.${admin ? ' Tocá <strong>➕ Agregar medicamento</strong>.' : ''}</td></tr>` : r.meds.map(m => {
+              const horario = state.semanal[m.id+'_horario'] || '';
+              const e = estadoDosisHoy(m);
+              const rowCls = e.tipo === 'atrasada' ? 'row-atrasada' : e.tipo === 'ahora' ? 'row-ahora' : e.tipo === 'al-dia' ? 'row-al-dia' : '';
+              let tag = '';
+              if (e.tipo === 'atrasada') tag = `<span class="tag-estado atrasada">⏰ Atrasada (${e.detalle})</span>`;
+              else if (e.tipo === 'ahora') tag = `<span class="tag-estado ahora">🔔 Ahora (${e.detalle})</span>`;
+              else if (e.tipo === 'al-dia') tag = `<span class="tag-estado al-dia">✓ Dada hoy</span>`;
+              else if (e.tipo === 'proxima') tag = `<span class="tag-estado proxima">Próxima ${e.detalle}</span>`;
+              return `
+                <tr class="${rowCls}">
+                  <td class="med-name">${escapeHtml(m.med)}${tag}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? (m.consumoTxt || '—')}/día</span></td>
+                  <td class="horario-cell"><input class="horario-input" value="${escapeHtml(horario)}" placeholder="Ej: 08:00, 20:00" ${ro} onchange="setHorario('${nombreEsc}','${m.id}',this.value)"></td>
+                  ${dias.map((d,i) => {
+                    const k = m.id + '_' + i;
+                    const done = state.semanal[k] === true;
+                    const esHoy = i === diaHoyIdx();
+                    const cellCls = esHoy && !done && e.tipo === 'atrasada' ? 'cell-atrasada' : esHoy && !done && e.tipo === 'ahora' ? 'cell-pendiente' : '';
+                    const by = state.semanal[k + '_by'];
+                    const at = state.semanal[k + '_at'];
+                    const tooltip = (done && by) ? `title="Tildada por ${by}${at ? ' a las ' + new Date(at).toLocaleString('es-AR') : ''}"` : '';
+                    return `<td class="${cellCls}" ${tooltip}><span class="check ${done?'done':''}" onclick="toggleDosis('${nombreEsc}','${m.id}',${i})"></span></td>`;
+                  }).join('')}
+                  ${admin ? `<td><button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${m.id}')" title="Quitar medicamento">🗑️</button></td>` : ''}
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        ${admin ? `<button class="btn" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Agregar medicamento</button>
+        <button class="btn secondary small" onclick="limpiarSemana('${nombreEsc}')">🧹 Limpiar marcas</button>
+        <button class="btn secondary small" onclick="limpiarHorarios('${nombreEsc}')">⏰ Borrar horarios</button>
+        <button class="btn secondary small" onclick="cerrarSemanaManual()">📚 Cerrar semana y archivar</button>` : ''}
+        <button class="btn secondary small" onclick="imprimirSemana()">🖨️ Imprimir</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>💬 Comentarios y observaciones</h3>
+      <div style="font-size:12px;color:#6c7a8a;margin-bottom:10px">Cualquier persona del equipo puede dejar notas (ej: "se atragantó con la quetiapina", "vomitó después del desayuno", "el médico cambió la dosis").</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <input type="text" id="com-input-${m_safe_id(r.nombre)}" placeholder="Escribí una observación..." style="flex:1;min-width:220px" onkeypress="if(event.key==='Enter')agregarComentarioDesdeUI('${nombreEsc}')">
+        <button class="btn" onclick="agregarComentarioDesdeUI('${nombreEsc}')">💬 Agregar comentario</button>
+      </div>
+      <div style="max-height:340px;overflow-y:auto">
+        ${(() => {
+          const coms = getComentarios(r).slice().reverse();
+          if (coms.length === 0) return '<div style="color:#6c7a8a;font-size:13px;padding:8px 0">Sin comentarios. Sé el/la primero/a en dejar una observación.</div>';
+          const usr = (getCurrentUser() || '').toLowerCase();
+          return coms.map((c, idxRev) => {
+            const idx = coms.length - 1 - idxRev;
+            const realIdx = r.comentarios.length - 1 - idxRev;
+            const puedeBorrar = admin || (c.autor || '').toLowerCase() === usr;
+            const fecha = new Date(c.fecha).toLocaleString('es-AR');
+            return `<div style="padding:10px 12px;background:#FAFBFD;border-left:3px solid var(--azul-2);border-radius:4px;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#6c7a8a;margin-bottom:4px">
+                <span><strong style="color:var(--azul-1)">${escapeHtml(c.autor || 'anónimo')}</strong> · ${escapeHtml(fecha)}</span>
+                ${puedeBorrar ? `<button class="btn icon-only delete" style="padding:0 6px;font-size:11px" onclick="eliminarComentario('${nombreEsc}', ${realIdx})" title="Eliminar comentario">🗑️</button>` : ''}
+              </div>
+              <div style="font-size:13px;color:var(--texto);white-space:pre-wrap">${escapeHtml(c.texto)}</div>
+            </div>`;
+          }).join('');
+        })()}
+      </div>
+    </div>
+  `;
+}
+
+function m_safe_id(s) { return String(s).replace(/[^a-zA-Z0-9]/g, '_'); }
+
+function agregarComentarioDesdeUI(nombreResidente) {
+  const inp = document.getElementById('com-input-' + m_safe_id(nombreResidente));
+  if (!inp) return;
+  const txt = inp.value;
+  if (!txt.trim()) { toast('Escribí algo primero', 'error'); return; }
+  agregarComentario(nombreResidente, txt);
+}
+
+function viewSemanal() {
+  return `
+    <h2>📅 Planilla semanal</h2>
+    <div class="subtitle">Semana del ${formatearLunes(state.semanal.semanaActualLunes || getLunesISO())} — Elegí un residente para ver/marcar su planilla de tomas.</div>
+    <div class="residentes-grid">
+      ${state.residentes.map(r => {
+        const al = resumenAlertasResidente(r);
+        let extra = '';
+        let cls = '';
+        if (al.atrasadas > 0) { cls = 'tiene-criticos'; extra = `<span class="pill critico">⏰ ${al.atrasadas} atrasada${al.atrasadas>1?'s':''}</span>`; }
+        else if (al.ahora > 0) { cls = 'tiene-atencion'; extra = `<span class="pill atencion">🔔 ${al.ahora} ahora</span>`; }
+        return `
+        <div class="res-card ${cls}" data-residente="${escapeHtml(r.nombre)}" onclick="navigate('residente','${escapeHtml(r.nombre)}')">
+          <div class="nombre">👤 ${escapeHtml(r.nombre)}</div>
+          <div class="info"><span>${r.meds.length} medicamentos</span>${extra}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+function viewHistorial() {
+  if (state.historialSel) return viewHistorialDetalle();
+  const items = (state.historial || []).slice().sort((a,b) => b.semanaLunes.localeCompare(a.semanaLunes));
+  return `
+    <h2>📚 Historial de semanas</h2>
+    <div class="subtitle">Acá se guardan las semanas archivadas. Cada lunes a las 00:00 el sistema cierra la semana anterior automáticamente.</div>
+    <div class="card" style="margin-bottom:14px;background:var(--azul-claro);border-left:4px solid var(--azul-2)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <strong>Semana actual:</strong> ${formatearLunes(state.semanal.semanaActualLunes || getLunesISO())}
+        </div>
+        <button class="btn small" onclick="cerrarSemanaManual()">📥 Cerrar y archivar ahora</button>
+      </div>
+    </div>
+    ${items.length === 0 ? `
+      <div class="card" style="text-align:center;padding:30px;color:#6c7a8a">
+        <div style="font-size:34px;margin-bottom:10px">📭</div>
+        Todavía no hay semanas archivadas.<br>
+        <span style="font-size:12px">Cuando llegue el próximo lunes, la semana actual se va a archivar acá automáticamente.</span>
+      </div>
+    ` : items.map(h => {
+      let totalMarcas = 0, totalPosibles = 0, totalMeds = 0;
+      h.residentes.forEach(r => {
+        r.meds.forEach(m => {
+          totalMeds++;
+          if (m.horario) {
+            const cantHorarios = parseHorarios(m.horario).length || 1;
+            totalPosibles += 7 * cantHorarios;
+          }
+          totalMarcas += m.marcas.filter(x => x).length;
+        });
+      });
+      return `
+        <div class="hist-card" onclick="verHistorial('${h.semanaLunes}')">
+          <div class="head">
+            <span class="fecha">📅 Semana del ${formatearLunes(h.semanaLunes)}</span>
+            <span class="origen">${h.origen === 'auto' ? '🕛 Auto' : '👤 Manual'}</span>
+          </div>
+          <div class="stats">
+            <span><strong>${h.residentes.length}</strong> residentes</span>
+            <span><strong>${totalMeds}</strong> medicamentos</span>
+            <span><strong>${totalMarcas}</strong> dosis marcadas</span>
+            <span style="color:#6c7a8a">Cerrada: ${new Date(h.cerradoAt).toLocaleDateString('es-AR')}</span>
+          </div>
+        </div>`;
+    }).join('')}
+  `;
+}
+
+function viewHistorialDetalle() {
+  const h = (state.historial || []).find(x => x.semanaLunes === state.historialSel);
+  if (!h) {
+    state.historialSel = null;
+    return viewHistorial();
+  }
+  const dias = ['LUN','MAR','MIE','JUE','VIE','SAB','DOM'];
+  return `
+    <div class="title-row">
+      <button class="btn secondary small" onclick="state.historialSel=null;render()">← Volver al historial</button>
+      <h2>📅 Semana del ${formatearLunes(h.semanaLunes)}</h2>
+      <div class="actions">
+        <button class="btn secondary small" onclick="exportarHistorialCSV('${h.semanaLunes}')">💾 Exportar CSV</button>
+        <button class="btn icon-only delete" onclick="eliminarHistorial('${h.semanaLunes}')" title="Borrar esta semana">🗑️</button>
+      </div>
+    </div>
+    <div class="subtitle">Cerrada el ${new Date(h.cerradoAt).toLocaleString('es-AR')} — ${h.origen === 'auto' ? 'Cierre automático del sistema' : 'Cierre manual'}</div>
+    ${h.residentes.map(r => `
+      <div class="card">
+        <h3>👤 ${escapeHtml(r.nombre)}</h3>
+        <div class="semanal">
+          <table>
+            <thead>
+              <tr>
+                <th class="med">Medicamento</th>
+                <th class="horario-col">⏰ Horarios</th>
+                ${dias.map(d => `<th>${d}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${r.meds.map(m => `
+                <tr>
+                  <td class="med-name">${escapeHtml(m.med)}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? '—'}/día</span></td>
+                  <td class="horario-cell" style="font-family:Courier;font-size:12px">${escapeHtml(m.horario || '—')}</td>
+                  ${m.marcas.map(ok => `<td><span class="check ${ok?'done':''}" style="cursor:default"></span></td>`).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function verHistorial(semanaLunes) {
+  state.historialSel = semanaLunes;
+  render();
+}
+
+function eliminarHistorial(semanaLunes) {
+  if (bloquearSiNoAdmin('eliminar historial')) return;
+  if (!confirm('¿Eliminar definitivamente el archivo de la semana del ' + formatearLunes(semanaLunes) + '?\n\nEsta acción no se puede deshacer.')) return;
+  state.historial = (state.historial || []).filter(h => h.semanaLunes !== semanaLunes);
+  saveHist();
+  state.historialSel = null;
+  toast('Semana eliminada del historial');
+  render();
+}
+
+function exportarHistorialCSV(semanaLunes) {
+  const h = (state.historial || []).find(x => x.semanaLunes === semanaLunes);
+  if (!h) return;
+  const dias = ['LUN','MAR','MIE','JUE','VIE','SAB','DOM'];
+  let csv = 'Residente,Medicamento,Horarios,Consumo/dia,' + dias.join(',') + ',Total marcadas\n';
+  h.residentes.forEach(r => {
+    r.meds.forEach(m => {
+      const marcas = m.marcas.map(x => x ? 'SI' : 'NO').join(',');
+      const tot = m.marcas.filter(x => x).length;
+      csv += `"${r.nombre}","${m.med}","${m.horario || ''}",${m.consumo ?? ''},${marcas},${tot}\n`;
+    });
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `historial_semana_${semanaLunes}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV exportado');
+}
+
+function semanaActual() {
+  const f = new Date();
+  const lunes = new Date(f);
+  const dow = f.getDay() || 7;
+  lunes.setDate(f.getDate() - dow + 1);
+  return lunes.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+
+// ============ ACCIONES ============
+function actualizarStock(residente, medId, val) {
+  if (bloquearSiNoAdmin('editar el stock')) { render(); return; }
+  const r = state.residentes.find(x => x.nombre === residente);
+  const m = r.meds.find(x => x.id === medId);
+  m.stock = val === '' ? null : parseFloat(val);
+  saveData();
+  toast(`Stock actualizado: ${m.med}`);
+  render();
+}
+function actualizarConsumo(residente, medId, val) {
+  if (bloquearSiNoAdmin('editar el consumo')) { render(); return; }
+  const r = state.residentes.find(x => x.nombre === residente);
+  const m = r.meds.find(x => x.id === medId);
+  m.consumo = val === '' ? null : parseFloat(val);
+  saveData();
+  toast(`Consumo actualizado: ${m.med}`);
+  render();
+}
+function actualizarFechaIngreso(residente, medId, val) {
+  if (bloquearSiNoAdmin('cambiar fecha de ingreso')) { render(); return; }
+  const r = state.residentes.find(x => x.nombre === residente);
+  const m = r.meds.find(x => x.id === medId);
+  m.fechaIngreso = val || null;
+  saveData();
+  if (val) {
+    const f = new Date(val + 'T00:00:00').toLocaleDateString('es-AR');
+    toast(`📅 Fecha ingreso: ${m.med} → ${f}`);
+  } else {
+    toast(`Fecha ingreso borrada: ${m.med}`);
+  }
+  render();
+}
+function onIngresoResidenteChange() {
+  const r = document.getElementById('ing-residente').value;
+  const sel = document.getElementById('ing-medicamento');
+  if (!r) { sel.innerHTML = '<option value="">— Primero elegí residente —</option>'; return; }
+  const res = state.residentes.find(x => x.nombre === r);
+  sel.innerHTML = '<option value="">— Seleccionar —</option>' + res.meds.map(m => `<option value="${m.id}">${escapeHtml(m.med)} (stock: ${m.stock ?? 's/d'})</option>`).join('');
+}
+function registrarIngreso() {
+  if (bloquearSiNoAdmin('registrar ingresos')) return;
+  const residente = document.getElementById('ing-residente').value;
+  const medId = document.getElementById('ing-medicamento').value;
+  const cantidad = parseFloat(document.getElementById('ing-cantidad').value);
+  const recibido = document.getElementById('ing-recibido').value;
+  const obs = document.getElementById('ing-obs').value;
+  const fechaInput = document.getElementById('ing-fecha').value;
+  if (!residente || !medId || isNaN(cantidad) || cantidad <= 0) { toast('Faltan datos: residente, medicamento y cantidad', 'error'); return; }
+  const r = state.residentes.find(x => x.nombre === residente);
+  const m = r.meds.find(x => x.id === medId);
+  m.stock = (m.stock || 0) + cantidad;
+  // Usar la fecha seleccionada (o hoy si no se eligió)
+  const fechaIng = fechaInput || new Date().toISOString().slice(0, 10);
+  m.fechaIngreso = fechaIng;
+  // Log
+  if (!state.semanal.ingresos) state.semanal.ingresos = [];
+  const fechaDisplay = new Date(fechaIng + 'T00:00:00').toLocaleDateString('es-AR') + ' ' + new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+  state.semanal.ingresos.push({
+    fecha: fechaDisplay,
+    residente, medicamento: m.med, cantidad, recibido, obs
+  });
+  saveData(); saveSem();
+  toast(`✅ Ingreso registrado: +${cantidad} ${m.med} → stock ${m.stock}`);
+  document.getElementById('ing-cantidad').value = '';
+  document.getElementById('ing-recibido').value = '';
+  document.getElementById('ing-obs').value = '';
+  render();
+}
+function abrirIngresoRapido(residente, medId) {
+  navigate('ingresos');
+  setTimeout(() => {
+    document.getElementById('ing-residente').value = residente;
+    onIngresoResidenteChange();
+    document.getElementById('ing-medicamento').value = medId;
+    document.getElementById('ing-cantidad').focus();
+  }, 50);
+}
+function toggleDosis(residente, medId, diaIdx) {
+  const k = medId + '_' + diaIdx;
+  const nuevo = !state.semanal[k];
+  state.semanal[k] = nuevo;
+  if (nuevo) {
+    state.semanal[k + '_by'] = getCurrentUser() || 'anónimo';
+    state.semanal[k + '_at'] = new Date().toISOString();
+  } else {
+    delete state.semanal[k + '_by'];
+    delete state.semanal[k + '_at'];
+  }
+  saveSem();
+  render();
+}
+function setHorario(residente, medId, valor) {
+  if (bloquearSiNoAdmin('cambiar horarios')) { render(); return; }
+  state.semanal[medId+'_horario'] = valor;
+  saveSem();
+}
+function limpiarSemana(residente) {
+  if (bloquearSiNoAdmin('limpiar la semana')) return;
+  if (!confirm(`¿Limpiar todas las marcas de la semana para ${residente}?`)) return;
+  const r = state.residentes.find(x => x.nombre === residente);
+  r.meds.forEach(m => {
+    for (let i = 0; i < 7; i++) {
+      delete state.semanal[m.id + '_' + i];
+      delete state.semanal[m.id + '_' + i + '_by'];
+      delete state.semanal[m.id + '_' + i + '_at'];
+    }
+  });
+  saveSem();
+  toast('Semana limpiada');
+  render();
+}
+function imprimirSemana() {
+  window.print();
+}
+function exportarExcel() {
+  let csv = 'Residente,Medicamento,Stock,Consumo diario,Detalle,Fecha ingreso,Dias restantes,Fecha agotamiento,Estado\n';
+  state.residentes.forEach(r => {
+    r.meds.forEach(m => {
+      const e = estadoMed(m);
+      const d = calcDiasRestantes(m);
+      csv += `"${r.nombre}","${m.med}",${m.stock ?? ''},${m.consumo ?? ''},"${m.consumoTxt || m.stockTxt || ''}","${m.fechaIngreso || ''}",${d ?? ''},"${fechaAgotamiento(m)}","${e.label}"\n`;
+    });
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `medicamentos_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Exportado CSV (abrilo con Excel)');
+}
+function resetDatos() {
+  if (bloquearSiNoAdmin('restaurar los datos')) return;
+  if (!confirm('¿Restaurar los datos originales? Se perderán todos los cambios de stock/dosis.')) return;
+  state.residentes = structuredClone(DATOS_INICIALES);
+  state.semanal = {};
+  saveData(); saveSem();
+  toast('Datos restaurados');
+  render();
+}
+
+
+// ============ CRUD RESIDENTES ============
+function nuevoResidente() {
+  if (bloquearSiNoAdmin('crear residentes')) return;
+  const nombre = prompt('Nombre completo del nuevo residente:');
+  if (!nombre || !nombre.trim()) return;
+  const nombreLimpio = nombre.trim();
+  if (state.residentes.some(r => r.nombre.toLowerCase() === nombreLimpio.toLowerCase())) {
+    toast('Ya existe un residente con ese nombre', 'error');
+    return;
+  }
+  state.residentes.push({ nombre: nombreLimpio, meds: [] });
+  saveData();
+  toast('Residente agregado: ' + nombreLimpio);
+  navigate('residente', nombreLimpio);
+}
+
+function eliminarResidente(nombre) {
+  if (bloquearSiNoAdmin('eliminar residentes')) return;
+  const r = state.residentes.find(x => x.nombre === nombre);
+  if (!r) return;
+  const msg = '¿Eliminar definitivamente a ' + nombre + ' y sus ' + r.meds.length + ' medicamentos?\n\nSi te equivocaste, podés recuperar con "Restaurar datos".';
+  if (!confirm(msg)) return;
+  r.meds.forEach(m => {
+    for (let i = 0; i < 7; i++) delete state.semanal[m.id + '_' + i];
+    delete state.semanal[m.id + '_horario'];
+  });
+  state.residentes = state.residentes.filter(x => x.nombre !== nombre);
+  saveData(); saveSem();
+  toast('Eliminado: ' + nombre);
+  navigate('dashboard');
+}
+
+function renombrarResidente(nombreActual) {
+  if (bloquearSiNoAdmin('renombrar residentes')) return;
+  const nuevo = prompt('Nuevo nombre del residente:', nombreActual);
+  if (!nuevo || !nuevo.trim() || nuevo.trim() === nombreActual) return;
+  const nuevoLimpio = nuevo.trim();
+  if (state.residentes.some(r => r.nombre.toLowerCase() === nuevoLimpio.toLowerCase() && r.nombre !== nombreActual)) {
+    toast('Ya existe un residente con ese nombre', 'error');
+    return;
+  }
+  const r = state.residentes.find(x => x.nombre === nombreActual);
+  r.nombre = nuevoLimpio;
+  saveData();
+  toast('Renombrado: ' + nombreActual + ' a ' + nuevoLimpio);
+  state.residenteSel = nuevoLimpio;
+  render();
+}
+
+// ============ CRUD MEDICAMENTOS ============
+function listaMedicamentosUnicos() {
+  const set = new Set();
+  state.residentes.forEach(r => r.meds.forEach(m => set.add(m.med)));
+  return Array.from(set).sort();
+}
+
+function abrirNuevoMedicamento(nombreResidente) {
+  if (bloquearSiNoAdmin('agregar medicamentos')) return;
+  const lista = listaMedicamentosUnicos();
+  const datalistHtml = lista.map(m => '<option value="' + escapeHtml(m) + '">').join('');
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal">' +
+      '<h3>➕ Nuevo medicamento para ' + escapeHtml(nombreResidente) + '</h3>' +
+      '<div style="margin-bottom:12px">' +
+        '<label>Nombre del medicamento</label>' +
+        '<input type="text" id="nm-nombre" list="lista-meds" placeholder="Ej: ATENOLOL 50 mg" autocomplete="off">' +
+        '<datalist id="lista-meds">' + datalistHtml + '</datalist>' +
+        '<div style="font-size:11px;color:#6c7a8a;margin-top:4px">💡 Empezá a escribir y aparecen medicamentos ya cargados.</div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<div><label>Stock inicial</label><input type="number" id="nm-stock" step="0.5" min="0" placeholder="Ej: 30"></div>' +
+        '<div><label>Consumo diario</label><input type="number" id="nm-consumo" step="0.25" min="0" placeholder="Ej: 1"></div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<div><label>Fecha de ingreso — opcional</label><input type="date" id="nm-fecha-ingreso" value="' + new Date().toISOString().slice(0,10) + '"></div>' +
+        '<div><label>Horario(s) — opcional</label><input type="text" id="nm-horario" placeholder="Ej: 08:00, 20:00"></div>' +
+      '</div>' +
+      '<div style="margin-bottom:14px">' +
+        '<label>Detalle / Indicación (opcional)</label>' +
+        '<input type="text" id="nm-detalle" placeholder="Ej: tomar lun/mié/vie">' +
+      '</div>' +
+      '<div class="btn-group">' +
+        '<button class="btn" id="nm-guardar">✅ Guardar</button>' +
+        '<button class="btn secondary" id="nm-cancelar">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  setTimeout(() => document.getElementById('nm-nombre').focus(), 50);
+
+  modalBg.querySelector('#nm-cancelar').onclick = () => modalBg.remove();
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+  modalBg.querySelector('#nm-guardar').onclick = () => {
+    const nombre = document.getElementById('nm-nombre').value.trim();
+    const stockStr = document.getElementById('nm-stock').value;
+    const consumoStr = document.getElementById('nm-consumo').value;
+    const horario = document.getElementById('nm-horario').value.trim();
+    const detalle = document.getElementById('nm-detalle').value.trim();
+    const fechaIngreso = document.getElementById('nm-fecha-ingreso').value || null;
+    if (!nombre) { toast('Falta el nombre', 'error'); return; }
+    const r = state.residentes.find(x => x.nombre === nombreResidente);
+    const stock = stockStr === '' ? null : parseFloat(stockStr);
+    const consumo = consumoStr === '' ? null : parseFloat(consumoStr);
+    const newId = nombreResidente + '__' + Date.now();
+    r.meds.push({
+      id: newId, med: nombre, stock: stock, stockTxt: '',
+      consumo: consumo, consumoTxt: detalle || '', horario: '', notas: detalle || '',
+      fechaIngreso: fechaIngreso
+    });
+    if (horario) state.semanal[newId + '_horario'] = horario;
+    saveData(); saveSem();
+    toast('Agregado: ' + nombre);
+    modalBg.remove();
+    render();
+  };
+}
+
+function eliminarMedicamento(nombreResidente, medId) {
+  if (bloquearSiNoAdmin('eliminar medicamentos')) return;
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  const m = r.meds.find(x => x.id === medId);
+  if (!m) return;
+  if (!confirm('¿Eliminar "' + m.med + '" de ' + nombreResidente + '?')) return;
+  r.meds = r.meds.filter(x => x.id !== medId);
+  for (let i = 0; i < 7; i++) delete state.semanal[medId + '_' + i];
+  delete state.semanal[medId + '_horario'];
+  saveData(); saveSem();
+  toast('Eliminado: ' + m.med);
+  render();
+}
+
+function limpiarHorarios(nombreResidente) {
+  if (bloquearSiNoAdmin('borrar horarios')) return;
+  if (!confirm('¿Borrar TODOS los horarios de ' + nombreResidente + '? El stock y consumo no se tocan')) return;
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  r.meds.forEach(m => delete state.semanal[m.id + '_horario']);
+  saveSem();
+  toast('Horarios borrados');
+  render();
+}
+
+// ============ SINCRONIZACIÓN WHATSAPP (legacy v1) ============
+const SYNC_LAST_KEY = 'med_geri_sync_last';
+function getSyncUrl() { return localStorage.getItem(SYNC_URL_KEY) || ''; }
+function setSyncUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
+function getLastSync() { return localStorage.getItem(SYNC_LAST_KEY) || ''; }
+function setLastSync(iso) { localStorage.setItem(SYNC_LAST_KEY, iso); }
+
+async function sincronizarWhatsapp() {
+  const url = getSyncUrl();
+  if (!url) {
+    if (confirm('No tenés configurada la URL del Apps Script. ¿Configurar ahora?')) configurarSyncV2();
+    return;
+  }
+  const lastSync = getLastSync();
+  toast('🔄 Sincronizando WhatsApp...');
+  try {
+    const fetchUrl = url + '?action=ingresos' + (lastSync ? '&since=' + encodeURIComponent(lastSync) : '');
+    const r = await fetch(fetchUrl);
+    const json = await r.json();
+    if (!json.ok) { toast('❌ Error: ' + (json.error || 'desconocido'), 'error'); return; }
+    if (!json.ingresos || json.ingresos.length === 0) {
+      setLastSync(json.ahora);
+      toast('✅ Sin ingresos nuevos por WhatsApp', 'success');
+      return;
+    }
+    let aplicados = 0, sinMatch = 0;
+    const detalle = [];
+    json.ingresos.forEach(ing => {
+      const match = buscarMedSimilar(ing.residente, ing.medicamento);
+      if (!match) {
+        sinMatch++;
+        detalle.push('❌ No encontrado: ' + ing.residente + ' - ' + ing.medicamento);
+        return;
+      }
+      match.med.stock = (Number(match.med.stock) || 0) + Number(ing.cantidad);
+      match.med.fechaIngreso = new Date(ing.fecha).toISOString().slice(0, 10);
+      aplicados++;
+      detalle.push('✅ ' + match.residente + ' - ' + match.med.med + ': +' + ing.cantidad + ' (stock: ' + match.med.stock + ')');
+      if (!state.semanal.ingresos) state.semanal.ingresos = [];
+      state.semanal.ingresos.push({
+        fecha: new Date(ing.fecha).toLocaleDateString('es-AR') + ' ' + new Date(ing.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'}),
+        residente: match.residente, medicamento: match.med.med, cantidad: Number(ing.cantidad),
+        recibido: 'WhatsApp: ' + (ing.recibido || ''), obs: ing.obs
+      });
+    });
+    saveData(); saveSem();
+    setLastSync(json.ahora);
+    toast('✅ ' + aplicados + ' aplicados' + (sinMatch ? ', ' + sinMatch + ' no se aplicaron' : ''), 'success');
+    mostrarResultadoSync(detalle);
+    render();
+  } catch (err) {
+    toast('❌ Error al sincronizar: ' + err.message, 'error');
+  }
+}
+
+function buscarMedSimilar(residenteInput, medInput) {
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const rin = norm(residenteInput);
+  const min = norm(medInput);
+  for (const r of state.residentes) {
+    const rn = norm(r.nombre);
+    if (rn === rin || rn.includes(rin) || rin.includes(rn)) {
+      for (const m of r.meds) {
+        const mn = norm(m.med);
+        if (mn === min || mn.includes(min) || min.includes(mn)) {
+          return { residente: r.nombre, med: m };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function mostrarResultadoSync(lineas) {
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal" style="max-width:600px">' +
+      '<h3>📋 Resultado de sincronización</h3>' +
+      '<div style="max-height:400px;overflow-y:auto;font-family:monospace;font-size:12px;background:#F5F7FA;padding:12px;border-radius:6px;margin-bottom:14px">' +
+        lineas.map(l => '<div style="padding:3px 0">' + escapeHtml(l) + '</div>').join('') +
+      '</div>' +
+      '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Cerrar</button>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+}
+
+// ============ LISTENERS ============
+function attachListeners() {
+  document.querySelectorAll('.res-card[data-residente]').forEach(el => {
+    el.onclick = () => navigate('residente', el.dataset.residente);
+  });
+  const search = document.getElementById('search-stock');
+  if (search) {
+    search.oninput = (e) => {
+      state.search = e.target.value;
+      render();
+      setTimeout(() => {
+        const s = document.getElementById('search-stock');
+        if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+      }, 0);
+    };
+  }
+}
+
+document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+  el.onclick = () => navigate(el.dataset.view);
+});
+document.getElementById('btn-export').onclick = exportarExcel;
+document.getElementById('btn-reset').onclick = resetDatos;
+document.getElementById('btn-nuevo-residente').onclick = nuevoResidente;
+document.getElementById('btn-sync').onclick = sincronizarWhatsapp;
+document.getElementById('btn-sync-cloud').onclick = () => cloudPull(false);
+document.getElementById('btn-config-sync-v2').onclick = configurarSyncV2;
+document.getElementById('btn-cambiar-usuario').onclick = () => pedirUsuario(true);
+
+// Función para actualizar el badge de usuario en el sidebar
+function actualizarUserDisplay() {
+  const el = document.getElementById('user-display');
+  if (!el) return;
+  const u = getCurrentUser();
+  el.textContent = u ? (u + (esAdmin() ? ' (admin)' : ' (op.)')) : 'Sin usuario';
+}
+
+// Wrap del render original para que también refresque user/sync displays
+const _renderOrig = render;
+render = function() {
+  _renderOrig();
+  actualizarUserDisplay();
+  actualizarBadgeSync();
+};
+
+// Flujo de inicio: pedir usuario si no hay, después renderizar
+(async function init() {
+  if (!getCurrentUser()) {
+    await pedirUsuario(false);
+  }
+  render();
+  if (syncHabilitado()) {
+    // Primer pull para ver qué hay en la nube
+    try {
+      const url = getCloudUrl() + '?action=pull&t=' + Date.now();
+      const r = await fetch(url);
+      const j = await r.json();
+      // Si la nube está vacía pero tengo datos locales → push
+      const remotoVacio = !j.ok || !j.data ||
+        ((!Array.isArray(j.data.residentes) || j.data.residentes.length === 0) &&
+         (!j.data.semanal || Object.keys(j.data.semanal||{}).length === 0));
+      const localTieneDatos = (state.residentes && state.residentes.length > 0);
+      if (remotoVacio && localTieneDatos) {
+        toast('☁️ Nube vacía detectada — subiendo tus datos locales por primera vez...', 'success');
+        await cloudPush('residentes', state.residentes, true);
+        await cloudPush('semanal', state.semanal, true);
+        await cloudPush('historial', state.historial, true);
+        toast('✅ Datos subidos a la nube', 'success');
+      } else {
+        // Comportamiento normal: traer si hay algo
+        await cloudPull(true);
+      }
+    } catch (e) {
+      console.warn('Error en sync inicial:', e);
+    }
+  }
+})();
+
+// Auto-refresh cada 60 segundos para mantener las alertas frescas
+setInterval(() => {
+  if (state.view === 'residente' || state.view === 'semanal' || state.view === 'dashboard') {
+    render();
+  } else {
+    chequearCambioSemana();
+  }
+}, 60000);
+
+// Auto-sync cada 30 segundos si está habilitado
+setInterval(() => {
+  if (syncHabilitado() && syncAutoActivado() && !document.hidden) {
+    cloudPull(true);
+  }
+}, 30000);
+
+// Al volver el foco a la ventana, refrescar
+window.addEventListener('focus', () => {
+  if (syncHabilitado() && syncAutoActivado()) cloudPull(true);
+});
+</script>
+</body>
+</html>h({
+    fecha: fechaDisplay,
+    residente, medicamento: m.med, cantidad, recibido, obs
+  });
+  saveData(); saveSem();
+  toast(`✅ Ingreso registrado: +${cantidad} ${m.med} → stock ${m.stock}`);
+  document.getElementById('ing-cantidad').value = '';
+  document.getElementById('ing-recibido').value = '';
+  document.getElementById('ing-obs').value = '';
+  render();
+}
+function abrirIngresoRapido(residente, medId) {
+  navigate('ingresos');
+  setTimeout(() => {
+    document.getElementById('ing-residente').value = residente;
+    onIngresoResidenteChange();
+    document.getElementById('ing-medicamento').value = medId;
+    document.getElementById('ing-cantidad').focus();
+  }, 50);
+}
+function toggleDosis(residente, medId, diaIdx) {
+  const k = medId + '_' + diaIdx;
+  const nuevo = !state.semanal[k];
+  state.semanal[k] = nuevo;
+  if (nuevo) {
+    state.semanal[k + '_by'] = getCurrentUser() || 'anónimo';
+    state.semanal[k + '_at'] = new Date().toISOString();
+  } else {
+    delete state.semanal[k + '_by'];
+    delete state.semanal[k + '_at'];
+  }
+  saveSem();
+  render();
+}
+function setHorario(residente, medId, valor) {
+  if (bloquearSiNoAdmin('cambiar horarios')) { render(); return; }
+  state.semanal[medId+'_horario'] = valor;
+  saveSem();
+}
+function limpiarSemana(residente) {
+  if (bloquearSiNoAdmin('limpiar la semana')) return;
+  if (!confirm(`¿Limpiar todas las marcas de la semana para ${residente}?`)) return;
+  const r = state.residentes.find(x => x.nombre === residente);
+  r.meds.forEach(m => {
+    for (let i = 0; i < 7; i++) delete state.semanal[m.id + '_' + i];
+  });
+  saveSem();
+  toast('Semana limpiada');
+  render();
+}
+function imprimirSemana() {
+  window.print();
+}
+function exportarExcel() {
+  // Generar CSV completo
+  let csv = 'Residente,Medicamento,Stock,Consumo diario,Detalle,Dias restantes,Fecha agotamiento,Estado\n';
+  state.residentes.forEach(r => {
+    r.meds.forEach(m => {
+      const e = estadoMed(m);
+      const d = calcDiasRestantes(m);
+      csv += `"${r.nombre}","${m.med}",${m.stock ?? ''},${m.consumo ?? ''},"${m.consumoTxt || m.stockTxt || ''}",${d ?? ''},"${fechaAgotamiento(m)}","${e.label}"\n`;
+    });
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `medicamentos_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Exportado CSV (abrilo con Excel)');
+}
+function resetDatos() {
+  if (bloquearSiNoAdmin('restaurar los datos')) return;
+  if (!confirm('¿Restaurar los datos originales? Se perderán todos los cambios de stock/dosis.')) return;
+  state.residentes = structuredClone(DATOS_INICIALES);
+  state.semanal = {};
+  saveData(); saveSem();
+  toast('Datos restaurados');
+  render();
+}
+
+
+// ============ CRUD RESIDENTES ============
+function nuevoResidente() {
+  if (bloquearSiNoAdmin('crear residentes')) return;
+  const nombre = prompt('Nombre completo del nuevo residente:');
+  if (!nombre || !nombre.trim()) return;
+  const nombreLimpio = nombre.trim();
+  if (state.residentes.some(r => r.nombre.toLowerCase() === nombreLimpio.toLowerCase())) {
+    toast('Ya existe un residente con ese nombre', 'error');
+    return;
+  }
+  state.residentes.push({ nombre: nombreLimpio, meds: [] });
+  saveData();
+  toast('Residente agregado: ' + nombreLimpio);
+  navigate('residente', nombreLimpio);
+}
+
+function eliminarResidente(nombre) {
+  if (bloquearSiNoAdmin('eliminar residentes')) return;
+  const r = state.residentes.find(x => x.nombre === nombre);
+  if (!r) return;
+  const msg = '¿Eliminar definitivamente a ' + nombre + ' y sus ' + r.meds.length + ' medicamentos?\n\nSi te equivocaste, podés recuperar con "Restaurar datos".';
+  if (!confirm(msg)) return;
+  r.meds.forEach(m => {
+    for (let i = 0; i < 7; i++) delete state.semanal[m.id + '_' + i];
+    delete state.semanal[m.id + '_horario'];
+  });
+  state.residentes = state.residentes.filter(x => x.nombre !== nombre);
+  saveData(); saveSem();
+  toast('Eliminado: ' + nombre);
+  navigate('dashboard');
+}
+
+function renombrarResidente(nombreActual) {
+  if (bloquearSiNoAdmin('renombrar residentes')) return;
+  const nuevo = prompt('Nuevo nombre del residente:', nombreActual);
+  if (!nuevo || !nuevo.trim() || nuevo.trim() === nombreActual) return;
+  const nuevoLimpio = nuevo.trim();
+  if (state.residentes.some(r => r.nombre.toLowerCase() === nuevoLimpio.toLowerCase() && r.nombre !== nombreActual)) {
+    toast('Ya existe un residente con ese nombre', 'error');
+    return;
+  }
+  const r = state.residentes.find(x => x.nombre === nombreActual);
+  r.nombre = nuevoLimpio;
+  saveData();
+  toast('Renombrado: ' + nombreActual + ' a ' + nuevoLimpio);
+  state.residenteSel = nuevoLimpio;
+  render();
+}
+
+// ============ CRUD MEDICAMENTOS ============
+function listaMedicamentosUnicos() {
+  const set = new Set();
+  state.residentes.forEach(r => r.meds.forEach(m => set.add(m.med)));
+  return Array.from(set).sort();
+}
+
+function abrirNuevoMedicamento(nombreResidente) {
+  if (bloquearSiNoAdmin('agregar medicamentos')) return;
+  const lista = listaMedicamentosUnicos();
+  const datalistHtml = lista.map(m => '<option value="' + escapeHtml(m) + '">').join('');
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal">' +
+      '<h3>➕ Nuevo medicamento para ' + escapeHtml(nombreResidente) + '</h3>' +
+      '<div style="margin-bottom:12px">' +
+        '<label>Nombre del medicamento</label>' +
+        '<input type="text" id="nm-nombre" list="lista-meds" placeholder="Ej: ATENOLOL 50 mg" autocomplete="off">' +
+        '<datalist id="lista-meds">' + datalistHtml + '</datalist>' +
+        '<div style="font-size:11px;color:#6c7a8a;margin-top:4px">💡 Empezá a escribir y aparecen medicamentos ya cargados.</div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<div><label>Stock inicial</label><input type="number" id="nm-stock" step="0.5" min="0" placeholder="Ej: 30"></div>' +
+        '<div><label>Consumo diario</label><input type="number" id="nm-consumo" step="0.25" min="0" placeholder="Ej: 1"></div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<div><label>Fecha de ingreso — opcional</label><input type="date" id="nm-fecha-ingreso" value="' + new Date().toISOString().slice(0,10) + '"></div>' +
+        '<div><label>Horario(s) — opcional</label><input type="text" id="nm-horario" placeholder="Ej: 08:00, 20:00"></div>' +
+      '</div>' +
+      '<div style="margin-bottom:14px">' +
+        '<label>Detalle / Indicación (opcional)</label>' +
+        '<input type="text" id="nm-detalle" placeholder="Ej: tomar lun/mié/vie">' +
+      '</div>' +
+      '<div class="btn-group">' +
+        '<button class="btn" id="nm-guardar">✅ Guardar</button>' +
+        '<button class="btn secondary" id="nm-cancelar">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  setTimeout(() => document.getElementById('nm-nombre').focus(), 50);
+
+  modalBg.querySelector('#nm-cancelar').onclick = () => modalBg.remove();
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+  modalBg.querySelector('#nm-guardar').onclick = () => {
+    const nombre = document.getElementById('nm-nombre').value.trim();
+    const stockStr = document.getElementById('nm-stock').value;
+    const consumoStr = document.getElementById('nm-consumo').value;
+    const horario = document.getElementById('nm-horario').value.trim();
+    const detalle = document.getElementById('nm-detalle').value.trim();
+    const fechaIngreso = document.getElementById('nm-fecha-ingreso').value || null;
+    if (!nombre) { toast('Falta el nombre', 'error'); return; }
+    const r = state.residentes.find(x => x.nombre === nombreResidente);
+    const stock = stockStr === '' ? null : parseFloat(stockStr);
+    const consumo = consumoStr === '' ? null : parseFloat(consumoStr);
+    const newId = nombreResidente + '__' + Date.now();
+    r.meds.push({
+      id: newId, med: nombre, stock: stock, stockTxt: '',
+      consumo: consumo, consumoTxt: detalle || '', horario: '', notas: detalle || '',
+      fechaIngreso: fechaIngreso
+    });
+    if (horario) state.semanal[newId + '_horario'] = horario;
+    saveData(); saveSem();
+    toast('Agregado: ' + nombre);
+    modalBg.remove();
+    render();
+  };
+}
+
+function eliminarMedicamento(nombreResidente, medId) {
+  if (bloquearSiNoAdmin('eliminar medicamentos')) return;
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  const m = r.meds.find(x => x.id === medId);
+  if (!m) return;
+  if (!confirm('¿Eliminar "' + m.med + '" de ' + nombreResidente + '?')) return;
+  r.meds = r.meds.filter(x => x.id !== medId);
+  for (let i = 0; i < 7; i++) delete state.semanal[medId + '_' + i];
+  delete state.semanal[medId + '_horario'];
+  saveData(); saveSem();
+  toast('Eliminado: ' + m.med);
+  render();
+}
+
+function limpiarHorarios(nombreResidente) {
+  if (bloquearSiNoAdmin('borrar horarios')) return;
+  if (!confirm('¿Borrar TODOS los horarios de ' + nombreResidente + '? El stock y consumo no se tocan')) return;
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  r.meds.forEach(m => delete state.semanal[m.id + '_horario']);
+  saveSem();
+  toast('Horarios borrados');
+  render();
+}
+
+// ============ SINCRONIZACIÓN WHATSAPP ============
+const SYNC_URL_KEY = 'med_geri_sync_url';
+const SYNC_LAST_KEY = 'med_geri_sync_last';
+function getSyncUrl() { return localStorage.getItem(SYNC_URL_KEY) || ''; }
+function setSyncUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
+function getLastSync() { return localStorage.getItem(SYNC_LAST_KEY) || ''; }
+function setLastSync(iso) { localStorage.setItem(SYNC_LAST_KEY, iso); }
+
+function configurarSync() {
+  const actual = getSyncUrl();
+  const lastSync = getLastSync();
+  const lastTxt = lastSync ? 'Última sync: ' + new Date(lastSync).toLocaleString('es-AR') : 'Nunca sincronizado';
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal" style="max-width:560px">' +
+      '<h3>⚙️ Configurar sincronización con WhatsApp</h3>' +
+      '<p style="font-size:13px;color:#6c7a8a;margin-bottom:12px">' +
+        'Pegá la URL del Web App de Apps Script (paso 5.6 de la guía PDF). Empieza con https://script.google.com/macros/s/...' +
+      '</p>' +
+      '<div style="margin-bottom:12px">' +
+        '<label>URL del Apps Script</label>' +
+        '<input type="text" id="sync-url" value="' + escapeHtml(actual) + '" placeholder="https://script.google.com/macros/s/.../exec">' +
+      '</div>' +
+      '<div style="background:#FFF8E1;padding:10px;border-radius:6px;font-size:12px;color:#92400E;margin-bottom:12px">' +
+        '⚠️ <strong>Importante:</strong> al hacer Deploy poné "Who has access: Anyone". Sin eso, el navegador no puede leer.' +
+      '</div>' +
+      '<div style="font-size:12px;color:#6c7a8a;margin-bottom:14px">' + lastTxt + '</div>' +
+      '<div class="btn-group">' +
+        '<button class="btn" id="sync-save">💾 Guardar</button>' +
+        '<button class="btn secondary" id="sync-test">🧪 Probar conexión</button>' +
+        '<button class="btn secondary" id="sync-cancel">Cancelar</button>' +
+      '</div>' +
+      (lastSync ? '<div style="margin-top:12px"><button class="btn secondary small" id="sync-clear" style="color:var(--rojo)">Resetear última sync</button></div>' : '') +
+    '</div>';
+  document.body.appendChild(modalBg);
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+  modalBg.querySelector('#sync-cancel').onclick = () => modalBg.remove();
+  modalBg.querySelector('#sync-save').onclick = () => {
+    const url = document.getElementById('sync-url').value.trim();
+    if (url && !url.startsWith('https://script.google.com/')) {
+      if (!confirm('La URL no parece ser de Apps Script. ¿Guardar igual?')) return;
+    }
+    setSyncUrl(url);
+    toast(url ? '✅ URL guardada' : 'URL eliminada');
+    modalBg.remove();
+  };
+  modalBg.querySelector('#sync-test').onclick = async () => {
+    const url = document.getElementById('sync-url').value.trim();
+    if (!url) { toast('Cargá una URL primero', 'error'); return; }
+    toast('Probando conexión...');
+    try {
+      const r = await fetch(url + '?since=' + encodeURIComponent(new Date().toISOString()));
+      const json = await r.json();
+      if (json.ok) toast('✅ Conexión OK', 'success');
+      else toast('❌ Error: ' + (json.error || 'desconocido'), 'error');
+    } catch (err) {
+      toast('❌ No se pudo conectar: ' + err.message, 'error');
+    }
+  };
+  const sc = modalBg.querySelector('#sync-clear');
+  if (sc) sc.onclick = () => {
+    if (!confirm('¿Resetear la marca? La próxima sync traerá TODOS los ingresos.')) return;
+    setLastSync('');
+    toast('Marca eliminada');
+    modalBg.remove();
+  };
+}
+
+async function sincronizarWhatsapp() {
+  const url = getSyncUrl();
+  if (!url) {
+    if (confirm('No tenés configurada la URL del Apps Script. ¿Configurar ahora?')) configurarSync();
+    return;
+  }
+  const lastSync = getLastSync();
+  toast('🔄 Sincronizando...');
+  try {
+    const fetchUrl = url + (lastSync ? '?since=' + encodeURIComponent(lastSync) : '');
+    const r = await fetch(fetchUrl);
+    const json = await r.json();
+    if (!json.ok) { toast('❌ Error: ' + (json.error || 'desconocido'), 'error'); return; }
+    if (json.ingresos.length === 0) {
+      setLastSync(json.ahora);
+      toast('✅ Sin ingresos nuevos', 'success');
+      return;
+    }
+    let aplicados = 0, sinMatch = 0;
+    const detalle = [];
+    json.ingresos.forEach(ing => {
+      const match = buscarMedSimilar(ing.residente, ing.medicamento);
+      if (!match) {
+        sinMatch++;
+        detalle.push('❌ No encontrado: ' + ing.residente + ' - ' + ing.medicamento);
+        return;
+      }
+      match.med.stock = (Number(match.med.stock) || 0) + Number(ing.cantidad);
+      aplicados++;
+      detalle.push('✅ ' + match.residente + ' - ' + match.med.med + ': +' + ing.cantidad + ' (stock: ' + match.med.stock + ')');
+      if (!state.semanal.ingresos) state.semanal.ingresos = [];
+      state.semanal.ingresos.push({
+        fecha: new Date(ing.fecha).toLocaleDateString('es-AR') + ' ' + new Date(ing.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'}),
+        residente: match.residente, medicamento: match.med.med, cantidad: Number(ing.cantidad),
+        recibido: 'WhatsApp: ' + (ing.recibido || ''), obs: ing.obs
+      });
+    });
+    saveData(); saveSem();
+    setLastSync(json.ahora);
+    toast('✅ ' + aplicados + ' aplicados' + (sinMatch ? ', ' + sinMatch + ' no se aplicaron' : ''), 'success');
+    mostrarResultadoSync(detalle);
+    render();
+  } catch (err) {
+    toast('❌ Error al sincronizar: ' + err.message, 'error');
+  }
+}
+
+function buscarMedSimilar(residenteInput, medInput) {
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const rin = norm(residenteInput);
+  const min = norm(medInput);
+  for (const r of state.residentes) {
+    const rn = norm(r.nombre);
+    if (rn === rin || rn.includes(rin) || rin.includes(rn)) {
+      for (const m of r.meds) {
+        const mn = norm(m.med);
+        if (mn === min || mn.includes(min) || min.includes(mn)) {
+          return { residente: r.nombre, med: m };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function mostrarResultadoSync(lineas) {
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal" style="max-width:600px">' +
+      '<h3>📋 Resultado de sincronización</h3>' +
+      '<div style="max-height:400px;overflow-y:auto;font-family:monospace;font-size:12px;background:#F5F7FA;padding:12px;border-radius:6px;margin-bottom:14px">' +
+        lineas.map(l => '<div style="padding:3px 0">' + escapeHtml(l) + '</div>').join('') +
+      '</div>' +
+      '<button class="btn" onclick="this.closest(\'.modal-bg\').remove()">Cerrar</button>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+}
+
+// ============ LISTENERS ============
+function attachListeners() {
+  document.querySelectorAll('.res-card[data-residente]').forEach(el => {
+    el.onclick = () => navigate('residente', el.dataset.residente);
+  });
+  const search = document.getElementById('search-stock');
+  if (search) {
+    search.oninput = (e) => {
+      state.search = e.target.value;
+      // Re-renderizar solo si necesario
+      render();
+      setTimeout(() => {
+        const s = document.getElementById('search-stock');
+        if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+      }, 0);
+    };
+  }
+}
+
+document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+  el.onclick = () => navigate(el.dataset.view);
+});
+document.getElementById('btn-export').onclick = exportarExcel;
+document.getElementById('btn-reset').onclick = resetDatos;
+document.getElementById('btn-nuevo-residente').onclick = nuevoResidente;
+document.getElementById('btn-sync').onclick = sincronizarWhatsapp;
+document.getElementById('btn-sync-cloud').onclick = () => cloudPull(false);
+document.getElementById('btn-config-sync-v2').onclick = configurarSyncV2;
+document.getElementById('btn-cambiar-usuario').onclick = () => pedirUsuario(true);
+
+// Función para actualizar el badge de usuario en el sidebar
+function actualizarUserDisplay() {
+  const el = document.getElementById('user-display');
+  if (!el) return;
+  const 
