@@ -443,6 +443,12 @@ input:focus, select:focus, textarea:focus {
   background: var(--azul-claro); border-left-color: var(--azul-2);
   font-weight: 600; color: var(--azul-1);
 }
+.indic-badge {
+  display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 600;
+  padding: 2px 7px; border-radius: 4px; line-height: 1.5;
+  background: #eef0f3; color: #6c7a8a;
+}
+.indic-badge.reciente { background: #FBEAEA; color: #C00000; }
 .indic-panel {
   flex: 1; background: white; border-radius: 8px; padding: 22px 26px;
   box-shadow: 0 1px 3px rgba(0,0,0,.06); min-height: 340px;
@@ -2269,6 +2275,21 @@ async function cargarIndicacionesList() {
   }
 }
 
+function indicBadge(it) {
+  if (!it || !it.modificado) return '';
+  let fecha = '', reciente = false;
+  if (it.fechaModif) {
+    const d = new Date(it.fechaModif);
+    if (!isNaN(d.getTime())) {
+      fecha = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+      reciente = (Date.now() - d.getTime()) < 7*24*60*60*1000;
+    }
+  }
+  let txt = (it.modificado === 'actualizado') ? 'Modificado' : 'Modificado: ' + it.modificado;
+  if (fecha) txt += ' · ' + fecha;
+  return `<div class="indic-badge${reciente ? ' reciente' : ''}">✏ ${escapeHtml(txt)}</div>`;
+}
+
 function pintarIndicacionesList() {
   const cont = document.getElementById('indic-lista');
   if (!cont) return;
@@ -2278,7 +2299,7 @@ function pintarIndicacionesList() {
   }
   cont.innerHTML = state.indicaciones.map(it => {
     const active = state.indicacionSel === it.fileId ? ' active' : '';
-    return `<div class="indic-item${active}" data-id="${escapeHtml(it.fileId)}">👤 ${escapeHtml(it.residente)}</div>`;
+    return `<div class="indic-item${active}" data-id="${escapeHtml(it.fileId)}"><div>👤 ${escapeHtml(it.residente)}</div>${indicBadge(it)}</div>`;
   }).join('');
   cont.querySelectorAll('.indic-item').forEach(el => {
     el.onclick = () => abrirIndicacion(el.dataset.id);
