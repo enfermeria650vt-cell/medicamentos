@@ -477,6 +477,53 @@ input:focus, select:focus, textarea:focus {
   .indic-layout { flex-direction: column; }
   .indic-lista { width: 100%; max-height: 240px; }
 }
+
+/* CONTROL DE SIGNOS */
+.cs-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.cs-fecha-input {
+  padding: 7px 10px; border: 1px solid var(--gris-borde);
+  border-radius: 6px; font-size: 13px; font-family: inherit;
+}
+.cs-subtabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+.cs-subtab {
+  padding: 7px 15px; border: 1px solid var(--azul-2); background: white;
+  color: var(--azul-1); border-radius: 6px; cursor: pointer;
+  font-size: 13px; font-weight: 600; transition: all .12s;
+}
+.cs-subtab:hover { background: var(--azul-claro); }
+.cs-subtab.active { background: var(--azul-1); color: white; border-color: var(--azul-1); }
+.cs-tabla-wrap {
+  overflow-x: auto; background: white; border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.cs-semana {
+  padding: 10px 14px 0; font-weight: 600; color: var(--azul-1); font-size: 13px;
+}
+.cs-tabla { border-collapse: collapse; width: 100%; font-size: 12px; }
+.cs-tabla th, .cs-tabla td {
+  border: 1px solid var(--gris-borde); padding: 3px 5px;
+  text-align: center; white-space: nowrap;
+}
+.cs-tabla thead th { background: var(--azul-1); color: white; font-weight: 600; }
+.cs-tabla thead tr.turnos th { background: var(--azul-2); font-weight: 600; }
+.cs-tabla .cs-resname {
+  text-align: left; font-weight: 600; color: var(--azul-1);
+  background: #FAFBFD; position: sticky; left: 0; z-index: 1;
+  min-width: 165px; padding-left: 8px;
+}
+.cs-tabla thead .cs-resname { background: var(--azul-1); color: white; z-index: 2; }
+.cs-tabla tbody tr:nth-child(even) td { background: #FAFBFD; }
+.cs-tabla tbody tr:nth-child(even) .cs-resname { background: #EEF2F7; }
+.cs-inp {
+  width: 48px; border: 1px solid #d5dbe3; border-radius: 4px;
+  padding: 3px 2px; font-size: 12px; text-align: center; font-family: inherit;
+}
+.cs-inp.wide { width: 135px; text-align: left; }
+.cs-inp:focus, .cs-sel:focus { outline: 2px solid var(--azul-2); outline-offset: -1px; }
+.cs-sel {
+  border: 1px solid #d5dbe3; border-radius: 4px; padding: 3px;
+  font-size: 12px; font-family: inherit; background: white;
+}
 </style>
 </head>
 <body>
@@ -491,6 +538,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
     <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
     <div class="nav-item" data-view="historial">📚 <span>Historial semanas</span></div>
+    <div class="nav-item" data-view="controlsignos">🩺 <span>Control de signos</span></div>
     <div class="nav-section">Indicaciones</div>
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-section">Residentes</div>
@@ -522,6 +570,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 const STORAGE_KEY = 'med_geri_v1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
+const CS_KEY = 'med_geri_cs_v1';
 const USER_KEY = 'med_geri_user';
 const SYNC_LASTPULL_KEY = 'med_geri_lastpull';
 const SYNC_AUTO_KEY = 'med_geri_autosync';
@@ -551,6 +600,13 @@ function saveHist() {
   localStorage.setItem(HIST_KEY, JSON.stringify(state.historial));
   if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('historial', state.historial);
 }
+function loadCS() {
+  try { return JSON.parse(localStorage.getItem(CS_KEY)) || {}; } catch(e) { return {}; }
+}
+function saveCS() {
+  localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos));
+  if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('controlSignos', state.controlSignos);
+}
 
 // ============ STATE ============
 const state = {
@@ -564,6 +620,9 @@ const state = {
   indicaciones: [],
   indicacionSel: null,
   indicacionCache: {},
+  controlSignos: loadCS(),
+  csFecha: null,
+  csSubtab: 'signos',
 };
 
 // ============ CÁLCULOS ============
@@ -971,6 +1030,15 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
+    if (json.data.controlSignos !== undefined && json.data.controlSignos && typeof json.data.controlSignos === 'object') {
+      const remoto = JSON.stringify(json.data.controlSignos);
+      const local = JSON.stringify(state.controlSignos);
+      if (remoto !== local) {
+        state.controlSignos = json.data.controlSignos;
+        localStorage.setItem(CS_KEY, remoto);
+        cambios++;
+      }
+    }
     setLastPull(json.ahora);
     syncState.lastOk = new Date().toISOString();
     syncState.lastError = null;
@@ -994,7 +1062,7 @@ async function cloudPull(silencioso = false) {
 
 async function cloudPush(key, valueObj, silencioso = true) {
   if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
-  if (!key || !['residentes','semanal','historial'].includes(key)) return { ok: false, error: 'Key inválida' };
+  if (!key || !['residentes','semanal','historial','controlSignos'].includes(key)) return { ok: false, error: 'Key inválida' };
   try {
     const url = getCloudUrl();
     const fd = new URLSearchParams();
@@ -1200,6 +1268,7 @@ function render() {
     main.innerHTML = viewIndicaciones();
     if (getIndicUrl()) cargarIndicacionesList();
   }
+  else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
 
   attachListeners();
 }
@@ -2209,11 +2278,169 @@ function pintarIndicacion(d) {
     '<div class="indic-doc">' + (d.html || '<p>Sin contenido.</p>') + '</div>';
 }
 
+// ============ CONTROL DE SIGNOS ============
+function csHoy() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function csFmtFecha(f) {
+  if (!f) return '';
+  const p = f.split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+function csDiaObj(fecha) {
+  if (!state.controlSignos[fecha]) state.controlSignos[fecha] = {};
+  return state.controlSignos[fecha];
+}
+function csGet(fecha) {
+  let o = state.controlSignos[fecha];
+  for (let i = 1; i < arguments.length; i++) {
+    if (o == null) return '';
+    o = o[arguments[i]];
+  }
+  return (o == null) ? '' : o;
+}
+function csSet(fecha, seccion, res, campo, valor) {
+  const dia = csDiaObj(fecha);
+  if (!dia[seccion]) dia[seccion] = {};
+  if (!dia[seccion][res]) dia[seccion][res] = {};
+  const parts = campo.split('.');
+  let o = dia[seccion][res];
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!o[parts[i]]) o[parts[i]] = {};
+    o = o[parts[i]];
+  }
+  o[parts[parts.length-1]] = valor;
+  saveCS();
+}
+function csSemanaDias(fecha) {
+  const p = fecha.split('-').map(Number);
+  const dt = new Date(p[0], p[1]-1, p[2]);
+  const off = (dt.getDay()+6) % 7;
+  dt.setDate(dt.getDate() - off);
+  const dias = [];
+  for (let i = 0; i < 7; i++) {
+    const x = new Date(dt);
+    x.setDate(dt.getDate() + i);
+    dias.push(x.getFullYear() + '-' + String(x.getMonth()+1).padStart(2,'0') + '-' + String(x.getDate()).padStart(2,'0'));
+  }
+  return dias;
+}
+function csCambiarFecha(f) { state.csFecha = f || csHoy(); render(); }
+function csVerSubtab(t) { state.csSubtab = t; render(); }
+
+function csSelect(seccion, f, res, campo, val, opts) {
+  const o = opts.map(op =>
+    `<option value="${escapeHtml(op)}" ${op===val?'selected':''}>${op||'—'}</option>`).join('');
+  return `<select class="cs-sel" data-cs-fecha="${f}" data-cs-seccion="${seccion}" ` +
+         `data-cs-res="${escapeHtml(res)}" data-cs-campo="${campo}">${o}</select>`;
+}
+function csInput(seccion, f, res, campo, val, wide) {
+  return `<input class="cs-inp${wide?' wide':''}" data-cs-fecha="${f}" data-cs-seccion="${seccion}" ` +
+         `data-cs-res="${escapeHtml(res)}" data-cs-campo="${campo}" value="${escapeHtml(val)}">`;
+}
+
+function csTablaSignos(f) {
+  const sig = [['ta','T/A'],['fc','F/C'],['fr','F/R'],['temp','Tº'],['spo2','SPO2'],['hgt','HGT']];
+  const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
+  let h1 = '<th class="cs-resname">Residente</th>';
+  turnos.forEach(tn => h1 += `<th colspan="7">Turno ${tn[1]}</th>`);
+  let h2 = '<th class="cs-resname"></th>';
+  turnos.forEach(() => {
+    sig.forEach(s => h2 += `<th>${s[1]}</th>`);
+    h2 += '<th>Novedades</th>';
+  });
+  let rows = '';
+  state.residentes.forEach(r => {
+    let tds = `<td class="cs-resname">${escapeHtml(r.nombre)}</td>`;
+    turnos.forEach(tn => {
+      sig.forEach(s => {
+        tds += `<td>${csInput('signos', f, r.nombre, tn[0]+'.'+s[0], csGet(f,'signos',r.nombre,tn[0],s[0]))}</td>`;
+      });
+      tds += `<td>${csInput('novedades', f, r.nombre, tn[0], csGet(f,'novedades',r.nombre,tn[0]), true)}</td>`;
+    });
+    rows += `<tr>${tds}</tr>`;
+  });
+  return `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function csTablaHidro(f) {
+  const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
+  let h1 = '<th class="cs-resname">Residente</th>';
+  turnos.forEach(tn => h1 += `<th colspan="4">Turno ${tn[1]}</th>`);
+  let h2 = '<th class="cs-resname"></th>';
+  turnos.forEach(() => h2 += '<th>Hidrat.<br>Ingreso</th><th>Hidrat.<br>Egreso</th><th>Diuresis</th><th>Baño</th>');
+  let rows = '';
+  state.residentes.forEach(r => {
+    let tds = `<td class="cs-resname">${escapeHtml(r.nombre)}</td>`;
+    turnos.forEach(tn => {
+      const tk = tn[0];
+      tds += `<td>${csInput('hidro', f, r.nombre, tk+'.ing', csGet(f,'hidro',r.nombre,tk,'ing'))}</td>`;
+      tds += `<td>${csInput('hidro', f, r.nombre, tk+'.egr', csGet(f,'hidro',r.nombre,tk,'egr'))}</td>`;
+      tds += `<td>${csSelect('hidro', f, r.nombre, tk+'.diu', csGet(f,'hidro',r.nombre,tk,'diu'), ['','Sí','No'])}</td>`;
+      tds += `<td>${csSelect('bano', f, r.nombre, tk, csGet(f,'bano',r.nombre,tk), ['','General','Parcial'])}</td>`;
+    });
+    rows += `<tr>${tds}</tr>`;
+  });
+  return `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function csTablaCatarsis(f) {
+  const dias = csSemanaDias(f);
+  const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  let h1 = '<th class="cs-resname">Residente</th>';
+  dias.forEach((d,i) => h1 += `<th colspan="2">${nom[i]} ${d.slice(8)}/${d.slice(5,7)}</th>`);
+  let h2 = '<th class="cs-resname"></th>';
+  dias.forEach(() => h2 += '<th>Catarsis</th><th>Tipo</th>');
+  let rows = '';
+  state.residentes.forEach(r => {
+    let tds = `<td class="cs-resname">${escapeHtml(r.nombre)}</td>`;
+    dias.forEach(d => {
+      tds += `<td>${csSelect('catarsis', d, r.nombre, 'hubo', csGet(d,'catarsis',r.nombre,'hubo'), ['','Sí','No'])}</td>`;
+      tds += `<td>${csInput('catarsis', d, r.nombre, 'tipo', csGet(d,'catarsis',r.nombre,'tipo'), true)}</td>`;
+    });
+    rows += `<tr>${tds}</tr>`;
+  });
+  const wk = `<div class="cs-semana">Semana del ${csFmtFecha(dias[0])} al ${csFmtFecha(dias[6])}</div>`;
+  return wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function viewControlSignos() {
+  const f = state.csFecha || csHoy();
+  const sub = state.csSubtab || 'signos';
+  let tabla;
+  if (sub === 'hidro') tabla = csTablaHidro(f);
+  else if (sub === 'catarsis') tabla = csTablaCatarsis(f);
+  else tabla = csTablaSignos(f);
+  return `
+    <h2>🩺 Control de Signos</h2>
+    <div class="subtitle">Planillas de control diario de los residentes. Lo que cargás se guarda y se sincroniza solo.</div>
+    <div class="cs-bar">
+      <label><b>Fecha:</b>&nbsp; <input type="date" class="cs-fecha-input" value="${f}" onchange="csCambiarFecha(this.value)"></label>
+    </div>
+    <div class="cs-subtabs">
+      <div class="cs-subtab ${sub==='signos'?'active':''}" onclick="csVerSubtab('signos')">Signos vitales</div>
+      <div class="cs-subtab ${sub==='hidro'?'active':''}" onclick="csVerSubtab('hidro')">Hidratación y baño</div>
+      <div class="cs-subtab ${sub==='catarsis'?'active':''}" onclick="csVerSubtab('catarsis')">Catarsis semanal</div>
+    </div>
+    <div class="cs-tabla-wrap" id="cs-tabla-cont">${tabla}</div>
+  `;
+}
+
 // ============ LISTENERS ============
 function attachListeners() {
   document.querySelectorAll('.res-card[data-residente]').forEach(el => {
     el.onclick = () => navigate('residente', el.dataset.residente);
   });
+  const csCont = document.getElementById('cs-tabla-cont');
+  if (csCont) {
+    csCont.onchange = (e) => {
+      const el = e.target;
+      if (!el.dataset || !el.dataset.csSeccion) return;
+      csSet(el.dataset.csFecha, el.dataset.csSeccion, el.dataset.csRes,
+            el.dataset.csCampo, el.value);
+    };
+  }
   const search = document.getElementById('search-stock');
   if (search) {
     search.oninput = (e) => {
@@ -2309,331 +2536,4 @@ window.addEventListener('focus', () => {
 });
 </script>
 </body>
-</html>h({
-    fecha: fechaDisplay,
-    residente, medicamento: m.med, cantidad, recibido, obs
-  });
-  saveData(); saveSem();
-  toast(`✅ Ingreso registrado: +${cantidad} ${m.med} → stock ${m.stock}`);
-  document.getElementById('ing-cantidad').value = '';
-  document.getElementById('ing-recibido').value = '';
-  document.getElementById('ing-obs').value = '';
-  render();
-}
-function abrirIngresoRapido(residente, medId) {
-  navigate('ingresos');
-  setTimeout(() => {
-    document.getElementById('ing-residente').value = residente;
-    onIngresoResidenteChange();
-    document.getElementById('ing-medicamento').value = medId;
-    document.getElementById('ing-cantidad').focus();
-  }, 50);
-}
-function toggleDosis(residente, medId, diaIdx) {
-  const k = medId + '_' + diaIdx;
-  const nuevo = !state.semanal[k];
-  state.semanal[k] = nuevo;
-  if (nuevo) {
-    state.semanal[k + '_by'] = getCurrentUser() || 'anónimo';
-    state.semanal[k + '_at'] = new Date().toISOString();
-  } else {
-    delete state.semanal[k + '_by'];
-    delete state.semanal[k + '_at'];
-  }
-  saveSem();
-  render();
-}
-function setHorario(residente, medId, valor) {
-  if (bloquearSiNoAdmin('cambiar horarios')) { render(); return; }
-  state.semanal[medId+'_horario'] = valor;
-  saveSem();
-}
-function limpiarSemana(residente) {
-  if (bloquearSiNoAdmin('limpiar la semana')) return;
-  if (!confirm(`¿Limpiar todas las marcas de la semana para ${residente}?`)) return;
-  const r = state.residentes.find(x => x.nombre === residente);
-  r.meds.forEach(m => {
-    for (let i = 0; i < 7; i++) delete state.semanal[m.id + '_' + i];
-  });
-  saveSem();
-  toast('Semana limpiada');
-  render();
-}
-function imprimirSemana() {
-  window.print();
-}
-function exportarExcel() {
-  // Generar CSV completo
-  let csv = 'Residente,Medicamento,Stock,Consumo diario,Detalle,Dias restantes,Fecha agotamiento,Estado\n';
-  state.residentes.forEach(r => {
-    r.meds.forEach(m => {
-      const e = estadoMed(m);
-      const d = calcDiasRestantes(m);
-      csv += `"${r.nombre}","${m.med}",${m.stock ?? ''},${m.consumo ?? ''},"${m.consumoTxt || m.stockTxt || ''}",${d ?? ''},"${fechaAgotamiento(m)}","${e.label}"\n`;
-    });
-  });
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `medicamentos_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('Exportado CSV (abrilo con Excel)');
-}
-function resetDatos() {
-  if (bloquearSiNoAdmin('restaurar los datos')) return;
-  if (!confirm('¿Restaurar los datos originales? Se perderán todos los cambios de stock/dosis.')) return;
-  state.residentes = structuredClone(DATOS_INICIALES);
-  state.semanal = {};
-  saveData(); saveSem();
-  toast('Datos restaurados');
-  render();
-}
-
-
-// ============ CRUD RESIDENTES ============
-function nuevoResidente() {
-  if (bloquearSiNoAdmin('crear residentes')) return;
-  const nombre = prompt('Nombre completo del nuevo residente:');
-  if (!nombre || !nombre.trim()) return;
-  const nombreLimpio = nombre.trim();
-  if (state.residentes.some(r => r.nombre.toLowerCase() === nombreLimpio.toLowerCase())) {
-    toast('Ya existe un residente con ese nombre', 'error');
-    return;
-  }
-  state.residentes.push({ nombre: nombreLimpio, meds: [] });
-  saveData();
-  toast('Residente agregado: ' + nombreLimpio);
-  navigate('residente', nombreLimpio);
-}
-
-function eliminarResidente(nombre) {
-  if (bloquearSiNoAdmin('eliminar residentes')) return;
-  const r = state.residentes.find(x => x.nombre === nombre);
-  if (!r) return;
-  const msg = '¿Eliminar definitivamente a ' + nombre + ' y sus ' + r.meds.length + ' medicamentos?\n\nSi te equivocaste, podés recuperar con "Restaurar datos".';
-  if (!confirm(msg)) return;
-  r.meds.forEach(m => {
-    for (let i = 0; i < 7; i++) delete state.semanal[m.id + '_' + i];
-    delete state.semanal[m.id + '_horario'];
-  });
-  state.residentes = state.residentes.filter(x => x.nombre !== nombre);
-  saveData(); saveSem();
-  toast('Eliminado: ' + nombre);
-  navigate('dashboard');
-}
-
-function renombrarResidente(nombreActual) {
-  if (bloquearSiNoAdmin('renombrar residentes')) return;
-  const nuevo = prompt('Nuevo nombre del residente:', nombreActual);
-  if (!nuevo || !nuevo.trim() || nuevo.trim() === nombreActual) return;
-  const nuevoLimpio = nuevo.trim();
-  if (state.residentes.some(r => r.nombre.toLowerCase() === nuevoLimpio.toLowerCase() && r.nombre !== nombreActual)) {
-    toast('Ya existe un residente con ese nombre', 'error');
-    return;
-  }
-  const r = state.residentes.find(x => x.nombre === nombreActual);
-  r.nombre = nuevoLimpio;
-  saveData();
-  toast('Renombrado: ' + nombreActual + ' a ' + nuevoLimpio);
-  state.residenteSel = nuevoLimpio;
-  render();
-}
-
-// ============ CRUD MEDICAMENTOS ============
-function listaMedicamentosUnicos() {
-  const set = new Set();
-  state.residentes.forEach(r => r.meds.forEach(m => set.add(m.med)));
-  return Array.from(set).sort();
-}
-
-function abrirNuevoMedicamento(nombreResidente) {
-  if (bloquearSiNoAdmin('agregar medicamentos')) return;
-  const lista = listaMedicamentosUnicos();
-  const datalistHtml = lista.map(m => '<option value="' + escapeHtml(m) + '">').join('');
-  const modalBg = document.createElement('div');
-  modalBg.className = 'modal-bg';
-  modalBg.innerHTML =
-    '<div class="modal">' +
-      '<h3>➕ Nuevo medicamento para ' + escapeHtml(nombreResidente) + '</h3>' +
-      '<div style="margin-bottom:12px">' +
-        '<label>Nombre del medicamento</label>' +
-        '<input type="text" id="nm-nombre" list="lista-meds" placeholder="Ej: ATENOLOL 50 mg" autocomplete="off">' +
-        '<datalist id="lista-meds">' + datalistHtml + '</datalist>' +
-        '<div style="font-size:11px;color:#6c7a8a;margin-top:4px">💡 Empezá a escribir y aparecen medicamentos ya cargados.</div>' +
-      '</div>' +
-      '<div class="form-row">' +
-        '<div><label>Stock inicial</label><input type="number" id="nm-stock" step="0.5" min="0" placeholder="Ej: 30"></div>' +
-        '<div><label>Consumo diario</label><input type="number" id="nm-consumo" step="0.25" min="0" placeholder="Ej: 1"></div>' +
-      '</div>' +
-      '<div class="form-row">' +
-        '<div><label>Fecha de ingreso — opcional</label><input type="date" id="nm-fecha-ingreso" value="' + new Date().toISOString().slice(0,10) + '"></div>' +
-        '<div><label>Horario(s) — opcional</label><input type="text" id="nm-horario" placeholder="Ej: 08:00, 20:00"></div>' +
-      '</div>' +
-      '<div style="margin-bottom:14px">' +
-        '<label>Detalle / Indicación (opcional)</label>' +
-        '<input type="text" id="nm-detalle" placeholder="Ej: tomar lun/mié/vie">' +
-      '</div>' +
-      '<div class="btn-group">' +
-        '<button class="btn" id="nm-guardar">✅ Guardar</button>' +
-        '<button class="btn secondary" id="nm-cancelar">Cancelar</button>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(modalBg);
-  setTimeout(() => document.getElementById('nm-nombre').focus(), 50);
-
-  modalBg.querySelector('#nm-cancelar').onclick = () => modalBg.remove();
-  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
-  modalBg.querySelector('#nm-guardar').onclick = () => {
-    const nombre = document.getElementById('nm-nombre').value.trim();
-    const stockStr = document.getElementById('nm-stock').value;
-    const consumoStr = document.getElementById('nm-consumo').value;
-    const horario = document.getElementById('nm-horario').value.trim();
-    const detalle = document.getElementById('nm-detalle').value.trim();
-    const fechaIngreso = document.getElementById('nm-fecha-ingreso').value || null;
-    if (!nombre) { toast('Falta el nombre', 'error'); return; }
-    const r = state.residentes.find(x => x.nombre === nombreResidente);
-    const stock = stockStr === '' ? null : parseFloat(stockStr);
-    const consumo = consumoStr === '' ? null : parseFloat(consumoStr);
-    const newId = nombreResidente + '__' + Date.now();
-    r.meds.push({
-      id: newId, med: nombre, stock: stock, stockTxt: '',
-      consumo: consumo, consumoTxt: detalle || '', horario: '', notas: detalle || '',
-      fechaIngreso: fechaIngreso
-    });
-    if (horario) state.semanal[newId + '_horario'] = horario;
-    saveData(); saveSem();
-    toast('Agregado: ' + nombre);
-    modalBg.remove();
-    render();
-  };
-}
-
-function eliminarMedicamento(nombreResidente, medId) {
-  if (bloquearSiNoAdmin('eliminar medicamentos')) return;
-  const r = state.residentes.find(x => x.nombre === nombreResidente);
-  const m = r.meds.find(x => x.id === medId);
-  if (!m) return;
-  if (!confirm('¿Eliminar "' + m.med + '" de ' + nombreResidente + '?')) return;
-  r.meds = r.meds.filter(x => x.id !== medId);
-  for (let i = 0; i < 7; i++) delete state.semanal[medId + '_' + i];
-  delete state.semanal[medId + '_horario'];
-  saveData(); saveSem();
-  toast('Eliminado: ' + m.med);
-  render();
-}
-
-function limpiarHorarios(nombreResidente) {
-  if (bloquearSiNoAdmin('borrar horarios')) return;
-  if (!confirm('¿Borrar TODOS los horarios de ' + nombreResidente + '? El stock y consumo no se tocan')) return;
-  const r = state.residentes.find(x => x.nombre === nombreResidente);
-  r.meds.forEach(m => delete state.semanal[m.id + '_horario']);
-  saveSem();
-  toast('Horarios borrados');
-  render();
-}
-
-// ============ SINCRONIZACIÓN WHATSAPP ============
-const SYNC_URL_KEY = 'med_geri_sync_url';
-const SYNC_LAST_KEY = 'med_geri_sync_last';
-function getSyncUrl() { return localStorage.getItem(SYNC_URL_KEY) || ''; }
-function setSyncUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
-function getLastSync() { return localStorage.getItem(SYNC_LAST_KEY) || ''; }
-function setLastSync(iso) { localStorage.setItem(SYNC_LAST_KEY, iso); }
-
-function configurarSync() {
-  const actual = getSyncUrl();
-  const lastSync = getLastSync();
-  const lastTxt = lastSync ? 'Última sync: ' + new Date(lastSync).toLocaleString('es-AR') : 'Nunca sincronizado';
-  const modalBg = document.createElement('div');
-  modalBg.className = 'modal-bg';
-  modalBg.innerHTML =
-    '<div class="modal" style="max-width:560px">' +
-      '<h3>⚙️ Configurar sincronización con WhatsApp</h3>' +
-      '<p style="font-size:13px;color:#6c7a8a;margin-bottom:12px">' +
-        'Pegá la URL del Web App de Apps Script (paso 5.6 de la guía PDF). Empieza con https://script.google.com/macros/s/...' +
-      '</p>' +
-      '<div style="margin-bottom:12px">' +
-        '<label>URL del Apps Script</label>' +
-        '<input type="text" id="sync-url" value="' + escapeHtml(actual) + '" placeholder="https://script.google.com/macros/s/.../exec">' +
-      '</div>' +
-      '<div style="background:#FFF8E1;padding:10px;border-radius:6px;font-size:12px;color:#92400E;margin-bottom:12px">' +
-        '⚠️ <strong>Importante:</strong> al hacer Deploy poné "Who has access: Anyone". Sin eso, el navegador no puede leer.' +
-      '</div>' +
-      '<div style="font-size:12px;color:#6c7a8a;margin-bottom:14px">' + lastTxt + '</div>' +
-      '<div class="btn-group">' +
-        '<button class="btn" id="sync-save">💾 Guardar</button>' +
-        '<button class="btn secondary" id="sync-test">🧪 Probar conexión</button>' +
-        '<button class="btn secondary" id="sync-cancel">Cancelar</button>' +
-      '</div>' +
-      (lastSync ? '<div style="margin-top:12px"><button class="btn secondary small" id="sync-clear" style="color:var(--rojo)">Resetear última sync</button></div>' : '') +
-    '</div>';
-  document.body.appendChild(modalBg);
-  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
-  modalBg.querySelector('#sync-cancel').onclick = () => modalBg.remove();
-  modalBg.querySelector('#sync-save').onclick = () => {
-    const url = document.getElementById('sync-url').value.trim();
-    if (url && !url.startsWith('https://script.google.com/')) {
-      if (!confirm('La URL no parece ser de Apps Script. ¿Guardar igual?')) return;
-    }
-    setSyncUrl(url);
-    toast(url ? '✅ URL guardada' : 'URL eliminada');
-    modalBg.remove();
-  };
-  modalBg.querySelector('#sync-test').onclick = async () => {
-    const url = document.getElementById('sync-url').value.trim();
-    if (!url) { toast('Cargá una URL primero', 'error'); return; }
-    toast('Probando conexión...');
-    try {
-      const r = await fetch(url + '?since=' + encodeURIComponent(new Date().toISOString()));
-      const json = await r.json();
-      if (json.ok) toast('✅ Conexión OK', 'success');
-      else toast('❌ Error: ' + (json.error || 'desconocido'), 'error');
-    } catch (err) {
-      toast('❌ No se pudo conectar: ' + err.message, 'error');
-    }
-  };
-  const sc = modalBg.querySelector('#sync-clear');
-  if (sc) sc.onclick = () => {
-    if (!confirm('¿Resetear la marca? La próxima sync traerá TODOS los ingresos.')) return;
-    setLastSync('');
-    toast('Marca eliminada');
-    modalBg.remove();
-  };
-}
-
-async function sincronizarWhatsapp() {
-  const url = getSyncUrl();
-  if (!url) {
-    if (confirm('No tenés configurada la URL del Apps Script. ¿Configurar ahora?')) configurarSync();
-    return;
-  }
-  const lastSync = getLastSync();
-  toast('🔄 Sincronizando...');
-  try {
-    const fetchUrl = url + (lastSync ? '?since=' + encodeURIComponent(lastSync) : '');
-    const r = await fetch(fetchUrl);
-    const json = await r.json();
-    if (!json.ok) { toast('❌ Error: ' + (json.error || 'desconocido'), 'error'); return; }
-    if (json.ingresos.length === 0) {
-      setLastSync(json.ahora);
-      toast('✅ Sin ingresos nuevos', 'success');
-      return;
-    }
-    let aplicados = 0, sinMatch = 0;
-    const detalle = [];
-    json.ingresos.forEach(ing => {
-      const match = buscarMedSimilar(ing.residente, ing.medicamento);
-      if (!match) {
-        sinMatch++;
-        detalle.push('❌ No encontrado: ' + ing.residente + ' - ' + ing.medicamento);
-        return;
-      }
-      match.med.stock = (Number(match.med.stock) || 0) + Number(ing.cantidad);
-      aplicados++;
-      detalle.push('✅ ' + match.residente + ' - ' + match.med.med + ': +' + ing.cantidad + ' (stock: ' + match.med.stock + ')');
-      if (!state.semanal.ingresos) state.semanal.ingresos = [];
-      state.semanal.ingresos.push({
-        fecha: new Date(ing.fecha).toLocaleDateString('es-AR') + ' ' + new Date(ing.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'}),
-        res
+</html>
