@@ -425,6 +425,58 @@ input:focus, select:focus, textarea:focus {
   font-size: 11px;
   text-align: center;
 }
+
+/* INDICACIONES */
+.indic-layout { display: flex; gap: 16px; align-items: flex-start; }
+.indic-lista {
+  width: 270px; flex-shrink: 0; background: white; border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  max-height: calc(100vh - 150px); overflow-y: auto;
+}
+.indic-item {
+  padding: 11px 14px; cursor: pointer; border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--gris-borde); font-size: 13px; transition: all .12s;
+}
+.indic-item:last-child { border-bottom: none; }
+.indic-item:hover { background: var(--azul-claro); }
+.indic-item.active {
+  background: var(--azul-claro); border-left-color: var(--azul-2);
+  font-weight: 600; color: var(--azul-1);
+}
+.indic-panel {
+  flex: 1; background: white; border-radius: 8px; padding: 22px 26px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06); min-height: 340px;
+}
+.indic-placeholder, .indic-loading, .indic-error {
+  color: #6c7a8a; text-align: center; padding: 54px 20px; font-size: 14px;
+}
+.indic-error { color: var(--rojo); }
+.indic-detalle-head {
+  border-bottom: 2px solid var(--azul-claro); padding-bottom: 12px; margin-bottom: 16px;
+}
+.indic-detalle-nombre { font-size: 19px; font-weight: 700; color: var(--azul-1); }
+.indic-detalle-meta { font-size: 12px; color: #6c7a8a; margin-top: 3px; }
+.indic-doc { font-size: 14px; line-height: 1.6; }
+.indic-doc p { margin-bottom: 6px; }
+.indic-doc table, table.ind-tabla {
+  width: 100%; border-collapse: collapse; margin: 14px 0;
+}
+.indic-doc th, .indic-doc td, table.ind-tabla th, table.ind-tabla td {
+  border: 1px solid var(--gris-borde); padding: 7px 10px; text-align: left;
+  font-size: 13px; vertical-align: top;
+}
+.indic-doc th, table.ind-tabla th {
+  background: var(--azul-1); color: white; font-weight: 600;
+}
+.indic-doc tr:nth-child(even) td { background: #FAFBFD; }
+.indic-input {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--gris-borde);
+  border-radius: 6px; font-size: 13px; font-family: inherit;
+}
+@media (max-width: 760px) {
+  .indic-layout { flex-direction: column; }
+  .indic-lista { width: 100%; max-height: 240px; }
+}
 </style>
 </head>
 <body>
@@ -439,6 +491,8 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
     <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
     <div class="nav-item" data-view="historial">📚 <span>Historial semanas</span></div>
+    <div class="nav-section">Indicaciones</div>
+    <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-section">Residentes</div>
     <div id="lista-residentes-sidebar"></div>
     <div class="nav-section">Acciones</div>
@@ -507,6 +561,9 @@ const state = {
   historial: loadHist(),
   search: '',
   historialSel: null,
+  indicaciones: [],
+  indicacionSel: null,
+  indicacionCache: {},
 };
 
 // ============ CÁLCULOS ============
@@ -1139,6 +1196,10 @@ function render() {
   else if (state.view === 'semanal') main.innerHTML = viewSemanal();
   else if (state.view === 'historial') main.innerHTML = viewHistorial();
   else if (state.view === 'residente') main.innerHTML = viewResidente();
+  else if (state.view === 'indicaciones') {
+    main.innerHTML = viewIndicaciones();
+    if (getIndicUrl()) cargarIndicacionesList();
+  }
 
   attachListeners();
 }
@@ -2024,6 +2085,128 @@ function mostrarResultadoSync(lineas) {
     '</div>';
   document.body.appendChild(modalBg);
   modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+}
+
+// ============ INDICACIONES MÉDICAS ============
+// La dirección del Web App de Indicaciones se guarda por dispositivo (no va hardcoded
+// por privacidad: los datos médicos no deben quedar expuestos en el repositorio público).
+const INDIC_URL_KEY = 'med_geri_indic_url';
+function getIndicUrl() { return (localStorage.getItem(INDIC_URL_KEY) || '').trim(); }
+function setIndicUrl(u) { localStorage.setItem(INDIC_URL_KEY, (u || '').trim()); }
+
+function viewIndicaciones() {
+  const url = getIndicUrl();
+  if (!url) {
+    return `
+      <h2>📋 Indicaciones médicas</h2>
+      <div class="subtitle">Indicaciones de cada residente, sincronizadas automáticamente desde los partes médicos.</div>
+      <div class="card" style="max-width:580px">
+        <h3>⚙️ Configurar acceso</h3>
+        <p style="margin-bottom:12px;color:#6c7a8a">Pegá la dirección de Indicaciones (te la pasa el administrador). Solo hay que hacerlo una vez en este dispositivo.</p>
+        <input type="text" id="indic-url-input" class="indic-input" placeholder="https://script.google.com/macros/s/.../exec">
+        <button class="btn" style="margin-top:10px" onclick="guardarIndicUrl()">💾 Guardar</button>
+      </div>`;
+  }
+  return `
+    <h2>📋 Indicaciones médicas</h2>
+    <div class="subtitle">Tocá un residente para ver su indicación completa. <a href="#" onclick="cambiarIndicUrl();return false;" style="color:var(--azul-2);text-decoration:none">⚙️ Cambiar dirección</a></div>
+    <div class="indic-layout">
+      <div class="indic-lista" id="indic-lista"><div class="indic-loading">Cargando residentes…</div></div>
+      <div class="indic-panel" id="indic-panel">
+        <div class="indic-placeholder">👈 Elegí un residente de la lista para ver su indicación.</div>
+      </div>
+    </div>`;
+}
+
+function guardarIndicUrl() {
+  const v = (document.getElementById('indic-url-input').value || '').trim();
+  if (!v || v.indexOf('http') !== 0) { toast('Pegá una dirección válida', 'error'); return; }
+  setIndicUrl(v);
+  toast('✅ Dirección guardada', 'success');
+  render();
+}
+
+function cambiarIndicUrl() {
+  const v = prompt('Dirección de Indicaciones (Web App):', getIndicUrl());
+  if (v === null) return;
+  setIndicUrl(v);
+  state.indicaciones = []; state.indicacionCache = {}; state.indicacionSel = null;
+  render();
+}
+
+// Si había una indicación abierta, la vuelve a mostrar tras un re-render
+// (p. ej. cuando la sincronización automática de la nube redibuja la pantalla).
+function restaurarIndicacionPanel() {
+  if (state.indicacionSel && state.indicacionCache[state.indicacionSel]) {
+    pintarIndicacion(state.indicacionCache[state.indicacionSel]);
+  }
+}
+
+async function cargarIndicacionesList() {
+  const cont = document.getElementById('indic-lista');
+  if (!cont) return;
+  // Si ya las tenemos en memoria, pintar directo (evita parpadeo al re-renderizar)
+  if (state.indicaciones.length) { pintarIndicacionesList(); restaurarIndicacionPanel(); return; }
+  try {
+    const r = await fetch(getIndicUrl() + '?action=getIndicaciones&t=' + Date.now());
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Error');
+    state.indicaciones = j.data || [];
+    pintarIndicacionesList();
+    restaurarIndicacionPanel();
+  } catch (e) {
+    cont.innerHTML = '<div class="indic-error">No se pudo conectar.<br>Revisá la dirección.<br>' +
+      '<button class="btn small secondary" style="margin-top:10px" onclick="cambiarIndicUrl()">⚙️ Cambiar dirección</button></div>';
+  }
+}
+
+function pintarIndicacionesList() {
+  const cont = document.getElementById('indic-lista');
+  if (!cont) return;
+  if (!state.indicaciones.length) {
+    cont.innerHTML = '<div class="indic-loading">Sin indicaciones cargadas.</div>';
+    return;
+  }
+  cont.innerHTML = state.indicaciones.map(it => {
+    const active = state.indicacionSel === it.fileId ? ' active' : '';
+    return `<div class="indic-item${active}" data-id="${escapeHtml(it.fileId)}">👤 ${escapeHtml(it.residente)}</div>`;
+  }).join('');
+  cont.querySelectorAll('.indic-item').forEach(el => {
+    el.onclick = () => abrirIndicacion(el.dataset.id);
+  });
+}
+
+async function abrirIndicacion(id) {
+  state.indicacionSel = id;
+  pintarIndicacionesList();
+  const panel = document.getElementById('indic-panel');
+  if (!panel) return;
+  if (state.indicacionCache[id]) { pintarIndicacion(state.indicacionCache[id]); return; }
+  panel.innerHTML = '<div class="indic-loading">Cargando indicación…</div>';
+  try {
+    const r = await fetch(getIndicUrl() + '?action=getIndicacion&id=' + encodeURIComponent(id) + '&t=' + Date.now());
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Error');
+    state.indicacionCache[id] = j.data;
+    pintarIndicacion(j.data);
+  } catch (e) {
+    panel.innerHTML = '<div class="indic-error">No se pudo cargar la indicación.</div>';
+  }
+}
+
+function pintarIndicacion(d) {
+  const panel = document.getElementById('indic-panel');
+  if (!panel) return;
+  let fecha = '—';
+  if (d.modifDrive) {
+    try { fecha = new Date(d.modifDrive).toLocaleDateString('es-AR', { day:'numeric', month:'long', year:'numeric' }); } catch(e) {}
+  }
+  panel.innerHTML =
+    '<div class="indic-detalle-head">' +
+      '<div class="indic-detalle-nombre">👤 ' + escapeHtml(d.residente) + '</div>' +
+      '<div class="indic-detalle-meta">Última actualización del parte médico: ' + escapeHtml(fecha) + '</div>' +
+    '</div>' +
+    '<div class="indic-doc">' + (d.html || '<p>Sin contenido.</p>') + '</div>';
 }
 
 // ============ LISTENERS ============
