@@ -514,6 +514,43 @@ input:focus, select:focus, textarea:focus {
 .cs-tabla thead .cs-resname { background: var(--azul-1); color: white; z-index: 2; }
 .cs-tabla tbody tr:nth-child(even) td { background: #FAFBFD; }
 .cs-tabla tbody tr:nth-child(even) .cs-resname { background: #EEF2F7; }
+.cs-resrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.cs-resnombre { overflow: hidden; text-overflow: ellipsis; }
+.cs-resacc { display: flex; gap: 1px; flex-shrink: 0; }
+.cs-resbtn {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 12px; padding: 2px 3px; border-radius: 4px; line-height: 1;
+}
+.cs-resbtn:hover { background: rgba(0,0,0,.12); }
+.cs-addbtn {
+  background: var(--azul-1); color: white; border: none;
+  padding: 7px 13px; border-radius: 7px; cursor: pointer;
+  font-size: 13px; font-weight: 600;
+}
+.cs-addbtn:hover { background: var(--azul-2); }
+.cs-hist-vacio { padding: 26px 16px; color: #6c7a8a; text-align: center; font-size: 13px; }
+.cs-hist-sem { padding: 13px 15px; border-bottom: 1px solid var(--gris-borde); }
+.cs-hist-sem:last-child { border-bottom: none; }
+.cs-hist-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 9px;
+}
+.cs-hist-tit { font-weight: 700; color: var(--azul-1); font-size: 13.5px; }
+.cs-hist-vsem {
+  background: var(--azul-claro); color: var(--azul-1); border: 1px solid var(--azul-2);
+  padding: 5px 11px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.cs-hist-vsem:hover { background: var(--azul-2); color: white; }
+.cs-hist-dias { display: flex; gap: 6px; flex-wrap: wrap; }
+.cs-hist-dia {
+  background: white; border: 1px solid var(--azul-2); color: var(--azul-1);
+  padding: 6px 11px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.cs-hist-dia:hover { background: var(--azul-1); color: white; }
+.cs-hist-dia.vacio {
+  background: #f0f2f5; border-color: var(--gris-borde); color: #aab2bd;
+  cursor: default; font-weight: 400;
+}
 .cs-inp {
   width: 48px; border: 1px solid #d5dbe3; border-radius: 4px;
   padding: 3px 2px; font-size: 12px; text-align: center; font-family: inherit;
@@ -1953,7 +1990,8 @@ function eliminarResidente(nombre) {
     delete state.semanal[m.id + '_horario'];
   });
   state.residentes = state.residentes.filter(x => x.nombre !== nombre);
-  saveData(); saveSem();
+  csBorrarDatosCS(nombre);
+  saveData(); saveSem(); saveCS();
   toast('Eliminado: ' + nombre);
   navigate('dashboard');
 }
@@ -1969,7 +2007,9 @@ function renombrarResidente(nombreActual) {
   }
   const r = state.residentes.find(x => x.nombre === nombreActual);
   r.nombre = nuevoLimpio;
+  csMigrarNombreCS(nombreActual, nuevoLimpio);
   saveData();
+  saveCS();
   toast('Renombrado: ' + nombreActual + ' a ' + nuevoLimpio);
   state.residenteSel = nuevoLimpio;
   render();
@@ -2340,6 +2380,88 @@ function csInput(seccion, f, res, campo, val, wide) {
          `data-cs-res="${escapeHtml(res)}" data-cs-campo="${campo}" value="${escapeHtml(val)}">`;
 }
 
+// ---- Gestión de residentes desde Control de Signos ----
+function csResNameCell(nombre) {
+  const n = escapeHtml(nombre);
+  return `<td class="cs-resname"><div class="cs-resrow">` +
+    `<span class="cs-resnombre">${n}</span>` +
+    `<span class="cs-resacc">` +
+    `<button class="cs-resbtn" type="button" data-cs-action="rename" data-cs-res="${n}" title="Editar nombre">✏️</button>` +
+    `<button class="cs-resbtn" type="button" data-cs-action="delete" data-cs-res="${n}" title="Eliminar residente">🗑️</button>` +
+    `</span></div></td>`;
+}
+function csMigrarNombreCS(viejo, nuevo) {
+  for (const fecha in state.controlSignos) {
+    const dia = state.controlSignos[fecha];
+    for (const seccion in dia) {
+      const s = dia[seccion];
+      if (s && Object.prototype.hasOwnProperty.call(s, viejo)) {
+        s[nuevo] = s[viejo];
+        delete s[viejo];
+      }
+    }
+  }
+}
+function csBorrarDatosCS(nombre) {
+  for (const fecha in state.controlSignos) {
+    const dia = state.controlSignos[fecha];
+    for (const seccion in dia) {
+      if (dia[seccion]) delete dia[seccion][nombre];
+    }
+  }
+}
+function csNuevoResidente() {
+  if (bloquearSiNoAdmin('crear residentes')) return;
+  const nombre = prompt('Nombre completo del nuevo residente:');
+  if (!nombre || !nombre.trim()) return;
+  const nombreLimpio = nombre.trim();
+  if (state.residentes.some(r => r.nombre.toLowerCase() === nombreLimpio.toLowerCase())) {
+    toast('Ya existe un residente con ese nombre', 'error');
+    return;
+  }
+  state.residentes.push({ nombre: nombreLimpio, meds: [] });
+  saveData();
+  toast('Residente agregado: ' + nombreLimpio);
+  render();
+}
+function csRenombrarResidente(nombreActual) {
+  if (bloquearSiNoAdmin('renombrar residentes')) return;
+  const nuevo = prompt('Editar el nombre del residente:', nombreActual);
+  if (!nuevo || !nuevo.trim() || nuevo.trim() === nombreActual) return;
+  const nuevoLimpio = nuevo.trim();
+  if (state.residentes.some(r => r.nombre.toLowerCase() === nuevoLimpio.toLowerCase() && r.nombre !== nombreActual)) {
+    toast('Ya existe un residente con ese nombre', 'error');
+    return;
+  }
+  const r = state.residentes.find(x => x.nombre === nombreActual);
+  if (!r) return;
+  r.nombre = nuevoLimpio;
+  csMigrarNombreCS(nombreActual, nuevoLimpio);
+  if (state.residenteSel === nombreActual) state.residenteSel = nuevoLimpio;
+  saveData();
+  saveCS();
+  toast('Nombre actualizado: ' + nuevoLimpio);
+  render();
+}
+function csEliminarResidente(nombre) {
+  if (bloquearSiNoAdmin('eliminar residentes')) return;
+  const r = state.residentes.find(x => x.nombre === nombre);
+  if (!r) return;
+  const msg = '¿Eliminar definitivamente a ' + nombre + ' de TODAS las planillas?\n\n' +
+    'Se borran sus ' + r.meds.length + ' medicamentos y sus datos de Control de Signos.\n' +
+    'Si te equivocaste, podés recuperar con "Restaurar datos".';
+  if (!confirm(msg)) return;
+  r.meds.forEach(m => {
+    for (let i = 0; i < 7; i++) delete state.semanal[m.id + '_' + i];
+    delete state.semanal[m.id + '_horario'];
+  });
+  state.residentes = state.residentes.filter(x => x.nombre !== nombre);
+  csBorrarDatosCS(nombre);
+  saveData(); saveSem(); saveCS();
+  toast('Eliminado: ' + nombre);
+  render();
+}
+
 function csTablaSignos(f) {
   const sig = [['ta','T/A'],['fc','F/C'],['fr','F/R'],['temp','Tº'],['spo2','SPO2'],['hgt','HGT']];
   const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
@@ -2352,7 +2474,7 @@ function csTablaSignos(f) {
   });
   let rows = '';
   state.residentes.forEach(r => {
-    let tds = `<td class="cs-resname">${escapeHtml(r.nombre)}</td>`;
+    let tds = csResNameCell(r.nombre);
     turnos.forEach(tn => {
       sig.forEach(s => {
         tds += `<td>${csInput('signos', f, r.nombre, tn[0]+'.'+s[0], csGet(f,'signos',r.nombre,tn[0],s[0]))}</td>`;
@@ -2372,7 +2494,7 @@ function csTablaHidro(f) {
   turnos.forEach(() => h2 += '<th>Hidrat.<br>Ingreso</th><th>Hidrat.<br>Egreso</th><th>Diuresis</th><th>Baño</th>');
   let rows = '';
   state.residentes.forEach(r => {
-    let tds = `<td class="cs-resname">${escapeHtml(r.nombre)}</td>`;
+    let tds = csResNameCell(r.nombre);
     turnos.forEach(tn => {
       const tk = tn[0];
       tds += `<td>${csInput('hidro', f, r.nombre, tk+'.ing', csGet(f,'hidro',r.nombre,tk,'ing'))}</td>`;
@@ -2394,7 +2516,7 @@ function csTablaCatarsis(f) {
   dias.forEach(() => h2 += '<th>Catarsis</th><th>Tipo</th>');
   let rows = '';
   state.residentes.forEach(r => {
-    let tds = `<td class="cs-resname">${escapeHtml(r.nombre)}</td>`;
+    let tds = csResNameCell(r.nombre);
     dias.forEach(d => {
       tds += `<td>${csSelect('catarsis', d, r.nombre, 'hubo', csGet(d,'catarsis',r.nombre,'hubo'), ['','Sí','No'])}</td>`;
       tds += `<td>${csInput('catarsis', d, r.nombre, 'tipo', csGet(d,'catarsis',r.nombre,'tipo'), true)}</td>`;
@@ -2405,25 +2527,79 @@ function csTablaCatarsis(f) {
   return wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+// ---- Historial: archivo por semana y día ----
+function csDiaTieneDatos(fecha) {
+  const dia = state.controlSignos[fecha];
+  if (!dia) return false;
+  let found = false;
+  JSON.stringify(dia, (k, v) => {
+    if (typeof v === 'string' && v.trim() !== '') found = true;
+    return v;
+  });
+  return found;
+}
+function csHistorialView() {
+  const fechas = Object.keys(state.controlSignos).filter(csDiaTieneDatos).sort();
+  if (fechas.length === 0) {
+    return '<div class="cs-hist-vacio">Todavía no hay planillas cargadas.<br>' +
+           'A medida que cargues datos en Signos vitales, Hidratación o Catarsis, ' +
+           'cada día y cada semana van a aparecer acá archivados para consultarlos.</div>';
+  }
+  const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const semanas = {};
+  fechas.forEach(f => {
+    const lun = csSemanaDias(f)[0];
+    if (!semanas[lun]) semanas[lun] = [];
+    semanas[lun].push(f);
+  });
+  const lunes = Object.keys(semanas).sort().reverse();
+  let html = '';
+  lunes.forEach(lun => {
+    const dias7 = csSemanaDias(lun);
+    const conDatos = semanas[lun];
+    let chips = '';
+    dias7.forEach((d, i) => {
+      const tiene = conDatos.indexOf(d) !== -1;
+      const etq = nom[i] + ' ' + d.slice(8) + '/' + d.slice(5,7);
+      chips += tiene
+        ? `<button class="cs-hist-dia" type="button" data-cs-ir-dia="${d}">${etq}</button>`
+        : `<button class="cs-hist-dia vacio" type="button" disabled>${etq}</button>`;
+    });
+    html += `<div class="cs-hist-sem">` +
+      `<div class="cs-hist-head">` +
+        `<span class="cs-hist-tit">Semana del ${csFmtFecha(dias7[0])} al ${csFmtFecha(dias7[6])}</span>` +
+        `<button class="cs-hist-vsem" type="button" data-cs-ir-semana="${lun}">Ver catarsis de la semana</button>` +
+      `</div>` +
+      `<div class="cs-hist-dias">${chips}</div>` +
+    `</div>`;
+  });
+  return html;
+}
+
 function viewControlSignos() {
   const f = state.csFecha || csHoy();
   const sub = state.csSubtab || 'signos';
-  let tabla;
-  if (sub === 'hidro') tabla = csTablaHidro(f);
-  else if (sub === 'catarsis') tabla = csTablaCatarsis(f);
-  else tabla = csTablaSignos(f);
+  let cont;
+  if (sub === 'historial') cont = csHistorialView();
+  else if (sub === 'hidro') cont = csTablaHidro(f);
+  else if (sub === 'catarsis') cont = csTablaCatarsis(f);
+  else cont = csTablaSignos(f);
+  const barra = (sub === 'historial') ? '' : `
+    <div class="cs-bar">
+      <label><b>Fecha:</b>&nbsp; <input type="date" class="cs-fecha-input" value="${f}" onchange="csCambiarFecha(this.value)"></label>
+      <button class="cs-addbtn" type="button" onclick="csNuevoResidente()">+ Agregar residente</button>
+    </div>`;
   return `
     <h2>🩺 Control de Signos</h2>
     <div class="subtitle">Planillas de control diario de los residentes. Lo que cargás se guarda y se sincroniza solo.</div>
-    <div class="cs-bar">
-      <label><b>Fecha:</b>&nbsp; <input type="date" class="cs-fecha-input" value="${f}" onchange="csCambiarFecha(this.value)"></label>
-    </div>
+    ${barra}
     <div class="cs-subtabs">
       <div class="cs-subtab ${sub==='signos'?'active':''}" onclick="csVerSubtab('signos')">Signos vitales</div>
       <div class="cs-subtab ${sub==='hidro'?'active':''}" onclick="csVerSubtab('hidro')">Hidratación y baño</div>
       <div class="cs-subtab ${sub==='catarsis'?'active':''}" onclick="csVerSubtab('catarsis')">Catarsis semanal</div>
+      <div class="cs-subtab ${sub==='historial'?'active':''}" onclick="csVerSubtab('historial')">📁 Historial</div>
     </div>
-    <div class="cs-tabla-wrap" id="cs-tabla-cont">${tabla}</div>
+    <div class="cs-tabla-wrap" id="cs-tabla-cont">${cont}</div>
   `;
 }
 
@@ -2439,6 +2615,17 @@ function attachListeners() {
       if (!el.dataset || !el.dataset.csSeccion) return;
       csSet(el.dataset.csFecha, el.dataset.csSeccion, el.dataset.csRes,
             el.dataset.csCampo, el.value);
+    };
+    csCont.onclick = (e) => {
+      const irDia = e.target.closest('[data-cs-ir-dia]');
+      if (irDia) { state.csFecha = irDia.dataset.csIrDia; state.csSubtab = 'signos'; render(); return; }
+      const irSem = e.target.closest('[data-cs-ir-semana]');
+      if (irSem) { state.csFecha = irSem.dataset.csIrSemana; state.csSubtab = 'catarsis'; render(); return; }
+      const b = e.target.closest('[data-cs-action]');
+      if (!b) return;
+      const res = b.dataset.csRes;
+      if (b.dataset.csAction === 'rename') csRenombrarResidente(res);
+      else if (b.dataset.csAction === 'delete') csEliminarResidente(res);
     };
   }
   const search = document.getElementById('search-stock');
