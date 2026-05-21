@@ -628,6 +628,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="controlsignos">🩺 <span>Control de signos</span></div>
     <div class="nav-section">Indicaciones</div>
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
+    <div class="nav-item" data-view="insumos">🧴 <span>Insumos</span></div>
     <div class="nav-section">Residentes</div>
     <div id="lista-residentes-sidebar"></div>
     <div class="nav-section">Acciones</div>
@@ -1431,6 +1432,7 @@ function render() {
     if (getIndicUrl()) cargarIndicacionesList();
   }
   else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
+  else if (state.view === 'insumos') { main.innerHTML = viewInsumos(); attachInsumos(); return; }
 
   attachListeners();
 }
@@ -2969,6 +2971,204 @@ function attachListeners() {
       }, 0);
     };
   }
+}
+
+// =====================================================
+// MÓDULO INSUMOS
+// =====================================================
+const INSUMOS_CAMPOS = ['pañal','zalea','aposito','bombacha'];
+const INSUMOS_LABELS = ['Pañal','Zalea','Apósito','Bombacha/Calzoncillo'];
+let insumosState = { residente: '', mes: '', datos: {} };
+
+function viewInsumos() {
+  const ahora = new Date();
+  const mesActual = ahora.getFullYear() + String(ahora.getMonth()+1).padStart(2,'0');
+  const residentes = (state.residentes || []).map(r => r.nombre);
+  const resSel = insumosState.residente || (residentes[0] || '');
+  const mesSel = insumosState.mes || mesActual;
+
+  const mesOpts = [];
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
+    const val = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0');
+    const lbl = d.toLocaleDateString('es-AR', {month:'long', year:'numeric'});
+    mesOpts.push(`<option value="${val}"${val===mesSel?' selected':''}>${lbl.charAt(0).toUpperCase()+lbl.slice(1)}</option>`);
+  }
+
+  const resOpts = residentes.map(n =>
+    `<option value="${escapeHtml(n)}"${n===resSel?' selected':''}>${escapeHtml(n)}</option>`
+  ).join('');
+
+  // Calcular días del mes seleccionado
+  const anio = parseInt(mesSel.substring(0,4));
+  const mes  = parseInt(mesSel.substring(4,6));
+  const diasEnMes = new Date(anio, mes, 0).getDate();
+  const diasSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+  // Construir filas de la grilla
+  let filas = '';
+  for (let d = 1; d <= diasEnMes; d++) {
+    const fecha = new Date(anio, mes-1, d);
+    const dow = diasSemana[fecha.getDay()];
+    const esFind = fecha.getDay() === 0 || fecha.getDay() === 6;
+    const datos = (insumosState.datos[d] || {});
+    const celdas = INSUMOS_CAMPOS.map((c,i) => {
+      const v = datos[c] !== undefined ? datos[c] : '';
+      return `<td><input type="number" min="0" class="ins-inp" data-dia="${d}" data-campo="${c}" value="${v}" placeholder="0"></td>`;
+    }).join('');
+    filas += `<tr class="${esFind?'ins-finde':''}"><td class="ins-dia"><span class="ins-dow">${dow}</span> ${d}</td>${celdas}<td><button class="ins-btn-guardar btn-sm" data-dia="${d}">💾</button></td></tr>`;
+  }
+
+  // Totales
+  let totFila = '<tr class="ins-totales"><td><strong>TOTAL</strong></td>';
+  INSUMOS_CAMPOS.forEach(c => {
+    let suma = 0;
+    for (let d = 1; d <= diasEnMes; d++) {
+      suma += Number((insumosState.datos[d] || {})[c] || 0);
+    }
+    totFila += `<td><strong>${suma}</strong></td>`;
+  });
+  totFila += '<td></td></tr>';
+
+  return `
+<style>
+.ins-header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+.ins-header h2 { font-size:20px; color:var(--azul-1); margin:0; }
+.ins-select { padding:7px 12px; border:1px solid var(--gris-borde); border-radius:6px; font-size:14px; background:white; }
+.ins-tabla-wrap { overflow-x:auto; background:white; border-radius:8px; border:1px solid var(--gris-borde); box-shadow:0 1px 4px rgba(0,0,0,.06); }
+.ins-tabla { width:100%; border-collapse:collapse; min-width:520px; }
+.ins-tabla th { background:var(--azul-1); color:white; padding:10px 12px; font-size:13px; text-align:center; }
+.ins-tabla th:first-child { text-align:left; min-width:80px; }
+.ins-tabla td { padding:6px 8px; border-bottom:1px solid var(--gris-borde); text-align:center; vertical-align:middle; }
+.ins-tabla td:first-child { text-align:left; }
+.ins-dia { font-size:13px; color:var(--texto); white-space:nowrap; }
+.ins-dow { display:inline-block; width:28px; font-size:11px; color:#888; font-weight:600; }
+.ins-finde td { background:#F8F5FF; }
+.ins-totales td { background:var(--azul-claro); padding:10px 8px; border-top:2px solid var(--azul-2); }
+.ins-inp { width:64px; padding:5px 6px; border:1px solid var(--gris-borde); border-radius:4px; font-size:13px; text-align:center; }
+.ins-inp:focus { border-color:var(--azul-2); outline:none; background:#EAF1FA; }
+.btn-sm { padding:4px 10px; font-size:12px; background:var(--azul-2); color:white; border:none; border-radius:4px; cursor:pointer; }
+.btn-sm:hover { background:var(--azul-1); }
+.ins-toast { position:fixed; bottom:24px; right:24px; background:#1a7340; color:white; padding:10px 18px; border-radius:8px; font-size:13px; box-shadow:0 4px 12px rgba(0,0,0,.2); display:none; z-index:9999; }
+.ins-loading { text-align:center; padding:40px; color:#888; font-size:14px; }
+</style>
+<div style="padding:24px">
+  <div class="ins-header">
+    <h2>🧴 Insumos</h2>
+    <select class="ins-select" id="ins-res-sel">${resOpts}</select>
+    <select class="ins-select" id="ins-mes-sel">${mesOpts.join('')}</select>
+    <button class="btn btn-primary" id="ins-btn-cargar">📥 Cargar datos</button>
+  </div>
+  <div id="ins-contenido">
+    <div class="ins-loading">Seleccioná un residente y mes, luego hacé clic en <strong>Cargar datos</strong>.</div>
+  </div>
+  <div id="ins-tabla-wrap" style="display:none">
+    <div class="ins-tabla-wrap">
+      <table class="ins-tabla">
+        <thead><tr>
+          <th>Día</th>
+          ${INSUMOS_LABELS.map(l=>`<th>${l}</th>`).join('')}
+          <th></th>
+        </tr></thead>
+        <tbody id="ins-tbody">${filas}</tbody>
+        ${totFila}
+      </table>
+    </div>
+  </div>
+</div>
+<div id="ins-toast" class="ins-toast">✅ Guardado</div>`;
+}
+
+function attachInsumos() {
+  const resEl = document.getElementById('ins-res-sel');
+  const mesEl = document.getElementById('ins-mes-sel');
+  const btnCargar = document.getElementById('ins-btn-cargar');
+
+  if (resEl) resEl.onchange = () => { insumosState.residente = resEl.value; };
+  if (mesEl) mesEl.onchange = () => { insumosState.mes = mesEl.value; };
+
+  if (btnCargar) btnCargar.onclick = async () => {
+    const res = resEl ? resEl.value : insumosState.residente;
+    const mes = mesEl ? mesEl.value : insumosState.mes;
+    if (!res || !mes) return;
+    insumosState.residente = res;
+    insumosState.mes = mes;
+    const url = getIndicUrl();
+    if (!url) { alert('Configurá primero la URL de la nube (⚙️ Configurar nube).'); return; }
+    btnCargar.textContent = '⏳ Cargando...';
+    btnCargar.disabled = true;
+    try {
+      const r = await fetch(`${url}?action=getInsumos&residente=${encodeURIComponent(res)}&mes=${mes}`);
+      const j = await r.json();
+      insumosState.datos = {};
+      if (j.ok && Array.isArray(j.data)) {
+        j.data.forEach(row => {
+          insumosState.datos[row.dia] = {
+            pañal: row.pañal, zalea: row.zalea,
+            aposito: row.aposito, bombacha: row.bombacha
+          };
+        });
+      }
+    } catch(e) { console.error(e); }
+    btnCargar.textContent = '📥 Cargar datos';
+    btnCargar.disabled = false;
+    // Re-render sección
+    const main = document.getElementById('main');
+    main.innerHTML = viewInsumos();
+    attachInsumos();
+    // Mostrar tabla
+    const tw = document.getElementById('ins-tabla-wrap');
+    const contenido = document.getElementById('ins-contenido');
+    if (tw) tw.style.display = 'block';
+    if (contenido) contenido.style.display = 'none';
+  };
+
+  // Guardar fila
+  document.querySelectorAll('.ins-btn-guardar').forEach(btn => {
+    btn.onclick = async () => {
+      const dia = btn.dataset.dia;
+      const url = getIndicUrl();
+      if (!url) { alert('Configurá primero la URL de la nube.'); return; }
+      const res = insumosState.residente;
+      const mes = insumosState.mes;
+      if (!res || !mes) { alert('Seleccioná residente y mes primero.'); return; }
+      const vals = {};
+      INSUMOS_CAMPOS.forEach(c => {
+        const inp = document.querySelector(`.ins-inp[data-dia="${dia}"][data-campo="${c}"]`);
+        vals[c] = inp ? (inp.value || 0) : 0;
+      });
+      // Guardar en estado local
+      insumosState.datos[dia] = vals;
+      // Guardar en nube
+      btn.textContent = '⏳';
+      try {
+        const params = new URLSearchParams({
+          action: 'setInsumo', residente: res, mes: mes, dia: dia,
+          'pañal': vals['pañal'], zalea: vals['zalea'],
+          aposito: vals['aposito'], bombacha: vals['bombacha']
+        });
+        await fetch(`${url}?${params.toString()}`);
+        btn.textContent = '✅';
+        setTimeout(() => btn.textContent = '💾', 1500);
+        // Actualizar totales
+        INSUMOS_CAMPOS.forEach((c, i) => {
+          const anio = parseInt(mes.substring(0,4));
+          const mesN = parseInt(mes.substring(4,6));
+          const diasEnMes = new Date(anio, mesN, 0).getDate();
+          let suma = 0;
+          for (let d = 1; d <= diasEnMes; d++) {
+            suma += Number((insumosState.datos[d] || {})[c] || 0);
+          }
+          // Actualizar fila totales
+          const totCeldas = document.querySelectorAll('.ins-totales td strong');
+          if (totCeldas[i+1]) totCeldas[i+1].textContent = suma;
+        });
+      } catch(e) {
+        btn.textContent = '❌';
+        setTimeout(() => btn.textContent = '💾', 2000);
+      }
+    };
+  });
 }
 
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {

@@ -271,6 +271,15 @@ function doGet(e) {
         if (!isAuthorized(e.parameter.email)) return jsonError('No autorizado');
         payload = { respaldo: respaldoSemanalIndicaciones() };
         break;
+      case 'getInsumos':
+        payload = apiGetInsumos(e.parameter.residente, e.parameter.mes);
+        break;
+      case 'setInsumo':
+        payload = apiSetInsumo(
+          e.parameter.residente, e.parameter.mes, e.parameter.dia,
+          e.parameter.pañal, e.parameter.zalea, e.parameter.aposito, e.parameter.bombacha
+        );
+        break;
       default: payload = { ok: true, action: 'noop' };
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, data: payload }))
@@ -324,6 +333,74 @@ function apiGetIndicacion(fileId) {
 
 function isAuthorized(email) {
   return email && String(email).toLowerCase() === AUTHORIZED_EMAIL.toLowerCase();
+}
+
+// =====================================================
+// MODULO INSUMOS
+// Hoja: INSUMOS | Columnas: Residente | AñoMes | Dia | Pañal | Zalea | Aposito | Bombacha
+// =====================================================
+const SHEET_INSUMOS = 'INSUMOS';
+const INSUMOS_HEADERS = ['Residente', 'AñoMes', 'Dia', 'Pañal', 'Zalea', 'Aposito', 'Bombacha'];
+
+function setupInsumos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_INSUMOS);
+  if (!sheet) sheet = ss.insertSheet(SHEET_INSUMOS);
+  sheet.clear();
+  sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length).setValues([INSUMOS_HEADERS]);
+  sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length)
+    .setFontWeight('bold').setBackground('#1a73e8').setFontColor('white');
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 220);
+  sheet.setColumnWidth(2, 80);
+  sheet.setColumnWidth(3, 50);
+  SpreadsheetApp.flush();
+}
+
+function apiGetInsumos(residente, mes) {
+  // mes: YYYYMM string
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
+  if (!sheet) return [];
+  const last = sheet.getLastRow();
+  if (last < 2) return [];
+  const data = sheet.getRange(2, 1, last - 1, 7).getValues();
+  const result = [];
+  data.forEach(function(row) {
+    if (String(row[0]).toLowerCase() === String(residente).toLowerCase() &&
+        String(row[1]) === String(mes)) {
+      result.push({
+        dia: row[2], pañal: row[3] || 0, zalea: row[4] || 0,
+        aposito: row[5] || 0, bombacha: row[6] || 0
+      });
+    }
+  });
+  return result;
+}
+
+function apiSetInsumo(residente, mes, dia, pañal, zalea, aposito, bombacha) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
+  if (!sheet) { setupInsumos(); }
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
+  const last = sh.getLastRow();
+  let found = -1;
+  if (last > 1) {
+    const data = sh.getRange(2, 1, last - 1, 3).getValues();
+    data.forEach(function(row, idx) {
+      if (String(row[0]).toLowerCase() === String(residente).toLowerCase() &&
+          String(row[1]) === String(mes) && Number(row[2]) === Number(dia)) {
+        found = idx + 2;
+      }
+    });
+  }
+  const rowData = [residente, String(mes), Number(dia),
+                   Number(pañal)||0, Number(zalea)||0, Number(aposito)||0, Number(bombacha)||0];
+  if (found > 0) {
+    sh.getRange(found, 1, 1, 7).setValues([rowData]);
+  } else {
+    sh.appendRow(rowData);
+  }
+  SpreadsheetApp.flush();
+  return { ok: true };
 }
 
 function setupTrigger() {
