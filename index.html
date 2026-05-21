@@ -466,6 +466,34 @@ input:focus, select:focus, textarea:focus {
 }
 .indic-detalle-nombre { font-size: 19px; font-weight: 700; color: var(--azul-1); }
 .indic-detalle-meta { font-size: 12px; color: #6c7a8a; margin-top: 3px; }
+.indic-modif-banner {
+  margin-top: 8px; padding: 6px 12px; border-radius: 5px;
+  background: #FFF3CD; color: #856404; font-size: 12px; border-left: 3px solid #E58E26;
+}
+.indic-diff-bar {
+  display: flex; gap: 0; margin-bottom: 0; border-radius: 6px 6px 0 0; overflow: hidden;
+}
+.indic-diff-label {
+  flex: 1; text-align: center; padding: 7px 10px; font-size: 12px; font-weight: 700; letter-spacing: .4px;
+}
+.indic-diff-label.anterior { background: #FBEAEA; color: #C00000; }
+.indic-diff-label.actual   { background: #E6F4EA; color: #1a7340; }
+.indic-diff-wrap {
+  display: flex; gap: 0; border: 1px solid var(--gris-borde); border-radius: 0 0 6px 6px; overflow: hidden;
+}
+.indic-diff-col {
+  flex: 1; padding: 14px 16px; overflow-x: auto;
+}
+.indic-diff-col.anterior { background: #FFFAFA; border-right: 1px solid var(--gris-borde); }
+.indic-diff-col.actual   { background: #F6FFF8; }
+/* Filas resaltadas en el diff */
+.indic-diff-col.anterior tr.diff-changed td { background: #FDDEDE !important; border-left: 3px solid #C00000; }
+.indic-diff-col.anterior tr.diff-removed  td { background: #FDDEDE !important; border-left: 3px solid #C00000; opacity: .75; }
+.indic-diff-col.actual   tr.diff-changed  td { background: #D4EDDA !important; border-left: 3px solid #1a7340; }
+.indic-diff-col.actual   tr.diff-added    td { background: #D4EDDA !important; border-left: 3px solid #1a7340; }
+/* Texto cambiado dentro de una celda */
+.diff-old-val { background: #FBBABA; border-radius: 3px; padding: 0 2px; text-decoration: line-through; color: #7a0000; font-size: 12px; }
+.diff-new-val { background: #A8E6B8; border-radius: 3px; padding: 0 2px; color: #0a4d20; font-size: 12px; }
 .indic-doc { font-size: 14px; line-height: 1.6; }
 .indic-doc p { margin-bottom: 6px; }
 .indic-doc table, table.ind-tabla {
@@ -2442,13 +2470,102 @@ function pintarIndicacion(d) {
   if (d.modifDrive) {
     try { fecha = new Date(d.modifDrive).toLocaleDateString('es-AR', { day:'numeric', month:'long', year:'numeric' }); } catch(e) {}
   }
+  let fechaMod = '';
+  if (d.fechaModif) {
+    try { fechaMod = new Date(d.fechaModif).toLocaleDateString('es-AR', { day:'numeric', month:'long', year:'numeric' }); } catch(e) {}
+  }
+
+  const tieneAnterior = d.htmlAnterior && d.htmlAnterior.trim() && d.modificado;
+
+  let diffHTML = '';
+  if (tieneAnterior) {
+    diffHTML =
+      '<div class="indic-diff-bar">' +
+        '<span class="indic-diff-label anterior">📋 PASE ANTERIOR</span>' +
+        '<span class="indic-diff-label actual">✅ INDICACIÓN ACTUAL</span>' +
+      '</div>' +
+      '<div class="indic-diff-wrap">' +
+        '<div class="indic-diff-col anterior"><div class="indic-doc">' + d.htmlAnterior + '</div></div>' +
+        '<div class="indic-diff-col actual"><div class="indic-doc">' + (d.html || '<p>Sin contenido.</p>') + '</div></div>' +
+      '</div>';
+  }
+
   panel.innerHTML =
     '<div class="indic-detalle-head">' +
       '<div class="indic-detalle-nombre">👤 ' + escapeHtml(d.residente) + '</div>' +
       '<div class="indic-detalle-meta">Última actualización del parte médico: ' + escapeHtml(fecha) + '</div>' +
+      (d.modificado ? '<div class="indic-modif-banner">✏ Modificado: <strong>' + escapeHtml(d.modificado) + '</strong>' + (fechaMod ? ' — ' + fechaMod : '') + '</div>' : '') +
     '</div>' +
-    '<div class="indic-doc">' + (d.html || '<p>Sin contenido.</p>') + '</div>';
-  ordenarTablaIndicacionPorHorario(panel);
+    (tieneAnterior
+      ? diffHTML
+      : '<div class="indic-doc">' + (d.html || '<p>Sin contenido.</p>') + '</div>');
+
+  panel.querySelectorAll('.indic-doc').forEach(function(c){ ordenarTablaIndicacionPorHorario(c); });
+
+  if (tieneAnterior) {
+    const colAnt = panel.querySelector('.indic-diff-col.anterior');
+    const colAct = panel.querySelector('.indic-diff-col.actual');
+    if (colAnt && colAct) resaltarCambiosDiff(colAnt, colAct);
+  }
+}
+
+// ─── DIFF: resalta filas y celdas que cambiaron entre pase anterior y actual ───
+function resaltarCambiosDiff(colAnt, colAct) {
+  const tablaAnt = colAnt.querySelector('table');
+  const tablaAct = colAct.querySelector('table');
+  if (!tablaAnt || !tablaAct) return;
+
+  // Construir mapa: clave = texto de primera celda (nombre del medicamento) en minúsculas
+  function filasComoMap(tabla) {
+    const map = {};
+    const rows = Array.from(tabla.querySelectorAll('tr')).filter(r => r.querySelector('td'));
+    rows.forEach(function(tr) {
+      const clave = (tr.cells[0] ? tr.cells[0].textContent.trim().toLowerCase() : '');
+      if (clave) map[clave] = tr;
+    });
+    return map;
+  }
+
+  const mapAnt = filasComoMap(tablaAnt);
+  const mapAct = filasComoMap(tablaAct);
+
+  // Marcar filas del ANTERIOR
+  Object.keys(mapAnt).forEach(function(clave) {
+    const trAnt = mapAnt[clave];
+    if (!mapAct[clave]) {
+      // Medicamento eliminado — solo en anterior
+      trAnt.classList.add('diff-removed');
+    } else {
+      const trAct = mapAct[clave];
+      const textoAnt = trAnt.textContent.trim();
+      const textoAct = trAct.textContent.trim();
+      if (textoAnt !== textoAct) {
+        // Medicamento cambió — resaltar fila y resaltar celdas individuales
+        trAnt.classList.add('diff-changed');
+        trAct.classList.add('diff-changed');
+        // Comparar celda a celda para mostrar el valor viejo vs nuevo dentro de la celda
+        const nCols = Math.max(trAnt.cells.length, trAct.cells.length);
+        for (let c = 1; c < nCols; c++) {   // saltamos col 0 (nombre del med)
+          const celdaAnt = trAnt.cells[c];
+          const celdaAct = trAct.cells[c];
+          if (!celdaAnt || !celdaAct) continue;
+          const vAnt = celdaAnt.textContent.trim();
+          const vAct = celdaAct.textContent.trim();
+          if (vAnt !== vAct) {
+            celdaAnt.innerHTML = '<span class="diff-old-val">' + escapeHtml(vAnt) + '</span>';
+            celdaAct.innerHTML = '<span class="diff-new-val">' + escapeHtml(vAct) + '</span>';
+          }
+        }
+      }
+    }
+  });
+
+  // Marcar filas del ACTUAL que no estaban en el anterior (medicamento nuevo)
+  Object.keys(mapAct).forEach(function(clave) {
+    if (!mapAnt[clave]) {
+      mapAct[clave].classList.add('diff-added');
+    }
+  });
 }
 
 // Ordena la tabla de medicación de una indicación por la columna HORARIO.
