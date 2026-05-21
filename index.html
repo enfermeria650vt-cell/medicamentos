@@ -1346,6 +1346,16 @@ function render() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// Escapa un texto para usarlo DENTRO de un string JS con comillas simples que
+// va dentro de un atributo HTML (onclick="fn('AQUI')"). El apóstrofo se escapa
+// como \' (escape JS) — NO como entidad HTML, porque el navegador la revierte.
+function jsAttr(s) {
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, "\\'");
+}
 
 // ============ VISTAS ============
 function viewDashboard() {
@@ -1417,7 +1427,7 @@ function viewAlertas() {
               <td>${a.consumo ?? a.consumoTxt}</td>
               <td><strong>${a.dias ?? '—'}</strong></td>
               <td>${fechaAgotamiento(a)}</td>
-              <td><button class="btn small" onclick="abrirIngresoRapido('${escapeHtml(a.residente)}','${a.id}')">+ Ingreso</button></td>
+              <td><button class="btn small" onclick="abrirIngresoRapido('${jsAttr(a.residente)}','${jsAttr(a.id)}')">+ Ingreso</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -1449,9 +1459,9 @@ function viewStock() {
           const e = estadoMed(m);
           return `
             <tr data-med-id="${m.id}">
-              <td><a href="#" onclick="navigate('residente','${escapeHtml(m.residente)}');return false;" style="color:var(--azul-1);text-decoration:none;font-weight:600">${escapeHtml(m.residente)}</a></td>
+              <td><a href="#" onclick="navigate('residente','${jsAttr(m.residente)}');return false;" style="color:var(--azul-1);text-decoration:none;font-weight:600">${escapeHtml(m.residente)}</a></td>
               <td>${escapeHtml(m.med)}</td>
-              <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" onchange="actualizarStock('${escapeHtml(m.residente)}','${m.id}',this.value)"></td>
+              <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" onchange="actualizarStock('${jsAttr(m.residente)}','${jsAttr(m.id)}',this.value)"></td>
               <td>${m.consumo ?? '—'}</td>
               <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}</td>
               <td>${calcDiasRestantes(m) ?? '—'}</td>
@@ -1524,7 +1534,7 @@ function viewResidente() {
   if (!r) return `<h2>Residente no encontrado</h2>`;
   const s = resumenResidente(r);
   const dias = ['LUN','MAR','MIE','JUE','VIE','SAB','DOM'];
-  const nombreEsc = escapeHtml(r.nombre).replace(/'/g, "\\'");
+  const nombreEsc = jsAttr(r.nombre);
   const admin = esAdmin();
   const ro = admin ? '' : 'readonly';
   const dis = admin ? '' : 'disabled style="opacity:.5;cursor:not-allowed"';
@@ -1553,16 +1563,16 @@ function viewResidente() {
             return `
               <tr>
                 <td><strong>${escapeHtml(m.med)}</strong></td>
-                <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" ${ro} onchange="actualizarStock('${nombreEsc}','${m.id}',this.value)"></td>
-                <td><input type="number" value="${m.consumo ?? ''}" step="0.25" min="0" ${ro} onchange="actualizarConsumo('${nombreEsc}','${m.id}',this.value)"></td>
+                <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" ${ro} onchange="actualizarStock('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
+                <td><input type="number" value="${m.consumo ?? ''}" step="0.25" min="0" ${ro} onchange="actualizarConsumo('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
                 <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}</td>
-                <td><input type="date" value="${m.fechaIngreso || ''}" ${ro} onchange="actualizarFechaIngreso('${nombreEsc}','${m.id}',this.value)" style="width:140px;font-size:12px"></td>
+                <td><input type="date" value="${m.fechaIngreso || ''}" ${ro} onchange="actualizarFechaIngreso('${nombreEsc}','${jsAttr(m.id)}',this.value)" style="width:140px;font-size:12px"></td>
                 <td>${calcDiasRestantes(m) ?? '—'}</td>
                 <td>${fechaAgotamiento(m)}</td>
                 <td><span class="pill ${e.clase}">${e.label}</span></td>
                 ${admin ? `<td style="white-space:nowrap">
-                  <button class="btn small" onclick="abrirIngresoRapido('${nombreEsc}','${m.id}')">+ Ingreso</button>
-                  <button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${m.id}')" title="Eliminar">🗑️</button>
+                  <button class="btn small" onclick="abrirIngresoRapido('${nombreEsc}','${jsAttr(m.id)}')">+ Ingreso</button>
+                  <button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${jsAttr(m.id)}')" title="Eliminar">🗑️</button>
                 </td>` : ''}
               </tr>`;
           }).join('')}
@@ -1625,7 +1635,7 @@ function viewResidente() {
               return `
                 <tr class="${rowCls}">
                   <td class="med-name">${escapeHtml(m.med)}${tag}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? (m.consumoTxt || '—')}/día</span></td>
-                  <td class="horario-cell"><input class="horario-input" value="${escapeHtml(horario)}" placeholder="Ej: 08:00, 20:00" ${ro} onchange="setHorario('${nombreEsc}','${m.id}',this.value)"></td>
+                  <td class="horario-cell"><input class="horario-input" value="${escapeHtml(horario)}" placeholder="Ej: 08:00, 20:00" ${ro} onchange="setHorario('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
                   ${dias.map((d,i) => {
                     const tomas = dosisDeMed(m.id);
                     const esHoy = i === diaHoyIdx();
@@ -1638,11 +1648,11 @@ function viewResidente() {
                       const at = state.semanal[k + '_at'];
                       const tip = (done && by) ? `title="Tildada por ${by}${at ? ' a las ' + new Date(at).toLocaleString('es-AR') : ''}"` : '';
                       const lblHtml = tomas.length > 1 ? `<span class="dosis-lbl">${escapeHtml(lbl)}</span>` : '';
-                      return `<span class="dosis-item"><span class="check ${done?'done':''}" ${tip} onclick="toggleDosis('${nombreEsc}','${m.id}',${i},${di})"></span>${lblHtml}</span>`;
+                      return `<span class="dosis-item"><span class="check ${done?'done':''}" ${tip} onclick="toggleDosis('${nombreEsc}','${jsAttr(m.id)}',${i},${di})"></span>${lblHtml}</span>`;
                     }).join('');
                     return `<td class="${cellCls}"><span class="dosis-cell">${checks}</span></td>`;
                   }).join('')}
-                  ${admin ? `<td><button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${m.id}')" title="Quitar medicamento">🗑️</button></td>` : ''}
+                  ${admin ? `<td><button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${jsAttr(m.id)}')" title="Quitar medicamento">🗑️</button></td>` : ''}
                 </tr>`;
             }).join('')}
           </tbody>
@@ -1710,7 +1720,7 @@ function viewSemanal() {
         if (al.atrasadas > 0) { cls = 'tiene-criticos'; extra = `<span class="pill critico">⏰ ${al.atrasadas} atrasada${al.atrasadas>1?'s':''}</span>`; }
         else if (al.ahora > 0) { cls = 'tiene-atencion'; extra = `<span class="pill atencion">🔔 ${al.ahora} ahora</span>`; }
         return `
-        <div class="res-card ${cls}" data-residente="${escapeHtml(r.nombre)}" onclick="navigate('residente','${escapeHtml(r.nombre)}')">
+        <div class="res-card ${cls}" data-residente="${escapeHtml(r.nombre)}" onclick="navigate('residente','${jsAttr(r.nombre)}')">
           <div class="nombre">👤 ${escapeHtml(r.nombre)}</div>
           <div class="info"><span>${r.meds.length} medicamentos</span>${extra}</div>
         </div>`;
