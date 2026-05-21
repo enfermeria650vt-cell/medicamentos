@@ -602,6 +602,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" id="btn-cambiar-usuario" style="font-size:12px">
       👤 <span id="user-display">Sin usuario</span>
     </div>
+    <div class="nav-item" id="btn-cerrar-sesion" style="font-size:12px">🔒 <span>Cerrar sesión</span></div>
     <div style="padding:6px 20px;font-size:11px" id="sync-status">☁️ Sin sync</div>
   </aside>
   <main class="main" id="main"></main>
@@ -917,6 +918,10 @@ const ADMIN_NAMES = ['Maxi', 'Maxi Martin', 'Administrador'];
 // Hash SHA-256 de la clave de administrador. Para cambiar la clave, regenerá este hash.
 const ADMIN_PASSWORD_HASH = '88a9293378ceff3f271a925de098cccc3f3c1db623ee95ab1a6cf83c7c4dc04e';
 const ADMIN_AUTH_KEY = 'med_geri_admin_auth';
+// Acceso al programa (clave de enfermero). La clave va cifrada (SHA-256), no en texto.
+const ENFERMERO_USUARIO = 'enfermeria';
+const ENFERMERO_PASSWORD_HASH = '30d369fa1fce406aaf1f0d70637dfc970bdfdc633a487657f19f30480e561897';
+const ENFERMERO_AUTH_KEY = 'med_geri_enf_auth';
 
 async function sha256Hex(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -982,6 +987,53 @@ function pedirClaveAdmin(nombre) {
     modalBg.querySelector('#admin-skip').onclick = () => { setAdminAutorizado(false); modalBg.remove(); resolve(false); };
     modalBg.querySelector('#admin-pwd').onkeypress = (e) => { if (e.key === 'Enter') validar(); };
   });
+}
+
+// Pantalla de acceso al programa (clave de enfermero). Se recuerda por dispositivo.
+function pedirClaveEnfermero() {
+  return new Promise((resolve) => {
+    if (localStorage.getItem(ENFERMERO_AUTH_KEY) === 'yes') { resolve(true); return; }
+    const bg = document.createElement('div');
+    bg.className = 'modal-bg';
+    bg.style.background = 'rgba(15,32,60,.98)';
+    bg.style.zIndex = '99999';
+    bg.innerHTML =
+      '<div class="modal" style="max-width:370px;text-align:center">' +
+        '<div style="font-size:36px;margin-bottom:4px">🔒</div>' +
+        '<h3 style="margin:0 0 2px">Residencia Villa Teresa</h3>' +
+        '<p style="font-size:13px;color:#6c7a8a;margin-bottom:14px">Ingresá usuario y clave para acceder al sistema.</p>' +
+        '<label style="display:block;text-align:left">Usuario</label>' +
+        '<input type="text" id="enf-user" placeholder="Usuario" style="margin-bottom:10px" autocomplete="username">' +
+        '<label style="display:block;text-align:left">Clave</label>' +
+        '<input type="password" id="enf-pwd" placeholder="Clave" style="margin-bottom:14px" autocomplete="current-password">' +
+        '<button class="btn" id="enf-ok" style="width:100%">Entrar</button>' +
+      '</div>';
+    document.body.appendChild(bg);
+    setTimeout(() => { const i = document.getElementById('enf-user'); if (i) i.focus(); }, 50);
+    const validar = async () => {
+      const user = (document.getElementById('enf-user').value || '').trim().toLowerCase();
+      const pwd = (document.getElementById('enf-pwd').value || '').trim().toUpperCase();
+      if (!user || !pwd) { toast('Completá usuario y clave', 'error'); return; }
+      const hash = await sha256Hex(pwd);
+      if (user === ENFERMERO_USUARIO && hash === ENFERMERO_PASSWORD_HASH) {
+        localStorage.setItem(ENFERMERO_AUTH_KEY, 'yes');
+        bg.remove();
+        resolve(true);
+      } else {
+        toast('❌ Usuario o clave incorrectos', 'error');
+        const p = document.getElementById('enf-pwd'); p.value = ''; p.focus();
+      }
+    };
+    document.getElementById('enf-ok').onclick = validar;
+    document.getElementById('enf-pwd').onkeypress = (e) => { if (e.key === 'Enter') validar(); };
+    document.getElementById('enf-user').onkeypress = (e) => { if (e.key === 'Enter') document.getElementById('enf-pwd').focus(); };
+  });
+}
+function cerrarSesion() {
+  if (!confirm('¿Cerrar sesión en este dispositivo? Se va a pedir la clave de nuevo al abrir.')) return;
+  localStorage.removeItem(ENFERMERO_AUTH_KEY);
+  sessionStorage.removeItem(ADMIN_AUTH_KEY);
+  location.reload();
 }
 
 function pedirUsuario(forzar = false) {
@@ -2743,6 +2795,7 @@ document.getElementById('btn-sync').onclick = sincronizarWhatsapp;
 document.getElementById('btn-sync-cloud').onclick = () => cloudPull(false);
 document.getElementById('btn-config-sync-v2').onclick = configurarSyncV2;
 document.getElementById('btn-cambiar-usuario').onclick = () => pedirUsuario(true);
+document.getElementById('btn-cerrar-sesion').onclick = cerrarSesion;
 
 // Función para actualizar el badge de usuario en el sidebar
 function actualizarUserDisplay() {
@@ -2762,6 +2815,7 @@ render = function() {
 
 // Flujo de inicio: pedir usuario si no hay, después renderizar
 (async function init() {
+  await pedirClaveEnfermero();
   if (!getCurrentUser()) {
     await pedirUsuario(false);
   }
