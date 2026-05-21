@@ -11,10 +11,10 @@ const FOLDER_INDICACIONES_ID = '1worGuGb8fm79t-4A_3AztA-zxymcpyZf';
 const AUTHORIZED_EMAIL = 'enfermeria650vt@gmail.com';
 const SHEET_INDICACIONES = 'INDICACIONES';
 const SHEET_RESPALDO = 'INDICACIONES_RESPALDO';
-const NCOL = 13;
+const NCOL = 14;
 const HEADERS = ['Residente', 'FileID', 'Modif. Drive', 'Última Sync', 'Hash',
                  'Diagnóstico', 'HTML', 'Texto', 'HashMed', 'HashHor', 'HashEvo',
-                 'Modificado', 'FechaModif'];
+                 'Modificado', 'FechaModif', 'HtmlAnterior'];
 
 function setupIndicaciones() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -31,11 +31,13 @@ function setupIndicaciones() {
   sheet.setColumnWidth(6, 260);
   sheet.setColumnWidth(12, 200);
   sheet.setColumnWidth(13, 140);
+  sheet.setColumnWidth(14, 60);
   sheet.hideColumns(2);
   sheet.hideColumns(5);
   sheet.hideColumns(7);
   sheet.hideColumns(8);
   sheet.hideColumns(9, 3);
+  sheet.hideColumns(14);
 }
 
 function md5(text) {
@@ -84,7 +86,9 @@ function syncIndicaciones() {
       if (row[1]) existing[row[1]] = {
         rowIndex: idx + 2, hash: row[4], modifDrive: row[2],
         hashMed: row[8], hashHor: row[9], hashEvo: row[10],
-        modificado: row[11], fechaModif: row[12]
+        modificado: row[11], fechaModif: row[12],
+        html: row[6],           // HTML actual (será el "anterior" si hay cambio)
+        htmlAnterior: row[13]   // HTML del pase previo al anterior
       };
     });
   }
@@ -137,6 +141,9 @@ function syncIndicaciones() {
 
     let modificado = prev ? (prev.modificado || '') : '';
     let fechaModif = prev ? (prev.fechaModif || '') : '';
+    let htmlAnterior = prev ? (prev.htmlAnterior || '') : '';
+
+    const html = renderDocToHTML(doc);
 
     if (prev && prev.hash !== hash) {
       if (prev.hashMed || prev.hashHor || prev.hashEvo) {
@@ -149,14 +156,15 @@ function syncIndicaciones() {
         modificado = 'actualizado';
       }
       fechaModif = now;
+      // Guardar el HTML actual como "anterior" antes de sobreescribir
+      htmlAnterior = prev.html || '';
     }
 
-    const html = renderDocToHTML(doc);
     const diagMatch = text.match(/Diagn[óo]stico:\s*([^\n]+)/i);
     const diagnostico = diagMatch ? diagMatch[1].trim() : '';
 
     const row = [fileName, fileId, modifTime, now, hash, diagnostico, html, text,
-                 hMed, hHor, hEvo, modificado, fechaModif];
+                 hMed, hHor, hEvo, modificado, fechaModif, htmlAnterior];
     if (prev) {
       sheet.getRange(prev.rowIndex, 1, 1, NCOL).setValues([row]);
       updates++;
@@ -309,7 +317,8 @@ function apiGetIndicacion(fileId) {
     ultimaSync: row[3] instanceof Date ? row[3].toISOString() : row[3],
     diagnostico: row[5], html: row[6], texto: row[7],
     modificado: row[11] || '',
-    fechaModif: row[12] instanceof Date ? row[12].toISOString() : (row[12] || '')
+    fechaModif: row[12] instanceof Date ? row[12].toISOString() : (row[12] || ''),
+    htmlAnterior: row[13] || ''
   };
 }
 
