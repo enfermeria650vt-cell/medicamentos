@@ -561,6 +561,18 @@ input:focus, select:focus, textarea:focus {
   background: #f0f2f5; border-color: var(--gris-borde); color: #aab2bd;
   cursor: default; font-weight: 400;
 }
+.cs-resumen { margin-top: 16px; background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 14px 16px; }
+.cs-resumen h3 { margin: 0 0 10px; font-size: 14px; color: var(--azul-1); }
+.cs-resumen-turno { border-top: 1px solid var(--gris-borde); padding: 10px 0; }
+.cs-resumen-turno:first-of-type { border-top: none; padding-top: 2px; }
+.cs-resumen-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.cs-resumen-tit { font-weight: 700; color: var(--azul-1); font-size: 13.5px; }
+.cs-finbtn { background: var(--azul-1); color: white; border: none; padding: 6px 13px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.cs-finbtn:hover { background: var(--azul-2); }
+.cs-turno-fin { font-size: 12px; color: var(--verde-oscuro); font-weight: 600; }
+.cs-resumen-lista { margin: 4px 0 0; padding-left: 20px; font-size: 13px; }
+.cs-resumen-lista li { margin-bottom: 3px; line-height: 1.5; }
+.cs-resumen-vacio { font-size: 12px; color: #6c7a8a; font-style: italic; }
 .cs-inp {
   width: 48px; border: 1px solid #d5dbe3; border-radius: 4px;
   padding: 3px 2px; font-size: 12px; text-align: center; font-family: inherit;
@@ -2720,6 +2732,58 @@ function csHistorialView() {
   return html;
 }
 
+// Resumen de novedades por turno (debajo de la planilla Signos vitales).
+function csResumenNovedades(f) {
+  const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
+  const dia = state.controlSignos[f] || {};
+  const fin = dia.turnoFin || {};
+  let html = '<div class="cs-resumen"><h3>📋 Resumen de novedades — ' + csFmtFecha(f) + '</h3>';
+  turnos.forEach(function(tn){
+    const k = tn[0];
+    const items = [];
+    state.residentes.forEach(function(r){
+      const nov = csGet(f, 'novedades', r.nombre, k);
+      if (nov && String(nov).trim()) items.push({ nombre: r.nombre, texto: String(nov).trim() });
+    });
+    const fd = fin[k];
+    let estado;
+    if (fd) {
+      let hora = '';
+      try { hora = new Date(fd.at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e){}
+      estado = '<span class="cs-turno-fin">✓ Finalizado por ' + escapeHtml(fd.by||'') + ' · ' + hora + '</span>';
+    } else {
+      estado = '<button class="cs-finbtn" type="button" onclick="csFinalizarTurno(\'' + k + '\')">Finalizar turno</button>';
+    }
+    html += '<div class="cs-resumen-turno">' +
+      '<div class="cs-resumen-head"><span class="cs-resumen-tit">Turno ' + tn[1] + '</span>' + estado + '</div>';
+    if (items.length) {
+      html += '<ul class="cs-resumen-lista">' +
+        items.map(function(it){ return '<li><strong>' + escapeHtml(it.nombre) + ':</strong> ' + escapeHtml(it.texto) + '</li>'; }).join('') +
+        '</ul>';
+    } else {
+      html += '<div class="cs-resumen-vacio">Sin novedades cargadas en este turno.</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+function csFinalizarTurno(turnoKey) {
+  const nombres = { m:'Mañana', t:'Tarde', n:'Noche' };
+  const f = state.csFecha || csHoy();
+  const dia = csDiaObj(f);
+  if (!dia.turnoFin) dia.turnoFin = {};
+  if (dia.turnoFin[turnoKey]) {
+    if (!confirm('El turno ' + (nombres[turnoKey]||'') + ' ya estaba finalizado. ¿Volver a marcarlo con la hora actual?')) return;
+  } else {
+    if (!confirm('¿Finalizar el turno ' + (nombres[turnoKey]||'') + ' del ' + csFmtFecha(f) + '?')) return;
+  }
+  dia.turnoFin[turnoKey] = { by: getCurrentUser() || 'anónimo', at: new Date().toISOString() };
+  saveCS();
+  toast('Turno ' + (nombres[turnoKey]||'') + ' finalizado');
+  render();
+}
+
 function viewControlSignos() {
   const f = state.csFecha || csHoy();
   const sub = state.csSubtab || 'signos';
@@ -2744,6 +2808,7 @@ function viewControlSignos() {
       <div class="cs-subtab ${sub==='historial'?'active':''}" onclick="csVerSubtab('historial')">📁 Historial</div>
     </div>
     <div class="cs-tabla-wrap" id="cs-tabla-cont">${cont}</div>
+    ${sub === 'signos' ? '<div id="cs-resumen-cont">' + csResumenNovedades(f) + '</div>' : ''}
   `;
 }
 
@@ -2759,6 +2824,10 @@ function attachListeners() {
       if (!el.dataset || !el.dataset.csSeccion) return;
       csSet(el.dataset.csFecha, el.dataset.csSeccion, el.dataset.csRes,
             el.dataset.csCampo, el.value);
+      if (el.dataset.csSeccion === 'novedades') {
+        const rc = document.getElementById('cs-resumen-cont');
+        if (rc) rc.innerHTML = csResumenNovedades(state.csFecha || csHoy());
+      }
     };
     csCont.onclick = (e) => {
       const irDia = e.target.closest('[data-cs-ir-dia]');
