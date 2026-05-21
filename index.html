@@ -293,6 +293,10 @@ input:focus, select:focus, textarea:focus {
   font-weight: 700;
   font-size: 17px;
 }
+.semanal .dosis-cell { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.semanal .dosis-item { display: flex; align-items: center; gap: 4px; }
+.semanal .dosis-item .check { width: 22px; height: 22px; }
+.semanal .dosis-lbl { font-size: 9px; color: #6c7a8a; white-space: nowrap; }
 .semanal tr:nth-child(even) td { background: #FAFBFD; }
 
 /* MODAL */
@@ -751,10 +755,23 @@ function diaHoyIdx() {
 function parseHorarios(str) {
   if (!str) return [];
   return String(str).split(/[,;]/).map(s => s.trim()).filter(Boolean).map(s => {
-    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    const m = s.match(/(\d{1,2}):(\d{2})/);
     if (!m) return null;
     return { h: parseInt(m[1],10), m: parseInt(m[2],10) };
   }).filter(Boolean);
+}
+// Lista de "tomas" de un medicamento: cada segmento del campo horario (separado
+// por coma o ;) es una toma. Siempre devuelve al menos una (toma única).
+function dosisDeMed(medId) {
+  const raw = (state.semanal[medId + '_horario'] || '').trim();
+  if (!raw) return [''];
+  const arr = raw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  return arr.length ? arr : [''];
+}
+// Clave de la marca de una dosis. La toma 0 usa la clave histórica medId_dia
+// (compatibilidad con marcas ya existentes); las tomas extra agregan _dosis.
+function claveDosis(medId, dia, dosis) {
+  return (dosis > 0) ? (medId + '_' + dia + '_' + dosis) : (medId + '_' + dia);
 }
 // Estado de cumplimiento de la dosis de HOY para un medicamento
 // Retorna { tipo: 'sin-horario'|'al-dia'|'proxima'|'atrasada', detalle: '...' }
@@ -763,7 +780,7 @@ function estadoDosisHoy(med) {
   const horarioStr = state.semanal[med.id + '_horario'] || '';
   const horarios = parseHorarios(horarioStr);
   if (horarios.length === 0) return { tipo: 'sin-horario' };
-  const marcado = state.semanal[med.id + '_' + idx] === true;
+  const marcado = dosisDeMed(med.id).every(function(_, di){ return state.semanal[claveDosis(med.id, idx, di)] === true; });
   if (marcado) return { tipo: 'al-dia' };
   const ahora = new Date();
   const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
@@ -847,7 +864,7 @@ function archivarSemana(lunesISO, origen = 'manual') {
         med: m.med,
         consumo: m.consumo,
         horario: state.semanal[m.id + '_horario'] || '',
-        marcas: [0,1,2,3,4,5,6].map(i => state.semanal[m.id + '_' + i] === true)
+        marcas: [0,1,2,3,4,5,6].map(function(i){ return dosisDeMed(m.id).every(function(_, di){ return state.semanal[claveDosis(m.id, i, di)] === true; }); })
       })).filter(m => m.horario || m.marcas.some(x => x))
     })).filter(r => r.meds.length > 0)
   };
@@ -859,7 +876,7 @@ function archivarSemana(lunesISO, origen = 'manual') {
 }
 function limpiarMarcasSemanaActual() {
   Object.keys(state.semanal).forEach(k => {
-    if (/_[0-6]$/.test(k)) delete state.semanal[k];
+    if (/_[0-6](_[0-9]+)?(_by|_at)?$/.test(k)) delete state.semanal[k];
   });
 }
 function cerrarSemanaManual() {
@@ -1600,14 +1617,20 @@ function viewResidente() {
                   <td class="med-name">${escapeHtml(m.med)}${tag}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? (m.consumoTxt || '—')}/día</span></td>
                   <td class="horario-cell"><input class="horario-input" value="${escapeHtml(horario)}" placeholder="Ej: 08:00, 20:00" ${ro} onchange="setHorario('${nombreEsc}','${m.id}',this.value)"></td>
                   ${dias.map((d,i) => {
-                    const k = m.id + '_' + i;
-                    const done = state.semanal[k] === true;
+                    const tomas = dosisDeMed(m.id);
                     const esHoy = i === diaHoyIdx();
-                    const cellCls = esHoy && !done && e.tipo === 'atrasada' ? 'cell-atrasada' : esHoy && !done && e.tipo === 'ahora' ? 'cell-pendiente' : '';
-                    const by = state.semanal[k + '_by'];
-                    const at = state.semanal[k + '_at'];
-                    const tooltip = (done && by) ? `title="Tildada por ${by}${at ? ' a las ' + new Date(at).toLocaleString('es-AR') : ''}"` : '';
-                    return `<td class="${cellCls}" ${tooltip}><span class="check ${done?'done':''}" onclick="toggleDosis('${nombreEsc}','${m.id}',${i})"></span></td>`;
+                    const algunoPendiente = tomas.some((_,di) => state.semanal[claveDosis(m.id,i,di)] !== true);
+                    const cellCls = esHoy && algunoPendiente && e.tipo === 'atrasada' ? 'cell-atrasada' : esHoy && algunoPendiente && e.tipo === 'ahora' ? 'cell-pendiente' : '';
+                    const checks = tomas.map((lbl,di) => {
+                      const k = claveDosis(m.id, i, di);
+                      const done = state.semanal[k] === true;
+                      const by = state.semanal[k + '_by'];
+                      const at = state.semanal[k + '_at'];
+                      const tip = (done && by) ? `title="Tildada por ${by}${at ? ' a las ' + new Date(at).toLocaleString('es-AR') : ''}"` : '';
+                      const lblHtml = tomas.length > 1 ? `<span class="dosis-lbl">${escapeHtml(lbl)}</span>` : '';
+                      return `<span class="dosis-item"><span class="check ${done?'done':''}" ${tip} onclick="toggleDosis('${nombreEsc}','${m.id}',${i},${di})"></span>${lblHtml}</span>`;
+                    }).join('');
+                    return `<td class="${cellCls}"><span class="dosis-cell">${checks}</span></td>`;
                   }).join('')}
                   ${admin ? `<td><button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${m.id}')" title="Quitar medicamento">🗑️</button></td>` : ''}
                 </tr>`;
@@ -1903,8 +1926,8 @@ function abrirIngresoRapido(residente, medId) {
     document.getElementById('ing-cantidad').focus();
   }, 50);
 }
-function toggleDosis(residente, medId, diaIdx) {
-  const k = medId + '_' + diaIdx;
+function toggleDosis(residente, medId, diaIdx, dosisIdx) {
+  const k = claveDosis(medId, diaIdx, dosisIdx || 0);
   const nuevo = !state.semanal[k];
   state.semanal[k] = nuevo;
   if (nuevo) {
@@ -1927,10 +1950,14 @@ function limpiarSemana(residente) {
   if (!confirm(`¿Limpiar todas las marcas de la semana para ${residente}?`)) return;
   const r = state.residentes.find(x => x.nombre === residente);
   r.meds.forEach(m => {
+    const N = dosisDeMed(m.id).length;
     for (let i = 0; i < 7; i++) {
-      delete state.semanal[m.id + '_' + i];
-      delete state.semanal[m.id + '_' + i + '_by'];
-      delete state.semanal[m.id + '_' + i + '_at'];
+      for (let di = 0; di < N; di++) {
+        const k = claveDosis(m.id, i, di);
+        delete state.semanal[k];
+        delete state.semanal[k + '_by'];
+        delete state.semanal[k + '_at'];
+      }
     }
   });
   saveSem();
