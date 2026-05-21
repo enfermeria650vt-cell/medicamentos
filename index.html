@@ -2384,6 +2384,30 @@ function pintarIndicacion(d) {
       '<div class="indic-detalle-meta">Última actualización del parte médico: ' + escapeHtml(fecha) + '</div>' +
     '</div>' +
     '<div class="indic-doc">' + (d.html || '<p>Sin contenido.</p>') + '</div>';
+  ordenarTablaIndicacionPorHorario(panel);
+}
+
+// Ordena la tabla de medicación de una indicación por la columna HORARIO.
+// Solo cambia cómo se MUESTRA — no toca el documento Word de la médica.
+// Las filas sin horario válido (S.O.S, evolución) quedan al final.
+function ordenarTablaIndicacionPorHorario(cont) {
+  const tabla = cont.querySelector('table.ind-tabla') || cont.querySelector('.indic-doc table');
+  if (!tabla) return;
+  const filas = Array.from(tabla.querySelectorAll('tr'));
+  if (filas.length < 3) return;
+  const headerCells = Array.from(filas[0].children);
+  let colHor = -1;
+  headerCells.forEach((c, i) => { if (/horario/i.test(c.textContent || '')) colHor = i; });
+  if (colHor === -1) colHor = headerCells.length - 1;
+  const datos = filas.filter(f => f.querySelector('td'));
+  if (datos.length < 2) return;
+  const tiempo = (f) => {
+    const celda = f.children[colHor];
+    return celda ? ordenHorarioStr(celda.textContent || '') : 99999;
+  };
+  datos.map((f, i) => ({ f: f, t: tiempo(f), i: i }))
+       .sort((a, b) => (a.t - b.t) || (a.i - b.i))
+       .forEach(o => o.f.parentNode.appendChild(o.f));
 }
 
 // ============ CONTROL DE SIGNOS ============
