@@ -82,7 +82,7 @@ function syncIndicaciones() {
     const data = sheet.getRange(2, 1, lastRow - 1, NCOL).getValues();
     data.forEach(function(row, idx){
       if (row[1]) existing[row[1]] = {
-        rowIndex: idx + 2, hash: row[4],
+        rowIndex: idx + 2, hash: row[4], modifDrive: row[2],
         hashMed: row[8], hashHor: row[9], hashEvo: row[10],
         modificado: row[11], fechaModif: row[12]
       };
@@ -100,6 +100,17 @@ function syncIndicaciones() {
     seenIds.add(fileId);
     const fileName = file.getName().replace(/\.docx$/i, '');
     const modifTime = file.getLastUpdated();
+    const prev = existing[fileId];
+
+    // Optimización: si el archivo NO cambió en Drive (misma fecha de modificación)
+    // y la fila ya tiene todos los hashes, saltar sin convertir. La conversión a
+    // Google Doc es lo lento — así las corridas sin cambios son de segundos y el
+    // activador puede correr cada pocos minutos sin sobrecargarse.
+    if (prev && prev.modifDrive instanceof Date && modifTime instanceof Date &&
+        modifTime.getTime() <= prev.modifDrive.getTime() + 5000 &&
+        prev.hash && prev.hashMed && prev.hashHor && prev.hashEvo) {
+      continue;
+    }
 
     let docId;
     try {
@@ -115,7 +126,6 @@ function syncIndicaciones() {
     const doc = DocumentApp.openById(docId);
     const text = doc.getBody().getText();
     const hash = md5(text);
-    const prev = existing[fileId];
 
     if (prev && prev.hash === hash && prev.hashMed && prev.hashHor && prev.hashEvo) {
       DriveApp.getFileById(docId).setTrashed(true);
@@ -312,7 +322,7 @@ function setupTrigger() {
     const f = t.getHandlerFunction();
     if (f === 'syncIndicaciones' || f === 'respaldoSemanalIndicaciones') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncIndicaciones').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('syncIndicaciones').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('respaldoSemanalIndicaciones').timeBased()
     .onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(23).create();
 }
