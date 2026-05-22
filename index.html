@@ -3203,27 +3203,29 @@ function eliminarReceta(residente, idx) {
 function imprimirReceta(residente, idx) {
   const r = state.recetas[residente][idx];
   if (!r) return;
-  const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 110" width="80" height="88">
-    <!-- Círculo exterior -->
-    <circle cx="50" cy="50" r="46" fill="none" stroke="#1a9e8f" stroke-width="3"/>
-    <!-- Tronco -->
-    <rect x="47" y="52" width="6" height="18" rx="3" fill="#1a9e8f"/>
-    <!-- Ramas principales -->
-    <line x1="50" y1="54" x2="30" y2="38" stroke="#1a9e8f" stroke-width="3" stroke-linecap="round"/>
-    <line x1="50" y1="54" x2="70" y2="38" stroke="#1a9e8f" stroke-width="3" stroke-linecap="round"/>
-    <line x1="50" y1="44" x2="36" y2="32" stroke="#1a9e8f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="50" y1="44" x2="64" y2="32" stroke="#1a9e8f" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="50" y1="38" x2="50" y2="24" stroke="#1a9e8f" stroke-width="2.5" stroke-linecap="round"/>
-    <!-- Hojas -->
-    <ellipse cx="28" cy="35" rx="7" ry="5" fill="#1a9e8f" transform="rotate(-30 28 35)"/>
-    <ellipse cx="72" cy="35" rx="7" ry="5" fill="#1a9e8f" transform="rotate(30 72 35)"/>
-    <ellipse cx="34" cy="28" rx="6" ry="4" fill="#1a9e8f" transform="rotate(-20 34 28)"/>
-    <ellipse cx="66" cy="28" rx="6" ry="4" fill="#1a9e8f" transform="rotate(20 66 28)"/>
-    <ellipse cx="50" cy="20" rx="6" ry="4" fill="#1a9e8f"/>
-    <!-- Manos -->
-    <path d="M28 72 Q22 65 26 60 Q30 56 34 60 L50 70 L66 60 Q70 56 74 60 Q78 65 72 72 Q61 82 50 84 Q39 82 28 72Z" fill="#1a9e8f" opacity="0.85"/>
+  const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 115" width="78" height="90">
+    <!-- Fondo círculo lleno -->
+    <circle cx="50" cy="50" r="47" fill="#1a9e8f"/>
+    <!-- Pétalo izquierdo (tulipa) -->
+    <ellipse cx="35" cy="26" rx="9" ry="13" fill="white" transform="rotate(-18 35 26)"/>
+    <!-- Pétalo central -->
+    <ellipse cx="50" cy="21" rx="9" ry="14" fill="white"/>
+    <!-- Pétalo derecho (tulipa) -->
+    <ellipse cx="65" cy="26" rx="9" ry="13" fill="white" transform="rotate(18 65 26)"/>
+    <!-- Tallo -->
+    <rect x="47" y="38" width="6" height="22" rx="3" fill="white"/>
+    <!-- Hoja izquierda -->
+    <path d="M47 52 Q30 50 28 62 Q38 62 47 56Z" fill="white"/>
+    <!-- Hoja derecha -->
+    <path d="M53 52 Q70 50 72 62 Q62 62 53 56Z" fill="white"/>
+    <!-- Mano izquierda -->
+    <path d="M16 72 Q14 62 22 58 Q28 55 33 60 L50 68" stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <!-- Mano derecha -->
+    <path d="M84 72 Q86 62 78 58 Q72 55 67 60 L50 68" stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <!-- Base palmas -->
+    <path d="M16 72 Q20 82 34 86 Q42 89 50 89 Q58 89 66 86 Q80 82 84 72" stroke="white" stroke-width="5" fill="none" stroke-linecap="round"/>
     <!-- Texto VILLA TERESA -->
-    <text x="50" y="104" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="#1a9e8f" letter-spacing="1">VILLA TERESA</text>
+    <text x="50" y="108" text-anchor="middle" font-family="Arial,sans-serif" font-size="9.5" font-weight="bold" fill="#1a9e8f" letter-spacing="1.5">VILLA TERESA</text>
   </svg>`;
   const win = window.open('', '_blank', 'width=700,height=900');
   win.document.write(`<!DOCTYPE html><html><head>
