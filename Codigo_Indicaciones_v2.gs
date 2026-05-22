@@ -16,6 +16,20 @@ const HEADERS = ['Residente', 'FileID', 'Modif. Drive', 'Última Sync', 'Hash',
                  'Diagnóstico', 'HTML', 'Texto', 'HashMed', 'HashHor', 'HashEvo',
                  'Modificado', 'FechaModif', 'HtmlAnterior'];
 
+// --- INSUMOS ---
+const SHEET_INSUMOS = 'INSUMOS';
+const INSUMOS_HEADERS = ['Residente', 'AñoMes', 'Dia', 'Pañal', 'Zalea', 'Aposito', 'Bombacha'];
+
+// --- STOCK DE INSUMOS ---
+const SHEET_STOCK = 'STOCK_INSUMOS';
+const SHEET_INGRESOS = 'INGRESOS_INSUMOS';
+const STOCK_HEADERS = ['Residente', 'MinPañal', 'MinZalea', 'MinAposito', 'MinBombacha'];
+const INGRESOS_HEADERS = ['Fecha', 'Residente', 'Pañal', 'Zalea', 'Aposito', 'Bombacha', 'Observacion'];
+
+// =====================================================
+// SETUP
+// =====================================================
+
 function setupIndicaciones() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_INDICACIONES);
@@ -40,10 +54,81 @@ function setupIndicaciones() {
   sheet.hideColumns(14);
 }
 
+function setupInsumos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_INSUMOS);
+  if (!sheet) sheet = ss.insertSheet(SHEET_INSUMOS);
+  sheet.clear();
+  sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length).setValues([INSUMOS_HEADERS]);
+  sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length)
+    .setFontWeight('bold').setBackground('#1a73e8').setFontColor('white');
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 220);
+  sheet.setColumnWidth(2, 80);
+  sheet.setColumnWidth(3, 50);
+  SpreadsheetApp.flush();
+}
+
+function setupStockInsumos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Hoja de mínimos por residente
+  let stock = ss.getSheetByName(SHEET_STOCK);
+  if (!stock) stock = ss.insertSheet(SHEET_STOCK);
+  stock.clear();
+  stock.getRange(1, 1, 1, STOCK_HEADERS.length).setValues([STOCK_HEADERS]);
+  stock.getRange(1, 1, 1, STOCK_HEADERS.length)
+    .setFontWeight('bold').setBackground('#0f9d58').setFontColor('white');
+  stock.setFrozenRows(1);
+  stock.setColumnWidth(1, 220);
+  for (let c = 2; c <= 5; c++) stock.setColumnWidth(c, 90);
+
+  // Hoja de ingresos (historial de entregas)
+  let ingresos = ss.getSheetByName(SHEET_INGRESOS);
+  if (!ingresos) ingresos = ss.insertSheet(SHEET_INGRESOS);
+  ingresos.clear();
+  ingresos.getRange(1, 1, 1, INGRESOS_HEADERS.length).setValues([INGRESOS_HEADERS]);
+  ingresos.getRange(1, 1, 1, INGRESOS_HEADERS.length)
+    .setFontWeight('bold').setBackground('#0f9d58').setFontColor('white');
+  ingresos.setFrozenRows(1);
+  ingresos.setColumnWidth(1, 160);
+  ingresos.setColumnWidth(2, 220);
+  for (let c = 3; c <= 6; c++) ingresos.setColumnWidth(c, 80);
+  ingresos.setColumnWidth(7, 200);
+
+  SpreadsheetApp.flush();
+  return { ok: true };
+}
+
+// =====================================================
+// UTILIDADES
+// =====================================================
+
 function md5(text) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text || '');
   return bytes.map(function(b){ return (b < 0 ? b + 256 : b).toString(16).padStart(2, '0'); }).join('');
 }
+
+function isAuthorized(email) {
+  return email === AUTHORIZED_EMAIL || Session.getActiveUser().getEmail() === AUTHORIZED_EMAIL;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function etiquetaSemana(d) {
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  const semana = 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return date.getFullYear() + '-S' + String(semana).padStart(2, '0');
+}
+
+// =====================================================
+// SYNC INDICACIONES
+// =====================================================
 
 function extraerSecciones(doc) {
   const body = doc.getBody();
@@ -87,8 +172,8 @@ function syncIndicaciones() {
         rowIndex: idx + 2, hash: row[4], modifDrive: row[2],
         hashMed: row[8], hashHor: row[9], hashEvo: row[10],
         modificado: row[11], fechaModif: row[12],
-        html: row[6],           // HTML actual (será el "anterior" si hay cambio)
-        htmlAnterior: row[13]   // HTML del pase previo al anterior
+        html: row[6],
+        htmlAnterior: row[13]
       };
     });
   }
@@ -106,10 +191,6 @@ function syncIndicaciones() {
     const modifTime = file.getLastUpdated();
     const prev = existing[fileId];
 
-    // Optimización: si el archivo NO cambió en Drive (misma fecha de modificación)
-    // y la fila ya tiene todos los hashes, saltar sin convertir. La conversión a
-    // Google Doc es lo lento — así las corridas sin cambios son de segundos y el
-    // activador puede correr cada pocos minutos sin sobrecargarse.
     if (prev && prev.modifDrive instanceof Date && modifTime instanceof Date &&
         modifTime.getTime() <= prev.modifDrive.getTime() + 5000 &&
         prev.hash && prev.hashMed && prev.hashHor && prev.hashEvo) {
@@ -156,7 +237,6 @@ function syncIndicaciones() {
         modificado = 'actualizado';
       }
       fechaModif = now;
-      // Guardar el HTML actual como "anterior" antes de sobreescribir
       htmlAnterior = prev.html || '';
     }
 
@@ -215,15 +295,6 @@ function respaldoSemanalIndicaciones() {
   return { semana: semana, filas: filas.length };
 }
 
-function etiquetaSemana(d) {
-  const date = new Date(d.getTime());
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
-  const week1 = new Date(date.getFullYear(), 0, 4);
-  const semana = 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
-  return date.getFullYear() + '-S' + String(semana).padStart(2, '0');
-}
-
 function renderDocToHTML(doc) {
   const body = doc.getBody();
   let html = '';
@@ -252,9 +323,9 @@ function renderDocToHTML(doc) {
   return html;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// =====================================================
+// API doGet
+// =====================================================
 
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
@@ -271,6 +342,7 @@ function doGet(e) {
         if (!isAuthorized(e.parameter.email)) return jsonError('No autorizado');
         payload = { respaldo: respaldoSemanalIndicaciones() };
         break;
+      // INSUMOS - uso diario
       case 'getInsumos':
         payload = apiGetInsumos(e.parameter.residente, e.parameter.mes);
         break;
@@ -278,6 +350,30 @@ function doGet(e) {
         payload = apiSetInsumo(
           e.parameter.residente, e.parameter.mes, e.parameter.dia,
           e.parameter.pañal, e.parameter.zalea, e.parameter.aposito, e.parameter.bombacha
+        );
+        break;
+      // STOCK de insumos
+      case 'getStockResumen':
+        payload = apiGetStockResumen(e.parameter.residente);
+        break;
+      case 'getAllStock':
+        payload = apiGetAllStock();
+        break;
+      case 'addIngreso':
+        payload = apiAddIngreso(
+          e.parameter.residente,
+          e.parameter.pañal, e.parameter.zalea, e.parameter.aposito, e.parameter.bombacha,
+          e.parameter.obs || ''
+        );
+        break;
+      case 'getIngresos':
+        payload = apiGetIngresos(e.parameter.residente);
+        break;
+      case 'setMinimos':
+        payload = apiSetMinimos(
+          e.parameter.residente,
+          e.parameter.minPañal, e.parameter.minZalea,
+          e.parameter.minAposito, e.parameter.minBombacha
         );
         break;
       default: payload = { ok: true, action: 'noop' };
@@ -293,6 +389,10 @@ function jsonError(msg) {
   return ContentService.createTextOutput(JSON.stringify({ ok: false, error: msg }))
     .setMimeType(ContentService.MimeType.JSON);
 }
+
+// =====================================================
+// API INDICACIONES
+// =====================================================
 
 function apiGetIndicaciones() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INDICACIONES);
@@ -324,41 +424,20 @@ function apiGetIndicacion(fileId) {
     residente: row[0], fileId: row[1],
     modifDrive: row[2] instanceof Date ? row[2].toISOString() : row[2],
     ultimaSync: row[3] instanceof Date ? row[3].toISOString() : row[3],
-    diagnostico: row[5], html: row[6], texto: row[7],
+    hash: row[4], diagnostico: row[5],
+    html: row[6], texto: row[7],
+    hashMed: row[8], hashHor: row[9], hashEvo: row[10],
     modificado: row[11] || '',
     fechaModif: row[12] instanceof Date ? row[12].toISOString() : (row[12] || ''),
     htmlAnterior: row[13] || ''
   };
 }
 
-function isAuthorized(email) {
-  return email && String(email).toLowerCase() === AUTHORIZED_EMAIL.toLowerCase();
-}
-
 // =====================================================
-// MODULO INSUMOS
-// Hoja: INSUMOS | Columnas: Residente | AñoMes | Dia | Pañal | Zalea | Aposito | Bombacha
+// API INSUMOS (uso diario)
 // =====================================================
-const SHEET_INSUMOS = 'INSUMOS';
-const INSUMOS_HEADERS = ['Residente', 'AñoMes', 'Dia', 'Pañal', 'Zalea', 'Aposito', 'Bombacha'];
-
-function setupInsumos() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_INSUMOS);
-  if (!sheet) sheet = ss.insertSheet(SHEET_INSUMOS);
-  sheet.clear();
-  sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length).setValues([INSUMOS_HEADERS]);
-  sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length)
-    .setFontWeight('bold').setBackground('#1a73e8').setFontColor('white');
-  sheet.setFrozenRows(1);
-  sheet.setColumnWidth(1, 220);
-  sheet.setColumnWidth(2, 80);
-  sheet.setColumnWidth(3, 50);
-  SpreadsheetApp.flush();
-}
 
 function apiGetInsumos(residente, mes) {
-  // mes: YYYYMM string
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
   if (!sheet) return [];
   const last = sheet.getLastRow();
@@ -369,8 +448,11 @@ function apiGetInsumos(residente, mes) {
     if (String(row[0]).toLowerCase() === String(residente).toLowerCase() &&
         String(row[1]) === String(mes)) {
       result.push({
-        dia: row[2], pañal: row[3] || 0, zalea: row[4] || 0,
-        aposito: row[5] || 0, bombacha: row[6] || 0
+        dia: row[2],
+        pañal: row[3] || 0,
+        zalea: row[4] || 0,
+        aposito: row[5] || 0,
+        bombacha: row[6] || 0
       });
     }
   });
@@ -379,36 +461,169 @@ function apiGetInsumos(residente, mes) {
 
 function apiSetInsumo(residente, mes, dia, pañal, zalea, aposito, bombacha) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
-  if (!sheet) { setupInsumos(); }
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
-  const last = sh.getLastRow();
-  let found = -1;
-  if (last > 1) {
-    const data = sh.getRange(2, 1, last - 1, 3).getValues();
-    data.forEach(function(row, idx) {
-      if (String(row[0]).toLowerCase() === String(residente).toLowerCase() &&
-          String(row[1]) === String(mes) && Number(row[2]) === Number(dia)) {
-        found = idx + 2;
+  if (!sheet) return { ok: false, error: 'Hoja INSUMOS no encontrada' };
+  const last = sheet.getLastRow();
+  const diaNum = Number(dia);
+  // Buscar fila existente
+  if (last >= 2) {
+    const data = sheet.getRange(2, 1, last - 1, 3).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === String(residente).toLowerCase() &&
+          String(data[i][1]) === String(mes) &&
+          Number(data[i][2]) === diaNum) {
+        sheet.getRange(i + 2, 4, 1, 4).setValues([[
+          Number(pañal) || 0, Number(zalea) || 0,
+          Number(aposito) || 0, Number(bombacha) || 0
+        ]]);
+        SpreadsheetApp.flush();
+        return { ok: true, action: 'updated' };
+      }
+    }
+  }
+  // Nueva fila
+  sheet.appendRow([
+    residente, mes, diaNum,
+    Number(pañal) || 0, Number(zalea) || 0,
+    Number(aposito) || 0, Number(bombacha) || 0
+  ]);
+  SpreadsheetApp.flush();
+  return { ok: true, action: 'inserted' };
+}
+
+// =====================================================
+// API STOCK DE INSUMOS
+// =====================================================
+
+function apiGetStockResumen(residente) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Obtener mínimos
+  const stockSheet = ss.getSheetByName(SHEET_STOCK);
+  let minimos = { minPañal: 0, minZalea: 0, minAposito: 0, minBombacha: 0 };
+  if (stockSheet && stockSheet.getLastRow() >= 2) {
+    const rows = stockSheet.getRange(2, 1, stockSheet.getLastRow() - 1, 5).getValues();
+    const r = rows.find(function(x){ return String(x[0]).toLowerCase() === String(residente).toLowerCase(); });
+    if (r) minimos = { minPañal: r[1]||0, minZalea: r[2]||0, minAposito: r[3]||0, minBombacha: r[4]||0 };
+  }
+
+  // Sumar ingresos totales
+  const ingSheet = ss.getSheetByName(SHEET_INGRESOS);
+  let totIng = { pañal: 0, zalea: 0, aposito: 0, bombacha: 0 };
+  if (ingSheet && ingSheet.getLastRow() >= 2) {
+    const rows = ingSheet.getRange(2, 1, ingSheet.getLastRow() - 1, 7).getValues();
+    rows.forEach(function(r) {
+      if (String(r[1]).toLowerCase() === String(residente).toLowerCase()) {
+        totIng.pañal    += Number(r[2]) || 0;
+        totIng.zalea    += Number(r[3]) || 0;
+        totIng.aposito  += Number(r[4]) || 0;
+        totIng.bombacha += Number(r[5]) || 0;
       }
     });
   }
-  const rowData = [residente, String(mes), Number(dia),
-                   Number(pañal)||0, Number(zalea)||0, Number(aposito)||0, Number(bombacha)||0];
-  if (found > 0) {
-    sh.getRange(found, 1, 1, 7).setValues([rowData]);
-  } else {
-    sh.appendRow(rowData);
+
+  // Sumar uso total desde hoja INSUMOS
+  const insSheet = ss.getSheetByName(SHEET_INSUMOS);
+  let totUso = { pañal: 0, zalea: 0, aposito: 0, bombacha: 0 };
+  if (insSheet && insSheet.getLastRow() >= 2) {
+    const rows = insSheet.getRange(2, 1, insSheet.getLastRow() - 1, 7).getValues();
+    rows.forEach(function(r) {
+      if (String(r[0]).toLowerCase() === String(residente).toLowerCase()) {
+        totUso.pañal    += Number(r[3]) || 0;
+        totUso.zalea    += Number(r[4]) || 0;
+        totUso.aposito  += Number(r[5]) || 0;
+        totUso.bombacha += Number(r[6]) || 0;
+      }
+    });
   }
+
+  return {
+    pañal:    { ingresado: totIng.pañal,    usado: totUso.pañal,    disponible: totIng.pañal    - totUso.pañal,    minimo: minimos.minPañal },
+    zalea:    { ingresado: totIng.zalea,    usado: totUso.zalea,    disponible: totIng.zalea    - totUso.zalea,    minimo: minimos.minZalea },
+    aposito:  { ingresado: totIng.aposito,  usado: totUso.aposito,  disponible: totIng.aposito  - totUso.aposito,  minimo: minimos.minAposito },
+    bombacha: { ingresado: totIng.bombacha, usado: totUso.bombacha, disponible: totIng.bombacha - totUso.bombacha, minimo: minimos.minBombacha }
+  };
+}
+
+function apiGetAllStock() {
+  // Devuelve resumen de stock para todos los residentes que tienen ingresos registrados
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ingSheet = ss.getSheetByName(SHEET_INGRESOS);
+  const insSheet = ss.getSheetByName(SHEET_INSUMOS);
+  const stockSheet = ss.getSheetByName(SHEET_STOCK);
+
+  // Recopilar lista de residentes únicos (de INGRESOS + STOCK)
+  const residentes = new Set();
+  if (ingSheet && ingSheet.getLastRow() >= 2) {
+    ingSheet.getRange(2, 1, ingSheet.getLastRow() - 1, 2).getValues()
+      .forEach(function(r){ if (r[1]) residentes.add(String(r[1])); });
+  }
+  if (stockSheet && stockSheet.getLastRow() >= 2) {
+    stockSheet.getRange(2, 1, stockSheet.getLastRow() - 1, 1).getValues()
+      .forEach(function(r){ if (r[0]) residentes.add(String(r[0])); });
+  }
+
+  const result = [];
+  residentes.forEach(function(res) {
+    const r = apiGetStockResumen(res);
+    result.push({ residente: res, stock: r });
+  });
+  result.sort(function(a, b){ return a.residente.localeCompare(b.residente); });
+  return result;
+}
+
+function apiAddIngreso(residente, pañal, zalea, aposito, bombacha, obs) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_INGRESOS);
+  if (!sheet) return { ok: false, error: 'Hoja INGRESOS_INSUMOS no encontrada. Ejecutar setupStockInsumos().' };
+  const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  sheet.appendRow([
+    fecha, residente,
+    Number(pañal) || 0, Number(zalea) || 0,
+    Number(aposito) || 0, Number(bombacha) || 0,
+    obs || ''
+  ]);
   SpreadsheetApp.flush();
   return { ok: true };
 }
 
-function setupTrigger() {
-  ScriptApp.getProjectTriggers().forEach(function(t){
-    const f = t.getHandlerFunction();
-    if (f === 'syncIndicaciones' || f === 'respaldoSemanalIndicaciones') ScriptApp.deleteTrigger(t);
+function apiGetIngresos(residente) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INGRESOS);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
+  const result = [];
+  data.forEach(function(row) {
+    if (!residente || String(row[1]).toLowerCase() === String(residente).toLowerCase()) {
+      result.push({
+        fecha: row[0] instanceof Date ? Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(row[0]),
+        residente: row[1],
+        pañal: row[2], zalea: row[3], aposito: row[4], bombacha: row[5],
+        obs: row[6]
+      });
+    }
   });
-  ScriptApp.newTrigger('syncIndicaciones').timeBased().everyMinutes(5).create();
-  ScriptApp.newTrigger('respaldoSemanalIndicaciones').timeBased()
-    .onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(23).create();
+  return result.reverse(); // más reciente primero
+}
+
+function apiSetMinimos(residente, minPañal, minZalea, minAposito, minBombacha) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_STOCK);
+  if (!sheet) return { ok: false, error: 'Hoja STOCK_INSUMOS no encontrada. Ejecutar setupStockInsumos().' };
+  const last = sheet.getLastRow();
+  if (last >= 2) {
+    const data = sheet.getRange(2, 1, last - 1, 1).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === String(residente).toLowerCase()) {
+        sheet.getRange(i + 2, 2, 1, 4).setValues([[
+          Number(minPañal) || 0, Number(minZalea) || 0,
+          Number(minAposito) || 0, Number(minBombacha) || 0
+        ]]);
+        SpreadsheetApp.flush();
+        return { ok: true, action: 'updated' };
+      }
+    }
+  }
+  // No existe — agregar nueva fila
+  sheet.appendRow([residente, Number(minPañal)||0, Number(minZalea)||0, Number(minAposito)||0, Number(minBombacha)||0]);
+  SpreadsheetApp.flush();
+  return { ok: true, action: 'inserted' };
 }
