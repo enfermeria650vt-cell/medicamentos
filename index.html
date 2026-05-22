@@ -3024,6 +3024,7 @@ function viewRecetas() {
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn" style="font-size:12px;padding:5px 12px" onclick="imprimirReceta('${escapeHtml(sel)}',${idx})">🖨️ Imprimir</button>
+            <button class="btn" style="font-size:12px;padding:5px 12px;background:#e8f0fe;color:#1F4E78" onclick="abrirModalEditarReceta('${escapeHtml(sel)}',${idx})">✏️ Editar</button>
             <button class="btn btn-danger" style="font-size:12px;padding:5px 10px" onclick="eliminarReceta('${escapeHtml(sel)}',${idx})">✕</button>
           </div>
         </div>
@@ -3071,6 +3072,36 @@ function viewRecetas() {
           <button class="btn" onclick="guardarNuevaReceta('${escapeHtml(sel)}')">Guardar</button>
         </div>
       </div>
+    </div>
+    <div id="modal-editar-receta" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto">
+        <h3 style="margin-bottom:16px">✏️ Editar receta</h3>
+        <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
+        <input id="er-nombre" class="input-field" style="width:100%;margin:4px 0 10px">
+        <label style="font-size:13px;font-weight:600">Obra social</label>
+        <select id="er-os" class="input-field" style="width:100%;margin:4px 0 10px">
+          <option value="">Sin obra social</option>
+          <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
+        </select>
+        <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
+        <input id="er-afiliado" class="input-field" style="width:100%;margin:4px 0 10px">
+        <label style="font-size:13px;font-weight:600">DNI</label>
+        <input id="er-dni" class="input-field" style="width:100%;margin:4px 0 10px">
+        <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
+        <input id="er-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+        <label style="font-size:13px;font-weight:600">Diagnóstico</label>
+        <input id="er-dx" class="input-field" style="width:100%;margin:4px 0 10px">
+        <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
+        <textarea id="er-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:90px"></textarea>
+        <label style="font-size:13px;font-weight:600">Notas</label>
+        <input id="er-notas" class="input-field" style="width:100%;margin:4px 0 10px">
+        <label style="font-size:13px;font-weight:600">Fecha receta</label>
+        <input id="er-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px">
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalEditarReceta()">Cancelar</button>
+          <button class="btn primary" id="er-guardar-btn">💾 Guardar cambios</button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -3111,6 +3142,57 @@ function guardarNuevaReceta(residente) {
   saveRecetas();
   render();
   toast('✅ Receta guardada');
+}
+function abrirModalEditarReceta(residente, idx) {
+  const r = state.recetas[residente]?.[idx];
+  if (!r) return;
+  const m = document.getElementById('modal-editar-receta');
+  if (!m) return;
+  // Pre-cargar datos existentes
+  document.getElementById('er-nombre').value = r.nombreHoja || '';
+  const os = document.getElementById('er-os');
+  // Set select value
+  let osVal = r.obraSocial || '';
+  const opts = Array.from(os.options).map(o => o.value);
+  os.value = opts.includes(osVal) ? osVal : '';
+  if (os.value === '' && osVal) {
+    // Add "Otra" or set to blank
+    os.value = '';
+  }
+  document.getElementById('er-afiliado').value = r.nroAfiliado || '';
+  document.getElementById('er-dni').value = r.dni || '';
+  document.getElementById('er-fnac').value = r.fechaNacimiento || '';
+  document.getElementById('er-dx').value = r.diagnostico || '';
+  document.getElementById('er-meds').value = (r.medicamentos || []).join('\n');
+  document.getElementById('er-notas').value = r.notas || '';
+  document.getElementById('er-fecha').value = r.fechaReceta || '';
+  // Attach save handler
+  const btn = document.getElementById('er-guardar-btn');
+  btn.onclick = () => guardarEdicionReceta(residente, idx);
+  m.style.display = 'flex';
+  document.getElementById('er-nombre').focus();
+}
+function cerrarModalEditarReceta() {
+  const m = document.getElementById('modal-editar-receta');
+  if (m) m.style.display = 'none';
+}
+function guardarEdicionReceta(residente, idx) {
+  const nombre = document.getElementById('er-nombre').value.trim();
+  if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
+  const r = state.recetas[residente][idx];
+  r.nombreHoja = nombre;
+  r.obraSocial = document.getElementById('er-os').value;
+  r.nroAfiliado = document.getElementById('er-afiliado').value.trim();
+  r.dni = document.getElementById('er-dni').value.trim();
+  r.fechaNacimiento = document.getElementById('er-fnac').value.trim();
+  r.diagnostico = document.getElementById('er-dx').value.trim();
+  r.medicamentos = document.getElementById('er-meds').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
+  r.notas = document.getElementById('er-notas').value.trim();
+  r.fechaReceta = document.getElementById('er-fecha').value;
+  saveRecetas();
+  cerrarModalEditarReceta();
+  render();
+  toast('✅ Receta actualizada');
 }
 function eliminarReceta(residente, idx) {
   if (!confirm('¿Eliminar esta receta?')) return;
@@ -3549,7 +3631,6 @@ function attachStockListeners(res) {
 
   // Toggle formulario ingreso
   document.getElementById('ins-ingreso-btn')?.addEventListener('click', () => {
-    if (fIng) fIng.style.display = fIng.style.display==='none' ? 'block' : 'none';
     if (fMin) fMin.style.display = 'none';
   });
   document.getElementById('ins-ing-cancel')?.addEventListener('click', () => { if(fIng) fIng.style.display='none'; });
