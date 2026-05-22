@@ -2051,6 +2051,21 @@ function toggleDosis(residente, medId, diaIdx, dosisIdx) {
     delete state.semanal[k + '_by'];
     delete state.semanal[k + '_at'];
   }
+  // Descontar/devolver stock automáticamente al tildar/destildar
+  const r = state.residentes.find(x => x.nombre === residente);
+  if (r) {
+    const m = r.meds.find(x => x.id === medId);
+    if (m && m.stock != null) {
+      const nDosis = dosisDeMed(m.id).length;
+      const deduccion = Math.round(((m.consumo || 1) / nDosis) * 100) / 100;
+      if (nuevo) {
+        m.stock = Math.round((Math.max(0, (m.stock || 0) - deduccion)) * 100) / 100;
+      } else {
+        m.stock = Math.round(((m.stock || 0) + deduccion) * 100) / 100;
+      }
+      saveData();
+    }
+  }
   saveSem();
   render();
 }
