@@ -669,10 +669,27 @@ const SYNC_AUTO_KEY = 'med_geri_autosync';
 function loadData() {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
-  const recetasGuardadas = localStorage.getItem(RECETAS_KEY);
     if (s) return JSON.parse(s);
   } catch (e) {}
   return structuredClone(DATOS_INICIALES);
+}
+const RECETAS_DEFAULT = {"María Eugenia López Sosa":[{"id":"rec_espesan","nombreHoja":"ESPESAN","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"Deglucion","medicamentos":["3 (tres) Latas","ESPESAN +","300 GRS"],"notas":""},{"id":"rec_omeprazol","nombreHoja":"Omeprazol","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Pantoprazol 20 mg","Gastromax 20","comprimidos"],"notas":""},{"id":"rec_aspirinas","nombreHoja":"Aspirinas","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Aspirina 100 mg","ASPIRINA PREVENT","comprimidos"],"notas":""},{"id":"rec_memantine","nombreHoja":"Memantine","obraSocial":"MEDICUS","nroAfiliado":"08342785010","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["(2) Cajas Memantine 10 mg","Carrier 10","comprimidos"],"notas":""},{"id":"rec_rosuvastatina","nombreHoja":"Rosuvastatina","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Rosuvastatina 20 Mg","ROSUFEN 20","comprimidos"],"notas":""},{"id":"rec_quetiapina","nombreHoja":"Quetiapina","obraSocial":"MEDICUS","nroAfiliado":"08342785010","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["ROSTRUM XR 50","QUETIAPINA","comprimidos"],"notas":""},{"id":"rec_urosedac","nombreHoja":"Urosedac","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ITU","medicamentos":["(2) Cajas Urosedac probiotic","comprimidos"],"notas":""},{"id":"rec_clonagin","nombreHoja":"Clonagin","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Clonagin","Clonazepam","20 ml gotas"],"notas":""},{"id":"rec_102","nombreHoja":"102","obraSocial":"MEDICUS","nroAfiliado":"08342785010","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["102 AÑOS PLUS","comprimidos"],"notas":""},{"id":"rec_panales","nombreHoja":"Pañales","obraSocial":"IPS","nroAfiliado":"2996047","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Pañales","Tamaño G con gel","unidades"],"notas":""},{"id":"rec_aldactone","nombreHoja":"Aldactone","obraSocial":"MEDICUS","nroAfiliado":"08342785010","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Aldactone A 25 mg","Espironolactona","comprimidos"],"notas":""},{"id":"rec_tafirol","nombreHoja":"Tafirol","obraSocial":"MEDICUS","nroAfiliado":"08342785010","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"ACV","medicamentos":["Paracetamol 1 gr","TAFIROL","comprimidos"],"notas":""},{"id":"rec_fisioterapia","nombreHoja":"Fisioterapia","obraSocial":"MEDICUS","nroAfiliado":"08342785010","dni":"2.996.047","fechaNacimiento":"28/02/1939","diagnostico":"Rehabilitación post - ACV","medicamentos":["Fisioterapia x 20 sesiones"],"notas":""}],"María Rosa Campanella":[{"id":"rec_fisio","nombreHoja":"FISIO","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"Marcha inestable","medicamentos":["ORDEN POR 14 SESIONES DE","KINESIOLOGIA Y FISIOTERAPIA","A DOMICILIO"],"notas":""},{"id":"rec_rosu","nombreHoja":"ROSU","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"Colesterol","medicamentos":["ROSUBER PLUS","ROSUVASTATINA 20 MG + EZETIMIBE 10 MG","30 comprimidos"],"notas":""},{"id":"rec_belozok","nombreHoja":"Belozok","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"","medicamentos":["Belozok 100","Metoprolol succinato","Comprimidos"],"notas":""},{"id":"rec_pelmec","nombreHoja":"Pelmec","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"","medicamentos":["Pelmec DUO 5/10","Amlodipina + Benazepril","Cápsulas"],"notas":""},{"id":"rec_clonazepam","nombreHoja":"CLONAZEPAM","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"Ansiedad","medicamentos":["DUP - Clonazepam","20 ml gotas"],"notas":""},{"id":"rec_clonagin_com","nombreHoja":"Clonagin comp","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"Ansiedad","medicamentos":["DUP - Clonagin 1 / Clonagin 2","Clonazepam 2mg","30 comprimidos"],"notas":""},{"id":"rec_levo","nombreHoja":"LEVO","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"HIPOTIROIDISMO","medicamentos":["T4 MONTPELLIER 150","LEVOTIROXINA SODICA 150 MCG","50 comprimidos"],"notas":""},{"id":"rec_tafirol","nombreHoja":"Tafirol","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"Fractura de mano","medicamentos":["Paracetamol 1 gr - TAFIROL","Comprimidos"],"notas":""},{"id":"rec_aspirinas","nombreHoja":"Aspirinas","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"HTA","medicamentos":["Aspirina 100 mg - ASPIRINA PREVENT","comprimidos"],"notas":""},{"id":"rec_ataraxone","nombreHoja":"Ataraxone","obraSocial":"Jerarquicos Salud","nroAfiliado":"","dni":"0.759.675","fechaNacimiento":"09/08/1938","diagnostico":"","medicamentos":["Ataraxone 25 mg","Hidroxicina CIH 25mg","20 comprimidos"],"notas":""}]};
+function loadRecetas() {
+  try {
+    const s = localStorage.getItem(RECETAS_KEY);
+    const saved = s ? JSON.parse(s) : {};
+    // Merge default data into saved (don't overwrite existing entries)
+    const result = Object.assign({}, saved);
+    for (const [nombre, recetas] of Object.entries(RECETAS_DEFAULT)) {
+      if (!result[nombre] || result[nombre].length === 0) {
+        result[nombre] = recetas;
+      }
+    }
+    return result;
+  } catch (e) { return Object.assign({}, RECETAS_DEFAULT); }
+}
+function saveRecetas() {
+  localStorage.setItem(RECETAS_KEY, JSON.stringify(state.recetas));
 }
 function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.residentes));
@@ -715,6 +732,7 @@ const state = {
   controlSignos: loadCS(),
   csFecha: null,
   csSubtab: 'signos',
+  recetas: loadRecetas(),
 };
 
 // ============ CÁLCULOS ============
@@ -3505,7 +3523,6 @@ function renderStockCards(res, data) {
         <div style="margin-top:8px"><label>Observación</label>
           <input type="text" id="ins-ing-obs" placeholder="ej: entrega farmacia mayo" style="width:100%"></div>
         <div style="margin-top:12px;display:flex;gap:8px">
-          <button class="btn primary" id="ins-ing-ok">💾 Guardar ingreso</button>
           <button class="btn secondary" id="ins-ing-cancel">Cancelar</button>
         </div>
       </div>
