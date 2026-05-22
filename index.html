@@ -629,6 +629,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-section">Indicaciones</div>
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-item" data-view="insumos">🧴 <span>Insumos</span></div>
+    <div class="nav-item" data-view="recetas">📝 <span>Recetas</span></div>
     <div class="nav-section">Residentes</div>
     <div id="lista-residentes-sidebar"></div>
     <div class="nav-section">Acciones</div>
@@ -657,6 +658,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
+const RECETAS_KEY = 'med_geri_recetas_v1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -667,6 +669,7 @@ const SYNC_AUTO_KEY = 'med_geri_autosync';
 function loadData() {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
+  const recetasGuardadas = localStorage.getItem(RECETAS_KEY);
     if (s) return JSON.parse(s);
   } catch (e) {}
   return structuredClone(DATOS_INICIALES);
@@ -1433,6 +1436,7 @@ function render() {
   }
   else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
   else if (state.view === 'insumos') { main.innerHTML = viewInsumos(); attachInsumos(); return; }
+  else if (state.view === 'recetas') { main.innerHTML = viewRecetas(); attachRecetas(); return; }
 
   attachListeners();
 }
@@ -2979,6 +2983,152 @@ function attachListeners() {
 const INSUMOS_CAMPOS = ['pañal','zalea','aposito','bombacha'];
 const INSUMOS_LABELS = ['Pañal','Zalea','Apósito','Bombacha/Calzoncillo'];
 let insumosState = { residente: '', mes: '', datos: {}, stockData: null, sub: 'usodiario' };
+
+
+// ============ RECETAS ============
+function viewRecetas() {
+  const residentes = state.residentes.map(r => r.nombre).sort();
+  const sel = state.recetaResidenteSel || residentes[0] || '';
+  const recetas = (state.recetas && state.recetas[sel]) || [];
+  const listaHtml = residentes.map(n => {
+    const cnt = (state.recetas && state.recetas[n]) ? state.recetas[n].length : 0;
+    const active = n === sel ? ' style="background:rgba(255,255,255,.15);font-weight:600"' : '';
+    return `<div class="nav-item" data-rec-residente="${escapeHtml(n)}"${active}>👤 <span style="font-size:12px">${escapeHtml(n)}</span>${cnt ? `<span class="badge" style="background:#2E75B6">${cnt}</span>` : ''}</div>`;
+  }).join('');
+  const recetasHtml = recetas.length === 0
+    ? `<div style="padding:40px;text-align:center;color:#6c7a8a">Sin recetas cargadas para este residente.<br><br><button class="btn" onclick="abrirModalNuevaReceta()">+ Agregar receta</button></div>`
+    : recetas.map((r, idx) => `
+      <div style="background:white;border-radius:8px;border:1px solid #DDE3EB;padding:18px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+          <div>
+            <span style="font-size:16px;font-weight:700;color:#1F4E78">${escapeHtml(r.nombreHoja)}</span>
+            ${r.obraSocial ? `<span style="margin-left:10px;background:#EAF1FA;color:#1F4E78;padding:2px 8px;border-radius:10px;font-size:12px">${escapeHtml(r.obraSocial)}${r.nroAfiliado ? ' · ' + escapeHtml(r.nroAfiliado) : ''}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" style="font-size:12px;padding:5px 12px" onclick="imprimirReceta('${escapeHtml(sel)}',${idx})">🖨️ Imprimir</button>
+            <button class="btn btn-danger" style="font-size:12px;padding:5px 10px" onclick="eliminarReceta('${escapeHtml(sel)}',${idx})">✕</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:13px;color:#444;margin-bottom:10px">
+          ${r.diagnostico ? `<div><b>Diagnóstico:</b> ${escapeHtml(r.diagnostico)}</div>` : ''}
+          ${r.dni ? `<div><b>DNI:</b> ${escapeHtml(r.dni)}</div>` : ''}
+          ${r.fechaNacimiento ? `<div><b>F. Nac:</b> ${escapeHtml(r.fechaNacimiento)}</div>` : ''}
+          ${r.fechaReceta ? `<div><b>Fecha receta:</b> ${escapeHtml(r.fechaReceta)}</div>` : ''}
+        </div>
+        <div style="background:#F5F7FA;border-radius:6px;padding:10px">
+          <b style="font-size:12px;color:#6c7a8a">MEDICAMENTOS / INDICACIONES</b>
+          <ul style="margin:6px 0 0 16px;font-size:13px">
+            ${r.medicamentos.map(m => `<li>${escapeHtml(m)}</li>`).join('')}
+          </ul>
+        </div>
+        ${r.notas ? `<div style="margin-top:8px;font-size:12px;color:#6c7a8a"><b>Notas:</b> ${escapeHtml(r.notas)}</div>` : ''}
+      </div>`).join('') + `<div style="text-align:center;margin-top:8px"><button class="btn" onclick="abrirModalNuevaReceta()">+ Agregar receta</button></div>`;
+  return `
+    <h2>📝 Recetas</h2>
+    <p class="subtitle">Recetas médicas por residente</p>
+    <div style="display:flex;gap:0;height:calc(100vh - 130px)">
+      <div style="width:220px;flex-shrink:0;background:#1F4E78;border-radius:8px 0 0 8px;overflow-y:auto;padding:8px 0" id="receta-lista">${listaHtml}</div>
+      <div style="flex:1;padding:20px;overflow-y:auto;background:#F5F7FA;border-radius:0 8px 8px 0" id="receta-detalle">${recetasHtml}</div>
+    </div>
+    <div id="modal-nueva-receta" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw">
+        <h3 style="margin-bottom:16px">Nueva receta — ${escapeHtml(sel)}</h3>
+        <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
+        <input id="nr-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
+        <label style="font-size:13px;font-weight:600">Obra social</label>
+        <select id="nr-os" class="input-field" style="width:100%;margin:4px 0 10px">
+          <option value="">Sin obra social</option>
+          <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
+        </select>
+        <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
+        <input id="nr-afiliado" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de afiliado">
+        <label style="font-size:13px;font-weight:600">Diagnóstico</label>
+        <input id="nr-dx" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: HTA">
+        <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
+        <textarea id="nr-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:80px" placeholder="Ej: Omeprazol 20 mg&#10;GASTROMAX 20"></textarea>
+        <label style="font-size:13px;font-weight:600">Fecha receta</label>
+        <input id="nr-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px">
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalNuevaReceta()">Cancelar</button>
+          <button class="btn" onclick="guardarNuevaReceta('${escapeHtml(sel)}')">Guardar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function attachRecetas() {
+  document.querySelectorAll('[data-rec-residente]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.recetaResidenteSel = el.dataset.recResidente;
+      render();
+    });
+  });
+}
+
+function abrirModalNuevaReceta() {
+  const m = document.getElementById('modal-nueva-receta');
+  if (m) { m.style.display = 'flex'; document.getElementById('nr-nombre').focus(); }
+}
+function cerrarModalNuevaReceta() {
+  const m = document.getElementById('modal-nueva-receta');
+  if (m) m.style.display = 'none';
+}
+function guardarNuevaReceta(residente) {
+  const nombre = document.getElementById('nr-nombre').value.trim();
+  if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
+  if (!state.recetas) state.recetas = {};
+  if (!state.recetas[residente]) state.recetas[residente] = [];
+  const meds = document.getElementById('nr-meds').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
+  state.recetas[residente].push({
+    id: 'rec_' + Date.now(),
+    nombreHoja: nombre,
+    obraSocial: document.getElementById('nr-os').value,
+    nroAfiliado: document.getElementById('nr-afiliado').value.trim(),
+    dni: '', fechaNacimiento: '',
+    diagnostico: document.getElementById('nr-dx').value.trim(),
+    medicamentos: meds,
+    notas: '',
+    fechaReceta: document.getElementById('nr-fecha').value
+  });
+  saveRecetas();
+  render();
+  toast('✅ Receta guardada');
+}
+function eliminarReceta(residente, idx) {
+  if (!confirm('¿Eliminar esta receta?')) return;
+  state.recetas[residente].splice(idx, 1);
+  saveRecetas();
+  render();
+}
+function imprimirReceta(residente, idx) {
+  const r = state.recetas[residente][idx];
+  if (!r) return;
+  const win = window.open('', '_blank', 'width=600,height=700');
+  win.document.write(`<!DOCTYPE html><html><head><title>Receta — ${residente}</title>
+  <style>body{font-family:Arial,sans-serif;margin:30px;font-size:14px}
+  h2{color:#1F4E78;border-bottom:2px solid #1F4E78;padding-bottom:6px}
+  .fila{display:flex;gap:20px;margin-bottom:6px}
+  .label{font-weight:bold;min-width:110px}
+  ul{margin:8px 0 0 20px} li{margin-bottom:4px}
+  .pie{margin-top:40px;border-top:1px solid #ccc;padding-top:10px;font-size:12px;color:#666}
+  @media print{body{margin:15mm}}
+  </style></head><body>
+  <h2>📝 Receta Médica</h2>
+  <div class="fila"><span class="label">Paciente:</span><span>${residente}</span></div>
+  ${r.dni ? `<div class="fila"><span class="label">DNI:</span><span>${r.dni}</span></div>` : ''}
+  ${r.fechaNacimiento ? `<div class="fila"><span class="label">F. Nacimiento:</span><span>${r.fechaNacimiento}</span></div>` : ''}
+  ${r.obraSocial ? `<div class="fila"><span class="label">Obra Social:</span><span>${r.obraSocial}${r.nroAfiliado ? ' · Afil. ' + r.nroAfiliado : ''}</span></div>` : ''}
+  ${r.diagnostico ? `<div class="fila"><span class="label">Diagnóstico:</span><span>${r.diagnostico}</span></div>` : ''}
+  ${r.fechaReceta ? `<div class="fila"><span class="label">Fecha:</span><span>${r.fechaReceta}</span></div>` : ''}
+  <h3 style="margin-top:20px">Medicamentos / Indicaciones</h3>
+  <ul>${r.medicamentos.map(m => `<li>${m}</li>`).join('')}</ul>
+  ${r.notas ? `<p><b>Notas:</b> ${r.notas}</p>` : ''}
+  <div class="pie">Residencia Villa Teresa — Impreso ${new Date().toLocaleDateString('es-AR')}</div>
+  <script>window.onload=()=>{window.print();}<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
 
 function viewInsumos() {
   const ahora = new Date();
