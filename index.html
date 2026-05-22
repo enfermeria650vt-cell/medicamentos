@@ -3650,6 +3650,7 @@ function renderStockCards(res, data) {
         <div style="margin-top:8px"><label>Observación</label>
           <input type="text" id="ins-ing-obs" placeholder="ej: entrega farmacia mayo" style="width:100%"></div>
         <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn primary" id="ins-ing-ok">💾 Guardar ingreso</button>
           <button class="btn secondary" id="ins-ing-cancel">Cancelar</button>
         </div>
       </div>
@@ -3677,6 +3678,7 @@ function attachStockListeners(res) {
   // Toggle formulario ingreso
   document.getElementById('ins-ingreso-btn')?.addEventListener('click', () => {
     if (fMin) fMin.style.display = 'none';
+    if (fIng) fIng.style.display = fIng.style.display === 'none' ? 'block' : 'none';
   });
   document.getElementById('ins-ing-cancel')?.addEventListener('click', () => { if(fIng) fIng.style.display='none'; });
 
