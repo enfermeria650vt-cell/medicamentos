@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Residencia Villa Teresa</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; } body { padding-top: 6mm; }
 :root {
   --azul-1: #1F4E78;
   --azul-2: #2E75B6;
-  --azul-claro: #EAF1FA;h
+  --azul-claro: #EAF1FA;
   --gris-bg: #F5F7FA;
   --gris-borde: #DDE3EB;
   --texto: #2B3A4A;
@@ -3055,12 +3055,23 @@ function viewRecetas() {
         <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
         <input id="nr-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
         <label style="font-size:13px;font-weight:600">Obra social</label>
-        <select id="nr-os" class="input-field" style="width:100%;margin:4px 0 10px">
+        <select id="nr-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('nr')">
           <option value="">Sin obra social</option>
           <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
         </select>
+        <input id="nr-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
         <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
         <input id="nr-afiliado" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de afiliado">
+        <label style="font-size:13px;font-weight:600">DNI</label>
+        <input id="nr-dni" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de DNI">
+        <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
+        <input id="nr-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+        <label style="font-size:13px;font-weight:600">Sexo</label>
+        <select id="nr-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
+          <option value="">— Seleccionar —</option>
+          <option value="M">Masculino</option>
+          <option value="F">Femenino</option>
+        </select>
         <label style="font-size:13px;font-weight:600">Diagnóstico</label>
         <input id="nr-dx" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: HTA">
         <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
@@ -3079,16 +3090,23 @@ function viewRecetas() {
         <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
         <input id="er-nombre" class="input-field" style="width:100%;margin:4px 0 10px">
         <label style="font-size:13px;font-weight:600">Obra social</label>
-        <select id="er-os" class="input-field" style="width:100%;margin:4px 0 10px">
+        <select id="er-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('er')">
           <option value="">Sin obra social</option>
           <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
         </select>
+        <input id="er-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
         <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
         <input id="er-afiliado" class="input-field" style="width:100%;margin:4px 0 10px">
         <label style="font-size:13px;font-weight:600">DNI</label>
         <input id="er-dni" class="input-field" style="width:100%;margin:4px 0 10px">
         <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
         <input id="er-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+        <label style="font-size:13px;font-weight:600">Sexo</label>
+        <select id="er-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
+          <option value="">— Seleccionar —</option>
+          <option value="M">Masculino</option>
+          <option value="F">Femenino</option>
+        </select>
         <label style="font-size:13px;font-weight:600">Diagnóstico</label>
         <input id="er-dx" class="input-field" style="width:100%;margin:4px 0 10px">
         <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
@@ -3122,6 +3140,13 @@ function cerrarModalNuevaReceta() {
   const m = document.getElementById('modal-nueva-receta');
   if (m) m.style.display = 'none';
 }
+function toggleOtraOS(prefix) {
+  const sel = document.getElementById(prefix + '-os');
+  const inp = document.getElementById(prefix + '-os-otra');
+  if (!inp) return;
+  if (sel.value === 'Otra') { inp.style.display = ''; inp.focus(); }
+  else { inp.style.display = 'none'; inp.value = ''; }
+}
 function guardarNuevaReceta(residente) {
   const nombre = document.getElementById('nr-nombre').value.trim();
   if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
@@ -3133,7 +3158,10 @@ function guardarNuevaReceta(residente) {
     nombreHoja: nombre,
     obraSocial: document.getElementById('nr-os').value,
     nroAfiliado: document.getElementById('nr-afiliado').value.trim(),
-    dni: '', fechaNacimiento: '',
+    dni: document.getElementById('nr-dni').value.trim(),
+    fechaNacimiento: document.getElementById('nr-fnac').value.trim(),
+    sexo: document.getElementById('nr-sexo').value,
+    obraOtra: document.getElementById('nr-os-otra').value.trim(),
     diagnostico: document.getElementById('nr-dx').value.trim(),
     medicamentos: meds,
     notas: '',
@@ -3154,11 +3182,19 @@ function abrirModalEditarReceta(residente, idx) {
   // Set select value
   let osVal = r.obraSocial || '';
   const opts = Array.from(os.options).map(o => o.value);
-  os.value = opts.includes(osVal) ? osVal : '';
-  if (os.value === '' && osVal) {
-    // Add "Otra" or set to blank
-    os.value = '';
+  if (opts.includes(osVal)) { os.value = osVal; }
+  else if (osVal) { os.value = 'Otra'; }
+  else { os.value = ''; }
+  const otraInput = document.getElementById('er-os-otra');
+  if (os.value === 'Otra') {
+    otraInput.style.display = '';
+    otraInput.value = r.obraOtra || osVal || '';
+  } else {
+    otraInput.style.display = 'none';
+    otraInput.value = '';
   }
+  const sexoEl = document.getElementById('er-sexo');
+  if (sexoEl) sexoEl.value = r.sexo || '';
   document.getElementById('er-afiliado').value = r.nroAfiliado || '';
   document.getElementById('er-dni').value = r.dni || '';
   document.getElementById('er-fnac').value = r.fechaNacimiento || '';
@@ -3182,6 +3218,8 @@ function guardarEdicionReceta(residente, idx) {
   const r = state.recetas[residente][idx];
   r.nombreHoja = nombre;
   r.obraSocial = document.getElementById('er-os').value;
+  r.obraOtra = document.getElementById('er-os-otra').value.trim();
+  r.sexo = (document.getElementById('er-sexo') || {}).value || '';
   r.nroAfiliado = document.getElementById('er-afiliado').value.trim();
   r.dni = document.getElementById('er-dni').value.trim();
   r.fechaNacimiento = document.getElementById('er-fnac').value.trim();
@@ -3230,7 +3268,7 @@ function imprimirReceta(residente, idx) {
     .meds-box li { margin-bottom: 5px; font-size: 10.5pt; }
     .notas-box { font-size: 9.5pt; color: #555; margin-top: 8px; font-style: italic; }
     /* ── FIRMA ── */
-    .firma-area { margin-top: 28px; display: flex; justify-content: flex-end; }
+    .firma-area { position: fixed; bottom: 1.5cm; right: 0; width: 100%; display: flex; justify-content: flex-end; padding-right: 1cm; }
     .firma-linea { text-align: center; min-width: 160px; }
     .firma-linea hr { border: none; border-top: 1px solid #333; margin-bottom: 4px; }
     .firma-linea span { font-size: 9pt; color: #555; }
@@ -3250,7 +3288,8 @@ function imprimirReceta(residente, idx) {
     <div class="fila"><span class="fila-label">Paciente:</span><span class="fila-val"><b>${residente}</b></span></div>
     ${r.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${r.dni}</span></div>` : ''}
     ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${r.fechaNacimiento}</span></div>` : ''}
-    ${r.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${r.obraSocial}${r.nroAfiliado ? ' — Nº ' + r.nroAfiliado : ''}</span></div>` : ''}
+    ${r.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${r.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
+    ${r.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${r.obraSocial === 'Otra' ? (r.obraOtra || 'Otra') : r.obraSocial}${r.nroAfiliado ? ' — Nº ' + r.nroAfiliado : ''}</span></div>` : ''}
     ${r.diagnostico ? `<div class="fila"><span class="fila-label">Diagnóstico:</span><span class="fila-val">${r.diagnostico}</span></div>` : ''}
     ${r.fechaReceta ? `<div class="fila"><span class="fila-label">Fecha:</span><span class="fila-val">${r.fechaReceta}</span></div>` : ''}
   </div>
@@ -3268,7 +3307,7 @@ function imprimirReceta(residente, idx) {
     </div>
   </div>
   <!-- PIE -->
-  <div class="pie">Residencia Villa Teresa}</div>
+  <div class="pie">Residencia Villa Teresa</div>
   <script>window.onload = () => { window.print(); }<\/script>
   </body></html>`);
   win.document.close();
