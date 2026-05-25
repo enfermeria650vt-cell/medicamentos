@@ -690,6 +690,7 @@ function loadRecetas() {
 }
 function saveRecetas() {
   localStorage.setItem(RECETAS_KEY, JSON.stringify(state.recetas));
+  cloudPush('recetas', state.recetas, true);
 }
 function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.residentes));
@@ -1223,6 +1224,15 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
+    if (json.data.recetas !== undefined && json.data.recetas && typeof json.data.recetas === 'object') {
+      const remoto = JSON.stringify(json.data.recetas);
+      const local = JSON.stringify(state.recetas);
+      if (remoto !== local) {
+        state.recetas = json.data.recetas;
+        localStorage.setItem(RECETAS_KEY, remoto);
+        cambios++;
+      }
+    }
     setLastPull(json.ahora);
     syncState.lastOk = new Date().toISOString();
     syncState.lastError = null;
@@ -1246,7 +1256,7 @@ async function cloudPull(silencioso = false) {
 
 async function cloudPush(key, valueObj, silencioso = true) {
   if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
-  if (!key || !['residentes','semanal','historial','controlSignos'].includes(key)) return { ok: false, error: 'Key inválida' };
+  if (!key || !['residentes','semanal','historial','controlSignos','recetas'].includes(key)) return { ok: false, error: 'Key inválida' };
   try {
     const url = getCloudUrl();
     const fd = new URLSearchParams();
