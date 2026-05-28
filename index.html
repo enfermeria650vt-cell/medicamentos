@@ -3269,7 +3269,7 @@ function eliminarReceta(residente, idx) {
   saveRecetas();
   render();
 }
-function imprimirReceta(residente, idx, etiqueta) {
+function imprimirReceta(residente, idx, etiqueta, nombreDisplay) {
   const r = state.recetas[residente][idx];
   if (!r) return;
   const win = window.open('', '_blank', 'width=700,height=900');
@@ -3316,7 +3316,7 @@ function imprimirReceta(residente, idx, etiqueta) {
   <!-- DATOS DEL PACIENTE -->
   <div class="seccion">
     <div class="seccion-titulo">Datos del Paciente</div>
-    <div class="fila"><span class="fila-label">${etiqueta||'Paciente'}:</span><span class="fila-val"><b>${residente}</b></span></div>
+    <div class="fila"><span class="fila-label">${etiqueta||'Paciente'}:</span><span class="fila-val"><b>${nombreDisplay||residente}</b></span></div>
     ${r.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${r.dni}</span></div>` : ''}
     ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${r.fechaNacimiento}</span></div>` : ''}
     ${r.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${r.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
@@ -4152,7 +4152,7 @@ function imprimirRecetaFam(key, idx) {
   if (!r) return;
   const win = window.open('', '_blank', 'width=700,height=900');
   const os = r.obraSocial!=='Otra' ? (r.obraSocial||'') : (r.obraOtra||r.obraSocial||'');
-  const tmpK=' fam '+key; if(!state.recetas[tmpK])state.recetas[tmpK]=[]; state.recetas[tmpK][idx]=r; imprimirReceta(tmpK,idx,'Familiar'); setTimeout(()=>{delete state.recetas[tmpK];},3000); return; win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receta</title>'
+  const tmpK=' fam '+key; if(!state.recetas[tmpK])state.recetas[tmpK]=[]; state.recetas[tmpK][idx]=r; imprimirReceta(tmpK,idx,'Familiar',key); setTimeout(()=>{delete state.recetas[tmpK];},3000); return; win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receta</title>'
     + '<style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:20px}'
     + '.fila{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:6px 0}'
     + '.med{padding:5px 10px;border-left:3px solid #27AE60;margin:4px 0;background:#f9f9f9}'
