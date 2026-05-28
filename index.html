@@ -630,6 +630,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-item" data-view="insumos">🧴 <span>Insumos</span></div>
     <div class="nav-item" data-view="recetas">📝 <span>Recetas</span></div>
+    <div class="nav-item" data-view="familiares">👨‍👩‍👧 <span>Familiares</span></div>
     <div class="nav-section">Residentes</div>
     <div id="lista-residentes-sidebar"></div>
     <div class="nav-section">Acciones</div>
@@ -665,6 +666,22 @@ const CS_KEY = 'med_geri_cs_v1';
 const USER_KEY = 'med_geri_user';
 const SYNC_LASTPULL_KEY = 'med_geri_lastpull';
 const SYNC_AUTO_KEY = 'med_geri_autosync';
+const FAM_LIST_KEY = 'med_geri_fam_lista_v1';
+const FAM_REC_KEY  = 'med_geri_fam_recetas_v1';
+function loadFamLista() {
+  try { const s = localStorage.getItem(FAM_LIST_KEY); if (s) return JSON.parse(s); } catch(e) {}
+  return [];
+}
+function loadFamRecetas() {
+  try { const s = localStorage.getItem(FAM_REC_KEY); if (s) return JSON.parse(s); } catch(e) {}
+  return {};
+}
+function saveFamLista() {
+  localStorage.setItem(FAM_LIST_KEY, JSON.stringify(state.familiaresLista));
+}
+function saveFamRecetas() {
+  localStorage.setItem(FAM_REC_KEY, JSON.stringify(state.recetasFamiliares));
+}
 
 function loadData() {
   try {
@@ -734,6 +751,9 @@ const state = {
   csFecha: null,
   csSubtab: 'signos',
   recetas: loadRecetas(),
+  familiaresLista: loadFamLista(),
+  recetasFamiliares: loadFamRecetas(),
+  familiarSel: null,
 };
 
 // ============ CÁLCULOS ============
@@ -1465,6 +1485,7 @@ function render() {
   else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
   else if (state.view === 'insumos') { main.innerHTML = viewInsumos(); attachInsumos(); return; }
   else if (state.view === 'recetas') { main.innerHTML = viewRecetas(); attachRecetas(); return; }
+  else if (state.view === 'familiares') { main.innerHTML = viewFamiliares(); attachFamiliares(); return; }
 
   attachListeners();
 }
@@ -3090,7 +3111,7 @@ function viewRecetas() {
         <input id="nr-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px">
         <div style="display:flex;gap:10px;justify-content:flex-end">
           <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalNuevaReceta()">Cancelar</button>
-          <button class="btn" onclick="guardarNuevaReceta('${escapeHtml(sel)}')">Guardar</button>
+          <button class="btn" onclick="guardarNuevaReceta('${jsAttr(sel)}')">Guardar</button>
         </div>
       </div>
     </div>
@@ -3830,6 +3851,332 @@ setInterval(() => {
 window.addEventListener('focus', () => {
   if (syncHabilitado() && syncAutoActivado()) cloudPull(true);
 });
+
+
+// =====================================================
+// FAMILIARES — SECCIÓN IGUAL A RECETAS
+// =====================================================
+
+function famKey(f) {
+  return (f.nombre + ' ' + f.apellido).trim();
+}
+
+function viewFamiliares() {
+  const lista = state.familiaresLista || [];
+  const sel = state.familiarSel || (lista.length > 0 ? famKey(lista[0]) : '');
+
+  const listaHtml = lista.map(f => {
+    const key = famKey(f);
+    const active = key === sel ? ' style="background:#2E75B6"' : '';
+    const cnt = (state.recetasFamiliares[key] || []).length;
+    return `<div class="nav-item" data-fam-key="${escapeHtml(key)}"${active}>
+      👤 <span style="font-size:12px">${escapeHtml(key)}</span>
+      ${cnt ? `<span class="badge" style="background:#27AE60">${cnt}</span>` : ''}
+    </div>`;
+  }).join('');
+
+  const recetas = sel ? (state.recetasFamiliares[sel] || []) : [];
+
+  const recetasHtml = recetas.length === 0
+    ? `<div style="padding:40px;text-align:center;color:#6c7a8a">Sin recetas cargadas.<br><br>
+        <button class="btn" onclick="abrirModalNuevaRecetaFam()">+ Agregar receta</button></div>`
+    : recetas.map((r, idx) => `
+      <div class="card" style="margin-bottom:12px;border-left:4px solid #27AE60">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <b style="font-size:15px">📝 ${escapeHtml(r.nombreHoja||'Receta')}</b>
+          <div style="display:flex;gap:6px">
+            <button class="btn secondary" style="font-size:12px;padding:4px 10px" onclick="abrirModalEditarRecetaFam('${jsAttr(sel)}',${idx})">✏️</button>
+            <button class="btn" style="font-size:12px;padding:4px 10px;background:#e74c3c" onclick="eliminarRecetaFam('${jsAttr(sel)}',${idx})">🗑️</button>
+            <button class="btn secondary" style="font-size:12px;padding:4px 10px" onclick="imprimirRecetaFam('${jsAttr(sel)}',${idx})">🖨️</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">
+          ${r.obraSocial ? `<div><b>Obra social:</b> ${escapeHtml(r.obraSocial!=='Otra'?r.obraSocial:(r.obraOtra||r.obraSocial))}</div>` : ''}
+          ${r.nroAfiliado ? `<div><b>Nº Afiliado:</b> ${escapeHtml(r.nroAfiliado)}</div>` : ''}
+          ${r.dni ? `<div><b>DNI:</b> ${escapeHtml(r.dni)}</div>` : ''}
+          ${r.fechaNacimiento ? `<div><b>Fecha nac.:</b> ${escapeHtml(r.fechaNacimiento)}</div>` : ''}
+          ${r.sexo ? `<div><b>Sexo:</b> ${r.sexo==='M'?'Masculino':'Femenino'}</div>` : ''}
+          ${r.diagnostico ? `<div style="grid-column:1/-1"><b>Diagnóstico:</b> ${escapeHtml(r.diagnostico)}</div>` : ''}
+        </div>
+        ${(r.medicamentos||[]).length>0?`
+          <div style="margin-top:8px;font-size:12px;font-weight:700;color:#555;text-transform:uppercase">Medicamentos</div>
+          ${r.medicamentos.map(m=>`<div style="font-size:13px;padding:4px 8px;background:#EBF5FB;border-left:3px solid #27AE60;margin-top:4px;border-radius:4px">💊 ${escapeHtml(m)}</div>`).join('')}`:''}
+        ${r.notas?`<div style="margin-top:8px;font-size:13px;color:#666"><b>Notas:</b> ${escapeHtml(r.notas)}</div>`:''}
+        ${r.fechaReceta?`<div style="margin-top:8px;font-size:12px;color:#999;text-align:right">📅 ${escapeHtml(r.fechaReceta)}</div>`:''}
+      </div>`).join('') +
+      `<div style="text-align:center;margin-top:8px"><button class="btn" onclick="abrirModalNuevaRecetaFam()">+ Agregar receta</button></div>`;
+
+  return `
+  <div style="display:flex;height:100%;gap:0">
+    <div style="width:220px;flex-shrink:0;background:#1b5e20;border-radius:8px 0 0 8px;overflow-y:auto;padding:8px 0" id="fam-lista">
+      <div style="padding:10px 16px 6px;color:rgba(255,255,255,.7);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Familiares</div>
+      ${listaHtml}
+      <div style="padding:10px 12px">
+        <button class="btn" style="width:100%;font-size:12px;background:#27AE60" onclick="abrirModalNuevoFamiliar()">➕ Nuevo familiar</button>
+      </div>
+    </div>
+    <div style="flex:1;padding:20px;overflow-y:auto;background:#F5F7FA;border-radius:0 8px 8px 0">
+      ${lista.length===0
+        ? `<div style="text-align:center;padding:60px 20px;color:#6c7a8a">
+            <div style="font-size:48px;margin-bottom:12px">👨‍👩‍👧</div>
+            <p>No hay familiares cargados.<br>Hacé clic en <b>➕ Nuevo familiar</b> para empezar.</p>
+           </div>`
+        : (sel ? `<div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+            <h3 style="margin:0;color:#1F4E78">👤 ${escapeHtml(sel)}</h3>
+            <button class="btn" style="background:#e74c3c;font-size:12px;padding:5px 12px" onclick="eliminarFamiliar('${jsAttr(sel)}')">🗑️ Eliminar familiar</button>
+          </div>${recetasHtml}` : recetasHtml)
+      }
+    </div>
+  </div>
+
+  <div id="modal-nuevo-familiar" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:10px;padding:24px;width:380px;max-width:95vw">
+      <h3 style="margin-bottom:16px">➕ Nuevo familiar</h3>
+      <label style="font-size:13px;font-weight:600">Nombre *</label>
+      <input id="nf-nombre" class="input-field" style="width:100%;margin:4px 0 12px" placeholder="Nombre">
+      <label style="font-size:13px;font-weight:600">Apellido *</label>
+      <input id="nf-apellido" class="input-field" style="width:100%;margin:4px 0 16px" placeholder="Apellido">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalNuevoFamiliar()">Cancelar</button>
+        <button class="btn" style="background:#27AE60" onclick="guardarNuevoFamiliar()">✅ Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-nueva-receta-fam" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto">
+      <h3 style="margin-bottom:16px">Nueva receta — ${escapeHtml(sel)}</h3>
+      <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
+      <input id="nrf-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
+      <label style="font-size:13px;font-weight:600">Obra social</label>
+      <select id="nrf-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('nrf')">
+        <option value="">Sin obra social</option>
+        <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
+      </select>
+      <input id="nrf-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
+      <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
+      <input id="nrf-afiliado" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de afiliado">
+      <label style="font-size:13px;font-weight:600">DNI</label>
+      <input id="nrf-dni" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de DNI">
+      <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
+      <input id="nrf-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+      <label style="font-size:13px;font-weight:600">Sexo</label>
+      <select id="nrf-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
+        <option value="">— Seleccionar —</option>
+        <option value="M">Masculino</option>
+        <option value="F">Femenino</option>
+      </select>
+      <label style="font-size:13px;font-weight:600">Diagnóstico</label>
+      <input id="nrf-dx" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: HTA">
+      <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
+      <textarea id="nrf-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:80px" placeholder="Ej: Omeprazol 20 mg&#10;GASTROMAX 20"></textarea>
+      <label style="font-size:13px;font-weight:600">Fecha receta</label>
+      <input id="nrf-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalNuevaRecetaFam()">Cancelar</button>
+        <button class="btn" style="background:#27AE60" onclick="guardarNuevaRecetaFam('${jsAttr(sel)}')">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-editar-receta-fam" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto">
+      <h3 style="margin-bottom:16px">✏️ Editar receta</h3>
+      <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
+      <input id="erf-nombre" class="input-field" style="width:100%;margin:4px 0 10px">
+      <label style="font-size:13px;font-weight:600">Obra social</label>
+      <select id="erf-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('erf')">
+        <option value="">Sin obra social</option>
+        <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
+      </select>
+      <input id="erf-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
+      <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
+      <input id="erf-afiliado" class="input-field" style="width:100%;margin:4px 0 10px">
+      <label style="font-size:13px;font-weight:600">DNI</label>
+      <input id="erf-dni" class="input-field" style="width:100%;margin:4px 0 10px">
+      <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
+      <input id="erf-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+      <label style="font-size:13px;font-weight:600">Sexo</label>
+      <select id="erf-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
+        <option value="">— Seleccionar —</option>
+        <option value="M">Masculino</option>
+        <option value="F">Femenino</option>
+      </select>
+      <label style="font-size:13px;font-weight:600">Diagnóstico</label>
+      <input id="erf-dx" class="input-field" style="width:100%;margin:4px 0 10px">
+      <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
+      <textarea id="erf-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:90px"></textarea>
+      <label style="font-size:13px;font-weight:600">Notas</label>
+      <input id="erf-notas" class="input-field" style="width:100%;margin:4px 0 10px">
+      <label style="font-size:13px;font-weight:600">Fecha receta</label>
+      <input id="erf-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalEditarRecetaFam()">Cancelar</button>
+        <button class="btn primary" id="erf-guardar-btn">💾 Guardar cambios</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function attachFamiliares() {
+  document.querySelectorAll('[data-fam-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.familiarSel = el.dataset.famKey;
+      render();
+    });
+  });
+}
+
+function abrirModalNuevoFamiliar() {
+  const m = document.getElementById('modal-nuevo-familiar');
+  if (m) { m.style.display = 'flex'; document.getElementById('nf-nombre').focus(); }
+}
+function cerrarModalNuevoFamiliar() {
+  const m = document.getElementById('modal-nuevo-familiar');
+  if (m) m.style.display = 'none';
+}
+function guardarNuevoFamiliar() {
+  const nombre = document.getElementById('nf-nombre').value.trim();
+  const apellido = document.getElementById('nf-apellido').value.trim();
+  if (!nombre || !apellido) { alert('Ingresá nombre y apellido'); return; }
+  const key = (nombre + ' ' + apellido).trim();
+  if ((state.familiaresLista||[]).find(f => famKey(f) === key)) { alert('Ya existe un familiar con ese nombre'); return; }
+  if (!state.familiaresLista) state.familiaresLista = [];
+  state.familiaresLista.push({ nombre, apellido });
+  state.familiarSel = key;
+  saveFamLista();
+  cerrarModalNuevoFamiliar();
+  render();
+  toast('✅ Familiar agregado');
+}
+function eliminarFamiliar(key) {
+  if (!confirm('¿Eliminar al familiar ' + key + ' y todas sus recetas?')) return;
+  state.familiaresLista = (state.familiaresLista||[]).filter(f => famKey(f) !== key);
+  delete state.recetasFamiliares[key];
+  state.familiarSel = state.familiaresLista.length > 0 ? famKey(state.familiaresLista[0]) : null;
+  saveFamLista();
+  saveFamRecetas();
+  render();
+  toast('🗑️ Familiar eliminado');
+}
+
+function abrirModalNuevaRecetaFam() {
+  const m = document.getElementById('modal-nueva-receta-fam');
+  if (m) { m.style.display = 'flex'; document.getElementById('nrf-nombre').focus(); }
+}
+function cerrarModalNuevaRecetaFam() {
+  const m = document.getElementById('modal-nueva-receta-fam');
+  if (m) m.style.display = 'none';
+}
+function guardarNuevaRecetaFam(key) {
+  const nombre = document.getElementById('nrf-nombre').value.trim();
+  if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
+  if (!state.recetasFamiliares) state.recetasFamiliares = {};
+  if (!state.recetasFamiliares[key]) state.recetasFamiliares[key] = [];
+  const meds = document.getElementById('nrf-meds').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  state.recetasFamiliares[key].push({
+    id: 'rfam_' + Date.now(),
+    nombreHoja: nombre,
+    obraSocial: document.getElementById('nrf-os').value,
+    obraOtra: document.getElementById('nrf-os-otra').value.trim(),
+    nroAfiliado: document.getElementById('nrf-afiliado').value.trim(),
+    dni: document.getElementById('nrf-dni').value.trim(),
+    fechaNacimiento: document.getElementById('nrf-fnac').value.trim(),
+    sexo: document.getElementById('nrf-sexo').value,
+    diagnostico: document.getElementById('nrf-dx').value.trim(),
+    medicamentos: meds,
+    notas: '',
+    fechaReceta: document.getElementById('nrf-fecha').value
+  });
+  saveFamRecetas();
+  render();
+  toast('✅ Receta guardada');
+}
+function abrirModalEditarRecetaFam(key, idx) {
+  const r = state.recetasFamiliares[key]?.[idx];
+  if (!r) return;
+  const m = document.getElementById('modal-editar-receta-fam');
+  if (!m) return;
+  document.getElementById('erf-nombre').value = r.nombreHoja || '';
+  const os = document.getElementById('erf-os');
+  const opts = Array.from(os.options).map(o => o.value);
+  if (opts.includes(r.obraSocial||'')) os.value = r.obraSocial||'';
+  else if (r.obraSocial) os.value = 'Otra';
+  else os.value = '';
+  const otraInp = document.getElementById('erf-os-otra');
+  if (os.value==='Otra') { otraInp.style.display=''; otraInp.value=r.obraOtra||r.obraSocial||''; }
+  else { otraInp.style.display='none'; otraInp.value=''; }
+  document.getElementById('erf-afiliado').value = r.nroAfiliado||'';
+  document.getElementById('erf-dni').value = r.dni||'';
+  document.getElementById('erf-fnac').value = r.fechaNacimiento||'';
+  document.getElementById('erf-sexo').value = r.sexo||'';
+  document.getElementById('erf-dx').value = r.diagnostico||'';
+  document.getElementById('erf-meds').value = (r.medicamentos||[]).join('\n');
+  document.getElementById('erf-notas').value = r.notas||'';
+  document.getElementById('erf-fecha').value = r.fechaReceta||'';
+  document.getElementById('erf-guardar-btn').onclick = () => guardarEdicionRecetaFam(key, idx);
+  m.style.display = 'flex';
+}
+function cerrarModalEditarRecetaFam() {
+  const m = document.getElementById('modal-editar-receta-fam');
+  if (m) m.style.display = 'none';
+}
+function guardarEdicionRecetaFam(key, idx) {
+  const nombre = document.getElementById('erf-nombre').value.trim();
+  if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
+  const r = state.recetasFamiliares[key][idx];
+  r.nombreHoja = nombre;
+  r.obraSocial = document.getElementById('erf-os').value;
+  r.obraOtra = document.getElementById('erf-os-otra').value.trim();
+  r.nroAfiliado = document.getElementById('erf-afiliado').value.trim();
+  r.dni = document.getElementById('erf-dni').value.trim();
+  r.fechaNacimiento = document.getElementById('erf-fnac').value.trim();
+  r.sexo = document.getElementById('erf-sexo').value;
+  r.diagnostico = document.getElementById('erf-dx').value.trim();
+  r.medicamentos = document.getElementById('erf-meds').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  r.notas = document.getElementById('erf-notas').value.trim();
+  r.fechaReceta = document.getElementById('erf-fecha').value;
+  saveFamRecetas();
+  cerrarModalEditarRecetaFam();
+  render();
+  toast('✅ Receta actualizada');
+}
+function eliminarRecetaFam(key, idx) {
+  if (!confirm('¿Eliminar esta receta?')) return;
+  state.recetasFamiliares[key].splice(idx, 1);
+  saveFamRecetas();
+  render();
+}
+function imprimirRecetaFam(key, idx) {
+  const r = state.recetasFamiliares[key]?.[idx];
+  if (!r) return;
+  const win = window.open('', '_blank', 'width=700,height=900');
+  const os = r.obraSocial!=='Otra' ? (r.obraSocial||'') : (r.obraOtra||r.obraSocial||'');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receta</title>'
+    + '<style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:20px}'
+    + '.fila{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:6px 0}'
+    + '.med{padding:5px 10px;border-left:3px solid #27AE60;margin:4px 0;background:#f9f9f9}'
+    + '.titulo{text-align:center;font-size:14pt;font-weight:bold;color:#1F4E78;margin-bottom:16px}'
+    + '.pie{text-align:center;margin-top:30px;font-size:10pt;color:#888;border-top:1px solid #ccc;padding-top:10px}'
+    + '</style></head><body>'
+    + '<div class="titulo">Receta Médica</div>'
+    + '<div class="fila"><span>Familiar:</span><b>' + escapeHtml(key) + '</b></div>'
+    + '<div class="fila"><span>Tratamiento:</span><b>' + escapeHtml(r.nombreHoja||'') + '</b></div>'
+    + (os ? '<div class="fila"><span>Obra social:</span><b>' + escapeHtml(os) + '</b></div>' : '')
+    + (r.nroAfiliado ? '<div class="fila"><span>Nº Afiliado:</span><b>' + escapeHtml(r.nroAfiliado) + '</b></div>' : '')
+    + (r.dni ? '<div class="fila"><span>DNI:</span><b>' + escapeHtml(r.dni) + '</b></div>' : '')
+    + (r.fechaNacimiento ? '<div class="fila"><span>Fecha nac.:</span><b>' + escapeHtml(r.fechaNacimiento) + '</b></div>' : '')
+    + (r.sexo ? '<div class="fila"><span>Sexo:</span><b>' + (r.sexo==='M'?'Masculino':'Femenino') + '</b></div>' : '')
+    + (r.diagnostico ? '<div class="fila"><span>Diagnóstico:</span><b>' + escapeHtml(r.diagnostico) + '</b></div>' : '')
+    + ((r.medicamentos||[]).length>0 ? '<div style="margin-top:14px;font-weight:bold">Medicamentos:</div>'
+      + r.medicamentos.map(m=>'<div class="med">' + escapeHtml(m) + '</div>').join('') : '')
+    + (r.notas ? '<div style="margin-top:10px"><b>Notas:</b> ' + escapeHtml(r.notas) + '</div>' : '')
+    + (r.fechaReceta ? '<div style="margin-top:8px"><b>Fecha:</b> ' + escapeHtml(r.fechaReceta) + '</div>' : '')
+    + '<div class="pie">Residencia Villa Teresa</div>'
+    + '<script>window.onload=function(){window.print();}<\/script>'
+    + '</body></html>');
+  win.document.close();
+}
 </script>
 </body>
 </html>
