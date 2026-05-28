@@ -3054,9 +3054,9 @@ function viewRecetas() {
             ${r.obraSocial ? `<span style="margin-left:10px;background:#EAF1FA;color:#1F4E78;padding:2px 8px;border-radius:10px;font-size:12px">${escapeHtml(r.obraSocial)}${r.nroAfiliado ? ' · ' + escapeHtml(r.nroAfiliado) : ''}</span>` : ''}
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn" style="font-size:12px;padding:5px 12px" onclick="imprimirReceta('${escapeHtml(sel)}',${idx})">🖨️ Imprimir</button>
-            <button class="btn" style="font-size:12px;padding:5px 12px;background:#e8f0fe;color:#1F4E78" onclick="abrirModalEditarReceta('${escapeHtml(sel)}',${idx})">✏️ Editar</button>
-            <button class="btn btn-danger" style="font-size:12px;padding:5px 10px" onclick="eliminarReceta('${escapeHtml(sel)}',${idx})">✕</button>
+            <button class="btn" style="font-size:12px;padding:5px 12px" onclick="imprimirReceta('${jsAttr(sel)}',${idx})">🖨️ Imprimir</button>
+            <button class="btn" style="font-size:12px;padding:5px 12px;background:#e8f0fe;color:#1F4E78" onclick="abrirModalEditarReceta('${jsAttr(sel)}',${idx})">✏️ Editar</button>
+            <button class="btn btn-danger" style="font-size:12px;padding:5px 10px" onclick="eliminarReceta('${jsAttr(sel)}',${idx})">✕</button>
           </div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;font-size:13px;color:#444;margin-bottom:10px">
