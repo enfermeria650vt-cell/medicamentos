@@ -1,4 +1,4 @@
-const CACHE = 'vt-v1';
+const CACHE = 'vt-v2';
 const ASSETS = [
   '/medicamentos/',
   '/medicamentos/index.html',
