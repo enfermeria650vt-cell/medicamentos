@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<script>window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window._pwaPrompt=e;var b=document.getElementById('pwa-install-btn');if(b)b.style.display='';});</script>
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -4348,11 +4349,15 @@ function imprimirRecetaFam(key, idx) {
 </script>
   
 <script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('/medicamentos/sw.js');
-  });
-}
+if('serviceWorker'in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/medicamentos/sw.js');});}
+(function(){
+  var btn=document.createElement('button');
+  btn.id='pwa-install-btn';
+  btn.textContent='📲 Instalar app';
+  btn.style.cssText='display:none;position:fixed;bottom:24px;right:24px;background:#1F4E78;color:white;padding:12px 20px;border:none;border-radius:10px;cursor:pointer;font-size:15px;font-weight:700;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.35);';
+  btn.onclick=function(){if(window._pwaPrompt){window._pwaPrompt.prompt();window._pwaPrompt.userChoice.then(function(r){if(r.outcome==='accepted')btn.style.display='none';window._pwaPrompt=null;});}};
+  document.addEventListener('DOMContentLoaded',function(){document.body.appendChild(btn);if(window._pwaPrompt)btn.style.display='';});
+})();
 </script>
 </body>
 </html>            
