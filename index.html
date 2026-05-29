@@ -4346,5 +4346,13 @@ function imprimirRecetaFam(key, idx) {
   win.document.close();
 }
 </script>
+  
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/medicamentos/sw.js');
+  });
+}
+</script>
 </body>
 </html>            
