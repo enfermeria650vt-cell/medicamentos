@@ -663,6 +663,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" id="btn-export">💾 <span>Exportar Excel</span></div>
     <div class="nav-item" id="btn-reset">♻️ <span>Restaurar datos</span></div>
     <div class="nav-section">Cuenta</div>
+    <div class="nav-item" data-view="historial-cambios">📜 <span>Historial cambios</span></div>
     <div class="nav-item" id="btn-cambiar-usuario" style="font-size:12px">
       👤 <span id="user-display">Sin usuario</span>
     </div>
@@ -695,6 +696,8 @@ function getSession() {
 
 function setSession(user) {
   sessionStorage.setItem('vt_user', JSON.stringify(user));
+  // Log login (after state loads)
+  setTimeout(() => logCambio('sesion', `Inicio de sesión: ${user.usuario} (${user.rol})`), 2000);
 }
 
 function showApp(user) {
@@ -759,6 +762,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const btnCerrar = document.getElementById('btn-cerrar-sesion');
   if (btnCerrar) {
     btnCerrar.addEventListener('click', () => {
+      logCambio('sesion', `Cierre de sesión: ${(getSession()||{}).usuario || '?'}`);
       sessionStorage.removeItem('vt_user');
       location.reload();
     });
@@ -834,6 +838,23 @@ function saveSem() {
   localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
   if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('semanal', state.semanal);
 }
+const HC_KEY = 'vt_historial_cambios';
+function loadHistorialCambios() {
+  try { return JSON.parse(localStorage.getItem(HC_KEY)) || []; } catch(e) { return []; }
+}
+function saveHistorialCambios() {
+  if (state.historialCambios.length > 500) state.historialCambios = state.historialCambios.slice(-500);
+  localStorage.setItem(HC_KEY, JSON.stringify(state.historialCambios));
+}
+function logCambio(tipo, descripcion, extra) {
+  if (!state || !state.historialCambios) return;
+  const session = typeof getSession === 'function' ? getSession() : null;
+  const usuario = session ? session.nombre + ' (' + session.usuario + ')' : 'Sistema';
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString('es-AR') + ' ' + ahora.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
+  state.historialCambios.push({ tipo, descripcion, usuario, fecha, ts: ahora.toISOString(), extra: extra || null });
+  saveHistorialCambios();
+}
 function loadHist() {
   try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch(e) { return []; }
 }
@@ -872,6 +893,7 @@ const state = {
   controlSignos: loadCS(),
   csFecha: null,
   csSubtab: 'signos',
+  historialCambios: loadHistorialCambios(),
   recetas: loadRecetas(),
   familiaresLista: loadFamLista(),
   recetasFamiliares: loadFamRecetas(),
@@ -1609,6 +1631,7 @@ function render() {
   else if (state.view === 'ingresos') main.innerHTML = viewIngresos();
   else if (state.view === 'semanal') main.innerHTML = viewSemanal();
   else if (state.view === 'historial') main.innerHTML = viewHistorial();
+  else if (state.view === 'historial-cambios') main.innerHTML = viewHistorialCambios();
   else if (state.view === 'residente') main.innerHTML = viewResidente();
   else if (state.view === 'indicaciones') {
     main.innerHTML = viewIndicaciones();
@@ -1866,6 +1889,51 @@ function mostrarAlertaLoginSiHay() {
   toastEl.onclick = () => { navigate('alertas'); toastEl.remove(); };
   document.getElementById('toast-container').appendChild(toastEl);
   setTimeout(() => toastEl.remove(), 8000);
+}
+
+
+function viewHistorialCambios() {
+  const hist = (state.historialCambios || []).slice().reverse();
+  const filtro = state.histFiltro || 'todos';
+  const filtrados = filtro === 'todos' ? hist : hist.filter(h => h.tipo === filtro);
+
+  const iconos = { stock: '📊', ingreso: '📥', medicacion: '💊', sesion: '🔑' };
+  const colores = { stock: '#2E75B6', ingreso: '#27ae60', medicacion: '#8e44ad', sesion: '#e67e22' };
+
+  return `
+    <h2>📜 Historial de cambios</h2>
+    <div class="subtitle">${hist.length} registros en total</div>
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      ${['todos','stock','ingreso','medicacion','sesion'].map(f => `
+        <button class="btn ${filtro === f ? '' : 'secondary'}" onclick="state.histFiltro='${f}';render()">
+          ${iconos[f] || '📋'} ${f.charAt(0).toUpperCase()+f.slice(1)} ${f==='todos' ? '('+hist.length+')' : '('+hist.filter(h=>h.tipo===f).length+')'}
+        </button>`).join('')}
+      <span class="spacer"></span>
+      ${state.currentUser && state.currentUser.rol === 'admin' ? `<button class="btn secondary" onclick="if(confirm('¿Borrar todo el historial?')){state.historialCambios=[];saveHistorialCambios();render()}">🗑️ Limpiar historial</button>` : ''}
+    </div>
+    ${filtrados.length === 0 ? `
+      <div class="card text-center" style="padding:48px">
+        <div style="font-size:40px;margin-bottom:8px">📋</div>
+        <h3>Sin registros aún</h3>
+        <p style="color:#6c7a8a;margin-top:6px">Los cambios aparecerán aquí automáticamente.</p>
+      </div>
+    ` : `
+      <table class="tabla">
+        <thead><tr>
+          <th>Fecha</th><th>Tipo</th><th>Usuario</th><th>Detalle</th>
+        </tr></thead>
+        <tbody>
+          ${filtrados.map(h => `
+            <tr>
+              <td style="white-space:nowrap;font-size:12px;color:#888">${h.fecha}</td>
+              <td><span class="pill" style="background:${colores[h.tipo]||'#666'};color:#fff;font-size:11px">${iconos[h.tipo]||'📋'} ${h.tipo}</span></td>
+              <td style="font-size:13px"><strong>${escapeHtml(h.usuario)}</strong></td>
+              <td style="font-size:13px">${escapeHtml(h.descripcion)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    `}
+  `;
 }
 
 function viewStock() {
@@ -2305,7 +2373,9 @@ function actualizarStock(residente, medId, val) {
   if (bloquearSiNoAdmin('editar el stock')) { render(); return; }
   const r = state.residentes.find(x => x.nombre === residente);
   const m = r.meds.find(x => x.id === medId);
+  const stockAnterior = m.stock;
   m.stock = val === '' ? null : parseFloat(val);
+  logCambio('stock', `Stock editado: ${m.med} (${residente}) — ${stockAnterior} → ${m.stock}`);
   saveData();
   toast(`Stock actualizado: ${m.med}`);
   render();
@@ -2362,6 +2432,7 @@ function registrarIngreso() {
     fecha: fechaDisplay,
     residente, medicamento: m.med, cantidad, recibido, obs
   });
+  logCambio('ingreso', `Ingreso: +${cantidad} ${m.med} (${residente}) → stock ${m.stock}`, {recibido, obs});
   saveData(); saveSem();
   toast(`✅ Ingreso registrado: +${cantidad} ${m.med} → stock ${m.stock}`);
   document.getElementById('ing-cantidad').value = '';
@@ -2562,6 +2633,7 @@ function abrirNuevoMedicamento(nombreResidente) {
       fechaIngreso: fechaIngreso
     });
     if (horario) state.semanal[newId + '_horario'] = horario;
+    logCambio('medicacion', `Medicamento agregado: ${nombre} (${nombreResidente}) — stock: ${stock}, consumo: ${consumo}`);
     saveData(); saveSem();
     toast('Agregado: ' + nombre);
     modalBg.remove();
@@ -2578,6 +2650,7 @@ function eliminarMedicamento(nombreResidente, medId) {
   r.meds = r.meds.filter(x => x.id !== medId);
   for (let i = 0; i < 7; i++) delete state.semanal[medId + '_' + i];
   delete state.semanal[medId + '_horario'];
+  logCambio('medicacion', `Medicamento eliminado: ${m.med} (${nombreResidente})`);
   saveData(); saveSem();
   toast('Eliminado: ' + m.med);
   render();
