@@ -702,6 +702,10 @@ function showApp(user) {
   const disp = document.getElementById('user-display');
   if (disp) disp.textContent = user.nombre + ' (' + user.rol + ')';
   aplicarPermisos(user.rol);
+  // Mostrar alerta de stock crítico al iniciar sesión
+  setTimeout(() => {
+    if (typeof mostrarAlertaLoginSiHay === 'function') mostrarAlertaLoginSiHay();
+  }, 1500);
 }
 
 function aplicarPermisos(rol) {
@@ -1764,48 +1768,104 @@ function viewDashboard() {
 }
 
 function viewAlertas() {
-  const alertas = [];
+  const sinStock = [], criticos = [], atencion = [];
   state.residentes.forEach(r => {
     r.meds.forEach(m => {
       const e = estadoMed(m);
-      if (e.tipo === 'critico' || e.tipo === 'sinstock' || e.tipo === 'atencion') {
-        alertas.push({ ...m, residente: r.nombre, estado: e, dias: calcDiasRestantes(m) });
-      }
+      const item = { ...m, residente: r.nombre, estado: e, dias: calcDiasRestantes(m) };
+      if (e.tipo === 'sinstock') sinStock.push(item);
+      else if (e.tipo === 'critico') criticos.push(item);
+      else if (e.tipo === 'atencion') atencion.push(item);
     });
   });
-  alertas.sort((a,b) => (a.dias ?? 999) - (b.dias ?? 999));
+  criticos.sort((a,b) => (a.dias ?? 999) - (b.dias ?? 999));
+  atencion.sort((a,b) => (a.dias ?? 999) - (b.dias ?? 999));
+
+  const total = sinStock.length + criticos.length + atencion.length;
+
+  const filaAlerta = (a) => `
+    <tr>
+      <td><span class="pill ${a.estado.clase}">${a.estado.label}</span></td>
+      <td><strong>${escapeHtml(a.residente)}</strong></td>
+      <td>${escapeHtml(a.med)}</td>
+      <td>${a.stock ?? '—'}</td>
+      <td>${a.consumo ?? a.consumoTxt ?? '—'}</td>
+      <td><strong>${a.dias ?? '—'}</strong></td>
+      <td>${fechaAgotamiento(a)}</td>
+      <td><button class="btn small" onclick="abrirIngresoRapido('${jsAttr(a.residente)}','${jsAttr(a.id)}')">+ Ingreso</button></td>
+    </tr>`;
+
+  const tablaGrupo = (titulo, icono, items, colorBg) => items.length === 0 ? '' : `
+    <div style="margin-top:20px">
+      <div style="font-weight:700;font-size:14px;padding:10px 14px;background:${colorBg};border-radius:8px 8px 0 0;border-bottom:2px solid rgba(0,0,0,0.1)">
+        ${icono} ${titulo} — ${items.length} medicamento${items.length !== 1 ? 's' : ''}
+      </div>
+      <table class="tabla" style="margin-top:0;border-radius:0 0 8px 8px">
+        <thead><tr>
+          <th>Estado</th><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Días restantes</th><th>Fecha agotamiento</th><th></th>
+        </tr></thead>
+        <tbody>${items.map(filaAlerta).join('')}</tbody>
+      </table>
+    </div>`;
 
   return `
-    <h2>🚨 Alertas</h2>
-    <div class="subtitle">Medicamentos con stock bajo (14 días o menos) ordenados por urgencia</div>
-    ${alertas.length === 0 ? `
+    <h2>🚨 Alertas de stock</h2>
+    <div class="subtitle">Medicamentos con stock crítico — actualizados en tiempo real</div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="flex:1;min-width:130px;background:#fff0f0;border:1.5px solid #e74c3c;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#e74c3c">${sinStock.length}</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">⚫ Sin stock</div>
+      </div>
+      <div style="flex:1;min-width:130px;background:#fff5f5;border:1.5px solid #e67e22;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#e67e22">${criticos.length}</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">🔴 Crítico (≤7 días)</div>
+      </div>
+      <div style="flex:1;min-width:130px;background:#fffbf0;border:1.5px solid #f1c40f;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#b7950b">${atencion.length}</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">🟡 Atención (8-14 días)</div>
+      </div>
+      <div style="flex:1;min-width:130px;background:#f0fff4;border:1.5px solid #27ae60;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#27ae60">${total === 0 ? '✓' : ''}</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">${total === 0 ? '¡Todo OK!' : total + ' total'}</div>
+      </div>
+    </div>
+
+    ${total === 0 ? `
       <div class="card text-center" style="padding:48px">
         <div style="font-size:48px;margin-bottom:8px">🟢</div>
         <h3>¡No hay alertas críticas!</h3>
         <p style="color:#6c7a8a;margin-top:6px">Todos los medicamentos tienen stock suficiente.</p>
       </div>
     ` : `
-      <table class="tabla">
-        <thead><tr>
-          <th>Estado</th><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Días restantes</th><th>Fecha agotamiento</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${alertas.map(a => `
-            <tr>
-              <td><span class="pill ${a.estado.clase}">${a.estado.label}</span></td>
-              <td><strong>${escapeHtml(a.residente)}</strong></td>
-              <td>${escapeHtml(a.med)}</td>
-              <td>${a.stock ?? '—'}</td>
-              <td>${a.consumo ?? a.consumoTxt}</td>
-              <td><strong>${a.dias ?? '—'}</strong></td>
-              <td>${fechaAgotamiento(a)}</td>
-              <td><button class="btn small" onclick="abrirIngresoRapido('${jsAttr(a.residente)}','${jsAttr(a.id)}')">+ Ingreso</button></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+      ${tablaGrupo('SIN STOCK', '⚫', sinStock, '#ffe0e0')}
+      ${tablaGrupo('CRÍTICO — 7 días o menos', '🔴', criticos, '#fff0e0')}
+      ${tablaGrupo('ATENCIÓN — 8 a 14 días', '🟡', atencion, '#fffbe0')}
     `}
   `;
+}
+
+function mostrarAlertaLoginSiHay() {
+  const criticos = [], sinStock = [];
+  state.residentes.forEach(r => {
+    r.meds.forEach(m => {
+      const e = estadoMed(m);
+      if (e.tipo === 'sinstock') sinStock.push(r.nombre + ': ' + m.med);
+      else if (e.tipo === 'critico') criticos.push(r.nombre + ': ' + m.med + ' (' + calcDiasRestantes(m) + ' días)');
+    });
+  });
+  const total = criticos.length + sinStock.length;
+  if (total === 0) return;
+  // Mostrar toast de alerta con innerHTML
+  const toastEl = document.createElement('div');
+  toastEl.className = 'toast error';
+  toastEl.style.cssText = 'cursor:pointer;font-size:13px;max-width:320px';
+  toastEl.innerHTML = `⚠️ <strong>${total} med${total!==1?'s':''} con stock bajo</strong> `
+    + (sinStock.length ? `· ⚫ ${sinStock.length} sin stock ` : '')
+    + (criticos.length ? `· 🔴 ${criticos.length} crítico${criticos.length!==1?'s':''}` : '');
+  toastEl.onclick = () => { navigate('alertas'); toastEl.remove(); };
+  document.getElementById('toast-container').appendChild(toastEl);
+  setTimeout(() => toastEl.remove(), 8000);
 }
 
 function viewStock() {
