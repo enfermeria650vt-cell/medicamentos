@@ -734,6 +734,12 @@ function showApp(user) {
   const disp = document.getElementById('user-display');
   if (disp) disp.textContent = user.nombre + ' (' + user.rol + ')';
   aplicarPermisos(user.rol);
+  // Pull automático de la nube al iniciar sesión (restaura horarios y datos)
+  setTimeout(() => {
+    if (typeof syncHabilitado === 'function' && syncHabilitado()) {
+      cloudPull(true).then(() => render());
+    }
+  }, 800);
   // Mostrar alerta de stock crítico al iniciar sesión
   setTimeout(() => {
     if (typeof mostrarAlertaLoginSiHay === 'function') mostrarAlertaLoginSiHay();
