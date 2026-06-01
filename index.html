@@ -876,6 +876,7 @@ function loadSem() {
 }
 function saveSem() {
   localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
+  // No pushear a la nube si el semanal está vacío (evita borrar horarios en cloud)
   const tieneHorarios = Object.keys(state.semanal).some(k => k.includes('_horario'));
   const tieneMarcas = Object.keys(state.semanal).some(k => /_(by|at|[0-6])/.test(k));
   if (typeof syncHabilitado === 'function' && syncHabilitado() && (tieneHorarios || tieneMarcas)) {
@@ -1407,13 +1408,33 @@ async function cloudPull(silencioso = false) {
       }
     }
     if (json.data.semanal !== undefined && json.data.semanal && typeof json.data.semanal === 'object') {
-      const remoto = JSON.stringify(json.data.semanal);
-      const local = JSON.stringify(state.semanal);
-      if (remoto !== local) {
-        state.semanal = json.data.semanal;
-        localStorage.setItem(SEM_KEY, remoto);
+      const remoto = json.data.semanal;
+      // Proteger horarios: si la nube trae menos horarios que local, no pisar los locales
+      const localHorarios = Object.keys(state.semanal).filter(k => k.includes('_horario')).length;
+      const remotoHorarios = Object.keys(remoto).filter(k => k.includes('_horario')).length;
+      if (remotoHorarios < localHorarios) {
+        // Preservar horarios locales en el estado remoto
+        Object.keys(state.semanal).filter(k => k.includes('_horario')).forEach(k => {
+          if (!remoto[k]) remoto[k] = state.semanal[k];
+        });
+      }
+      const remotoStr = JSON.stringify(remoto);
+      if (remotoStr !== JSON.stringify(state.semanal)) {
+        state.semanal = remoto;
+        localStorage.setItem(SEM_KEY, remotoStr);
         cambios++;
       }
+    }
+    // Recuperar horarios desde residentes si el semanal no los tiene
+    if (state.residentes && state.residentes.length > 0) {
+      let recuperados = 0;
+      state.residentes.forEach(r => (r.meds||[]).forEach(m => {
+        if (m.horario && m.horario.trim() && !state.semanal[m.id+'_horario']) {
+          state.semanal[m.id+'_horario'] = m.horario;
+          recuperados++;
+        }
+      }));
+      if (recuperados > 0) localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
     }
     if (json.data.historial !== undefined && Array.isArray(json.data.historial)) {
       const remoto = JSON.stringify(json.data.historial);
