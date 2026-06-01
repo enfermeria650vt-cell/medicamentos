@@ -771,8 +771,14 @@ async function intentarLogin() {
   if (!user || !pass) { errEl.textContent = 'Completá usuario y contraseña.'; return; }
   const userData = USUARIOS[user];
   if (!userData) { errEl.textContent = 'Usuario incorrecto.'; return; }
-  const hash = await sha256(pass);
-  if (hash !== userData.hash) { errEl.textContent = 'Contraseña incorrecta.'; return; }
+  try {
+    const hash = await sha256(pass);
+    if (hash !== userData.hash) { errEl.textContent = 'Contraseña incorrecta.'; return; }
+  } catch(e) {
+    // Fallback: comparación directa si crypto.subtle no está disponible
+    const claves = { admin: 'villa2024', enfermera: 'enf2024', medico: 'med2024' };
+    if (pass !== claves[user]) { errEl.textContent = 'Contraseña incorrecta.'; return; }
+  }
   setSession({ usuario: user, rol: userData.rol, nombre: userData.nombre });
   showApp({ rol: userData.rol, nombre: userData.nombre });
 }
@@ -3424,7 +3430,7 @@ function attachListeners() {
 // =====================================================
 const INSUMOS_CAMPOS = ['pañal','zalea','aposito','bombacha'];
 const INSUMOS_TURNOS = [['m','M'],['t','T'],['n','N']];
-const INSUMOS_CAMPOS_TURNOS = INSUMOS_CAMPOS.flatMap(cc => INSUMOS_TURNOS.map(([tk]) => cc+'_'+tk));
+const INSUMOS_CAMPOS_TURNOS = INSUMOS_CAMPOS.flatMap(c => INSUMOS_TURNOS.map(([tk]) => `${c}_${tk}`));
 const INSUMOS_LABELS = ['Pañal','Zalea','Apósito','Bombacha/Calzoncillo'];
 let insumosState = { residente: '', mes: '', datos: {}, stockData: null, sub: 'usodiario' };
 
@@ -3772,9 +3778,9 @@ function viewInsumos() {
     const dow = diasSemana[fecha.getDay()];
     const esFind = fecha.getDay() === 0 || fecha.getDay() === 6;
     const datos = (insumosState.datos[d] || {});
-    const celdas = INSUMOS_CAMPOS.map((cc, ci) => {
-      return INSUMOS_TURNOS.map(([tk], ti) => {
-        const campo = cc+'_'+tk;
+    const celdas = INSUMOS_CAMPOS.map((c, ci) => {
+      return INSUMOS_TURNOS.map(([tk, tl], ti) => {
+        const campo = `${c}_${tk}`;
         const v = datos[campo] !== undefined ? datos[campo] : '';
         const sep = ti === 0 ? ' ins-td-sep' : '';
         return `<td class="${sep}"><input type="number" min="0" class="ins-inp" data-dia="${d}" data-campo="${campo}" value="${v}" placeholder="0"></td>`;
@@ -3785,9 +3791,9 @@ function viewInsumos() {
 
   // Totales
   let totFila = '<tr class="ins-totales"><td><strong>TOTAL</strong></td>';
-  INSUMOS_CAMPOS.forEach((cc) => {
+  INSUMOS_CAMPOS.forEach((c, ci) => {
     INSUMOS_TURNOS.forEach(([tk], ti) => {
-      const campo = cc+'_'+tk;
+      const campo = `${c}_${tk}`;
       let suma = 0;
       for (let d = 1; d <= diasEnMes; d++) {
         suma += Number((insumosState.datos[d] || {})[campo] || 0);
@@ -3825,8 +3831,11 @@ function viewInsumos() {
 .ins-select { padding:7px 12px; border:1px solid var(--gris-borde); border-radius:6px; font-size:14px; background:white; }
 .ins-tabla-wrap { overflow-x:auto; background:white; border-radius:8px; border:1px solid var(--gris-borde); box-shadow:0 1px 4px rgba(0,0,0,.06); }
 .ins-tabla { width:100%; border-collapse:collapse; min-width:520px; }
-.ins-tabla th { background:var(--azul-1); color:white; padding:10px 12px; font-size:13px; text-align:center; }
-.ins-tabla th:first-child { text-align:left; min-width:80px; }
+.ins-tabla th { background:var(--azul-1); color:white; padding:8px 6px; font-size:12px; text-align:center; }
+.ins-tabla th:first-child { text-align:left; min-width:70px; }
+.ins-tabla th.ins-th-grupo { background:var(--azul-2); font-size:12px; border-left:2px solid rgba(255,255,255,.3); }
+.ins-tabla th.ins-th-turno { background:var(--azul-1); font-size:11px; color:#cce4ff; font-weight:500; }
+.ins-tabla td.ins-td-sep { border-left:2px solid var(--gris-borde); }
 .ins-tabla td { padding:6px 8px; border-bottom:1px solid var(--gris-borde); text-align:center; vertical-align:middle; }
 .ins-tabla td:first-child { text-align:left; }
 .ins-dia { font-size:13px; color:var(--texto); white-space:nowrap; }
@@ -3927,9 +3936,9 @@ function attachInsumos() {
       const j = await r.json();
       insumosState.datos = {};
       if (j.ok && Array.isArray(j.data)) {
-                j.data.forEach(row => {
+        j.data.forEach(row => {
           const d = {};
-          INSUMOS_CAMPOS_TURNOS.forEach(cc => { d[cc] = row[cc] !== undefined ? row[cc] : 0; });
+          INSUMOS_CAMPOS_TURNOS.forEach(c => { d[c] = row[c] !== undefined ? row[c] : 0; });
           insumosState.datos[row.dia] = d;
         });
       }
@@ -3956,27 +3965,32 @@ function attachInsumos() {
       const res = insumosState.residente;
       const mes = insumosState.mes;
       if (!res || !mes) { alert('Seleccioná residente y mes primero.'); return; }
-            const vals = {};
-      INSUMOS_CAMPOS_TURNOS.forEach(cc => {
-        const inp = document.querySelector(`.ins-inp[data-dia="${dia}"][data-campo="${cc}"]`);
-        vals[cc] = inp ? (inp.value || 0) : 0;
+      const vals = {};
+      INSUMOS_CAMPOS_TURNOS.forEach(c => {
+        const inp = document.querySelector(`.ins-inp[data-dia="${dia}"][data-campo="${c}"]`);
+        vals[c] = inp ? (inp.value || 0) : 0;
       });
+      // Guardar en estado local
       insumosState.datos[dia] = vals;
+      // Guardar en nube
       btn.textContent = '⏳';
       try {
         const params = new URLSearchParams({ action: 'setInsumo', residente: res, mes: mes, dia: dia });
-        INSUMOS_CAMPOS_TURNOS.forEach(cc => params.set(cc, vals[cc]));
+        INSUMOS_CAMPOS_TURNOS.forEach(c => params.set(c, vals[c]));
         await fetch(`${url}?${params.toString()}`);
         btn.textContent = '✅';
         setTimeout(() => btn.textContent = '💾', 1500);
-                // Actualizar totales
-        const anio2 = parseInt(mes.substring(0,4)), mesN2 = parseInt(mes.substring(4,6));
-        const dias2 = new Date(anio2, mesN2, 0).getDate();
-        const celdas2 = document.querySelectorAll('.ins-totales td strong');
-        INSUMOS_CAMPOS_TURNOS.forEach((cc, i) => {
-          let s = 0;
-          for (let dd = 1; dd <= dias2; dd++) s += Number((insumosState.datos[dd] || {})[cc] || 0);
-          if (celdas2[i+1]) celdas2[i+1].textContent = s;
+        // Actualizar totales
+        const anio2 = parseInt(mes.substring(0,4));
+        const mesN2 = parseInt(mes.substring(4,6));
+        const diasEnMes2 = new Date(anio2, mesN2, 0).getDate();
+        const totCeldas = document.querySelectorAll('.ins-totales td strong');
+        INSUMOS_CAMPOS_TURNOS.forEach((c, i) => {
+          let suma = 0;
+          for (let d = 1; d <= diasEnMes2; d++) {
+            suma += Number((insumosState.datos[d] || {})[c] || 0);
+          }
+          if (totCeldas[i+1]) totCeldas[i+1].textContent = suma;
         });
       } catch(e) {
         btn.textContent = '❌';
@@ -4623,4 +4637,4 @@ if ('serviceWorker' in navigator) {
 }
 </script>
 </body>
-</html>            
+</html>
