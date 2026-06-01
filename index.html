@@ -2506,7 +2506,11 @@ function toggleDosis(residente, medId, diaIdx, dosisIdx) {
 function setHorario(residente, medId, valor) {
   if (bloquearSiNoAdmin('cambiar horarios')) { render(); return; }
   state.semanal[medId+'_horario'] = valor;
+  // También guardar en el objeto del medicamento para que sincronice con la nube
+  const r = state.residentes.find(x => x.nombre === residente);
+  if (r) { const m = r.meds.find(x => x.id === medId); if (m) m.horario = valor; }
   saveSem();
+  saveData(); // asegura que el horario quede en la nube
 }
 function limpiarSemana(residente) {
   if (bloquearSiNoAdmin('limpiar la semana')) return;
