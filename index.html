@@ -876,7 +876,11 @@ function loadSem() {
 }
 function saveSem() {
   localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
-  if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('semanal', state.semanal);
+  const tieneHorarios = Object.keys(state.semanal).some(k => k.includes('_horario'));
+  const tieneMarcas = Object.keys(state.semanal).some(k => /_(by|at|[0-6])/.test(k));
+  if (typeof syncHabilitado === 'function' && syncHabilitado() && (tieneHorarios || tieneMarcas)) {
+    cloudPush('semanal', state.semanal);
+  }
 }
 const HC_KEY = 'vt_historial_cambios';
 function loadHistorialCambios() {
