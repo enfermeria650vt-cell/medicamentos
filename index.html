@@ -3493,6 +3493,7 @@ function viewRecetas() {
           ${r.diagnostico ? `<div><b>Diagnóstico:</b> ${escapeHtml(r.diagnostico)}</div>` : ''}
           ${r.dni ? `<div><b>DNI:</b> ${escapeHtml(r.dni)}</div>` : ''}
           ${r.fechaNacimiento ? `<div><b>F. Nac:</b> ${escapeHtml(r.fechaNacimiento)}</div>` : ''}
+          ${(r.edad || calcEdadDesde(r.fechaNacimiento)) ? `<div><b>Edad:</b> ${escapeHtml(r.edad || calcEdadDesde(r.fechaNacimiento))} años</div>` : ''}
           ${r.fechaReceta ? `<div><b>Fecha receta:</b> ${escapeHtml(r.fechaReceta)}</div>` : ''}
         </div>
         <div style="background:#F5F7FA;border-radius:6px;padding:10px">
@@ -3513,6 +3514,11 @@ function viewRecetas() {
     <div id="modal-nueva-receta" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
       <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw">
         <h3 style="margin-bottom:16px">Nueva receta — ${escapeHtml(sel)}</h3>
+        <label style="font-size:13px;font-weight:600;color:#1F4E78">📋 Cargar datos del residente</label>
+        <select id="nr-residente-sel" class="input-field" style="width:100%;margin:4px 0 10px;background:#EAF4FF" onchange="autoCargarDatosResidente('nr')">
+          <option value="">— Seleccioná un residente para auto-completar —</option>
+          ${state.residentes.map(r => `<option value="${jsAttr(r.nombre)}">${escapeHtml(r.nombre)}</option>`).join('')}
+        </select>
         <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
         <input id="nr-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
         <label style="font-size:13px;font-weight:600">Obra social</label>
@@ -3526,7 +3532,9 @@ function viewRecetas() {
         <label style="font-size:13px;font-weight:600">DNI</label>
         <input id="nr-dni" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de DNI">
         <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
-        <input id="nr-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+        <input id="nr-fnac" class="input-field" style="width:100%;margin:4px 0 6px" placeholder="dd/mm/aaaa" oninput="calcularEdad('nr')">
+        <label style="font-size:13px;font-weight:600">Edad</label>
+        <input id="nr-edad" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Edad en años">
         <label style="font-size:13px;font-weight:600">Sexo</label>
         <select id="nr-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
           <option value="">— Seleccionar —</option>
@@ -3561,7 +3569,9 @@ function viewRecetas() {
         <label style="font-size:13px;font-weight:600">DNI</label>
         <input id="er-dni" class="input-field" style="width:100%;margin:4px 0 10px">
         <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
-        <input id="er-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+        <input id="er-fnac" class="input-field" style="width:100%;margin:4px 0 6px" placeholder="dd/mm/aaaa" oninput="calcularEdad('er')">
+        <label style="font-size:13px;font-weight:600">Edad</label>
+        <input id="er-edad" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Edad en años">
         <label style="font-size:13px;font-weight:600">Sexo</label>
         <select id="er-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
           <option value="">— Seleccionar —</option>
@@ -3608,6 +3618,53 @@ function toggleOtraOS(prefix) {
   if (sel.value === 'Otra') { inp.style.display = ''; inp.focus(); }
   else { inp.style.display = 'none'; inp.value = ''; }
 }
+function calcEdadDesde(fnac) {
+  if (!fnac) return '';
+  const parts = fnac.split('/');
+  if (parts.length !== 3) return '';
+  const d = parseInt(parts[0]), m = parseInt(parts[1]) - 1, y = parseInt(parts[2]);
+  if (isNaN(d) || isNaN(m) || isNaN(y)) return '';
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - y;
+  if (hoy.getMonth() < m || (hoy.getMonth() === m && hoy.getDate() < d)) edad--;
+  return edad > 0 ? String(edad) : '';
+}
+function calcularEdad(prefix) {
+  const fnac = (document.getElementById(prefix + '-fnac') || {}).value || '';
+  const edadEl = document.getElementById(prefix + '-edad');
+  if (edadEl) edadEl.value = calcEdadDesde(fnac);
+}
+function autoCargarDatosResidente(prefix) {
+  const nombre = document.getElementById(prefix + '-residente-sel')?.value;
+  if (!nombre) return;
+  // Buscar datos en recetas existentes del residente
+  const recetasRes = state.recetas?.[nombre];
+  let datos = null;
+  if (recetasRes && recetasRes.length > 0) {
+    // Tomar la receta más completa
+    datos = recetasRes.find(r => r.dni) || recetasRes[0];
+  }
+  if (!datos) { toast('No hay datos previos para este residente. Completá manualmente.', 'info'); return; }
+  // Llenar los campos
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+  const os = document.getElementById(prefix + '-os');
+  if (os && datos.obraSocial) {
+    const opts = Array.from(os.options).map(o => o.value);
+    if (opts.includes(datos.obraSocial)) { os.value = datos.obraSocial; }
+    else { os.value = 'Otra'; }
+    const otraEl = document.getElementById(prefix + '-os-otra');
+    if (otraEl) { otraEl.style.display = os.value === 'Otra' ? '' : 'none'; otraEl.value = datos.obraOtra || datos.obraSocial || ''; }
+  }
+  setVal(prefix + '-afiliado', datos.nroAfiliado);
+  setVal(prefix + '-dni', datos.dni);
+  setVal(prefix + '-fnac', datos.fechaNacimiento);
+  const sexoEl = document.getElementById(prefix + '-sexo');
+  if (sexoEl && datos.sexo) sexoEl.value = datos.sexo;
+  // Calcular edad
+  const edadEl = document.getElementById(prefix + '-edad');
+  if (edadEl) edadEl.value = datos.edad || calcEdadDesde(datos.fechaNacimiento) || '';
+  toast('✅ Datos cargados de ' + nombre);
+}
 function guardarNuevaReceta(residente) {
   const nombre = document.getElementById('nr-nombre').value.trim();
   if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
@@ -3621,6 +3678,7 @@ function guardarNuevaReceta(residente) {
     nroAfiliado: document.getElementById('nr-afiliado').value.trim(),
     dni: document.getElementById('nr-dni').value.trim(),
     fechaNacimiento: document.getElementById('nr-fnac').value.trim(),
+    edad: document.getElementById('nr-edad').value.trim(),
     sexo: document.getElementById('nr-sexo').value,
     obraOtra: document.getElementById('nr-os-otra').value.trim(),
     diagnostico: document.getElementById('nr-dx').value.trim(),
@@ -3659,6 +3717,8 @@ function abrirModalEditarReceta(residente, idx) {
   document.getElementById('er-afiliado').value = r.nroAfiliado || '';
   document.getElementById('er-dni').value = r.dni || '';
   document.getElementById('er-fnac').value = r.fechaNacimiento || '';
+  const edadEl = document.getElementById('er-edad');
+  if (edadEl) edadEl.value = r.edad || calcEdadDesde(r.fechaNacimiento) || '';
   document.getElementById('er-dx').value = r.diagnostico || '';
   document.getElementById('er-meds').value = (r.medicamentos || []).join('\n');
   document.getElementById('er-notas').value = r.notas || '';
@@ -3684,6 +3744,7 @@ function guardarEdicionReceta(residente, idx) {
   r.nroAfiliado = document.getElementById('er-afiliado').value.trim();
   r.dni = document.getElementById('er-dni').value.trim();
   r.fechaNacimiento = document.getElementById('er-fnac').value.trim();
+  r.edad = (document.getElementById('er-edad') || {}).value?.trim() || '';
   r.diagnostico = document.getElementById('er-dx').value.trim();
   r.medicamentos = document.getElementById('er-meds').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
   r.notas = document.getElementById('er-notas').value.trim();
