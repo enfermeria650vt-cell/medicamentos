@@ -3810,6 +3810,7 @@ function imprimirReceta(residente, idx) {
     <div class="fila"><span class="fila-label">Paciente:</span><span class="fila-val"><b>${residente}</b></span></div>
     ${r.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${r.dni}</span></div>` : ''}
     ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${r.fechaNacimiento}</span></div>` : ''}
+    ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">Edad:</span><span class="fila-val">${r.edad || calcEdadDesde(r.fechaNacimiento) || ''} años</span></div>` : ''}
     ${r.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${r.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
     ${r.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${r.obraSocial === 'Otra' ? (r.obraOtra || 'Otra') : r.obraSocial}${r.nroAfiliado ? ' — Nº ' + r.nroAfiliado : ''}</span></div>` : ''}
     ${r.diagnostico ? `<div class="fila"><span class="fila-label">Diagnóstico:</span><span class="fila-val">${r.diagnostico}</span></div>` : ''}
@@ -4696,6 +4697,7 @@ function imprimirRecetaFam(key, idx) {
     <div class="fila"><span class="fila-label">Familiar:</span><span class="fila-val"><b>${key}</b></span></div>
     ${r.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${r.dni}</span></div>` : ''}
     ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${r.fechaNacimiento}</span></div>` : ''}
+    ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">Edad:</span><span class="fila-val">${r.edad || calcEdadDesde(r.fechaNacimiento) || ''} años</span></div>` : ''}
     ${r.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${r.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
     ${r.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${r.obraSocial === 'Otra' ? (r.obraOtra || 'Otra') : r.obraSocial}${r.nroAfiliado ? ' — Nº ' + r.nroAfiliado : ''}</span></div>` : ''}
     ${r.diagnostico ? `<div class="fila"><span class="fila-label">Diagnóstico:</span><span class="fila-val">${r.diagnostico}</span></div>` : ''}
