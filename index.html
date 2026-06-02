@@ -805,6 +805,9 @@ window.addEventListener('DOMContentLoaded', () => {
     btnCerrar.addEventListener('click', () => {
       logCambio('sesion', `Cierre de sesión: ${(getSession()||{}).usuario || '?'}`);
       sessionStorage.removeItem('vt_user');
+      sessionStorage.removeItem('med_geri_admin_auth');
+      localStorage.removeItem('med_geri_user');
+      localStorage.removeItem('med_geri_enf_auth');
       location.reload();
     });
   }
@@ -1303,10 +1306,8 @@ function pedirClaveEnfermero() {
   });
 }
 function cerrarSesion() {
-  if (!confirm('¿Cerrar sesión en este dispositivo? Se va a pedir la clave de nuevo al abrir.')) return;
-  localStorage.removeItem(ENFERMERO_AUTH_KEY);
-  sessionStorage.removeItem(ADMIN_AUTH_KEY);
-  location.reload();
+  // El cierre real lo maneja el addEventListener de btn-cerrar-sesion
+  // Esta función queda como respaldo por compatibilidad
 }
 
 function pedirUsuario(forzar = false) {
