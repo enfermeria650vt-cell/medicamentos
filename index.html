@@ -560,6 +560,11 @@ input:focus, select:focus, textarea:focus {
 .cs-tabla tbody tr:nth-child(even) .cs-resname { background: #EEF2F7; }
 .cs-tabla td.cs-cat-vacio { background: #FFD6D6 !important; }
 .cs-tabla td.cs-cat-vacio .cs-sel { background: #FFD6D6; color: #C00000; font-weight: bold; }
+.cs-alertas-catarsis { background: #FFF3CD; border: 2px solid #FF6B00; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+.cs-alertas-titulo { font-weight: bold; color: #C00000; font-size: 15px; margin-bottom: 8px; }
+.cs-alerta-item { padding: 4px 0; font-size: 14px; color: #333; border-bottom: 1px solid #FFD9A0; }
+.cs-alerta-item:last-child { border-bottom: none; }
+.cs-alerta-motrax { background: #C00000; color: white; border-radius: 4px; padding: 1px 7px; font-weight: bold; font-size: 13px; }
 .cs-resrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .cs-resnombre { overflow: hidden; text-overflow: ellipsis; }
 .cs-resacc { display: flex; gap: 1px; flex-shrink: 0; }
@@ -3266,6 +3271,33 @@ function csTablaHidro(f) {
   return `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+function csAlertasCatarsis() {
+  // Detecta residentes con 3+ días consecutivos sin catarsis 'Sí'
+  // Revisa hacia atrás desde ayer hasta 30 días
+  const hoy = csHoy();
+  const alertas = [];
+  state.residentes.forEach(r => {
+    let diasSin = 0;
+    for (let i = 1; i <= 30; i++) {
+      const dt = new Date(hoy + 'T00:00:00');
+      dt.setDate(dt.getDate() - i);
+      const f = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+      const val = csGet(f, 'catarsis', r.nombre, 'hubo');
+      if (val === 'Sí') break; // tuvo catarsis ese día → corta
+      diasSin++;
+    }
+    if (diasSin >= 3) alertas.push({ nombre: r.nombre, dias: diasSin });
+  });
+  if (alertas.length === 0) return '';
+  const items = alertas.map(a =>
+    `<div class="cs-alerta-item">⚠️ <strong>${a.nombre}</strong> — ${a.dias} días sin catarsis → <span class="cs-alerta-motrax">DAR MOTRAX</span></div>`
+  ).join('');
+  return `<div class="cs-alertas-catarsis">
+    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (3+ días sin registro)</div>
+    ${items}
+  </div>`;
+}
+
 function csTablaCatarsis(f) {
   const dias = csSemanaDias(f);
   const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
@@ -3285,7 +3317,7 @@ function csTablaCatarsis(f) {
     rows += `<tr>${tds}</tr>`;
   });
   const wk = `<div class="cs-semana">Semana del ${csFmtFecha(dias[0])} al ${csFmtFecha(dias[6])}</div>`;
-  return wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+  return csAlertasCatarsis() + wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---- Historial: archivo por semana y día ----
