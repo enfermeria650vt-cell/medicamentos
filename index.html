@@ -3273,16 +3273,17 @@ function csTablaHidro(f) {
 
 function csAlertasCatarsis(dias) {
   // Solo mira los días de la semana mostrada (hasta hoy inclusive)
+  // Un día tiene catarsis si CUALQUIER turno tiene 'Sí'
   const hoy = csHoy();
+  const turnos = ['m','t','n'];
   const diasHoy = dias.filter(d => d <= hoy);
   if (diasHoy.length < 3) return '';
   const alertas = [];
   state.residentes.forEach(r => {
-    // Contar días consecutivos sin 'Sí' desde el último día hacia atrás
     let diasSin = 0;
     for (let i = diasHoy.length - 1; i >= 0; i--) {
-      const val = csGet(diasHoy[i], 'catarsis', r.nombre, 'hubo');
-      if (val === 'Sí') break;
+      const tuvoCatarsis = turnos.some(t => csGet(diasHoy[i], 'catarsis', r.nombre, t, 'hubo') === 'Sí');
+      if (tuvoCatarsis) break;
       diasSin++;
     }
     if (diasSin >= 3) alertas.push({ nombre: r.nombre, dias: diasSin });
@@ -3300,18 +3301,22 @@ function csAlertasCatarsis(dias) {
 function csTablaCatarsis(f) {
   const dias = csSemanaDias(f);
   const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const turnos = [['m','M'],['t','T'],['n','N']];
+  // 3 turnos × 2 cols (Catarsis + Tipo) = 6 cols por día
   let h1 = '<th class="cs-resname">Residente</th>';
-  dias.forEach((d,i) => h1 += `<th colspan="2">${nom[i]} ${d.slice(8)}/${d.slice(5,7)}</th>`);
+  dias.forEach((d,i) => h1 += `<th colspan="6">${nom[i]} ${d.slice(8)}/${d.slice(5,7)}</th>`);
   let h2 = '<th class="cs-resname"></th>';
-  dias.forEach(() => h2 += '<th>Catarsis</th><th>Tipo</th>');
+  dias.forEach(() => turnos.forEach(tn => h2 += `<th>${tn[1]}<br><small>Cat.</small></th><th>${tn[1]}<br><small>Tipo</small></th>`));
   let rows = '';
   state.residentes.forEach(r => {
     let tds = csResNameCell(r.nombre);
     dias.forEach(d => {
-      const hubo = csGet(d,'catarsis',r.nombre,'hubo');
-      const sinReg = hubo === '' ? ' class="cs-cat-vacio"' : '';
-      tds += `<td${sinReg}>${csSelect('catarsis', d, r.nombre, 'hubo', hubo, ['','Sí','No'])}</td>`;
-      tds += `<td>${csInput('catarsis', d, r.nombre, 'tipo', csGet(d,'catarsis',r.nombre,'tipo'), true)}</td>`;
+      turnos.forEach(tn => {
+        const hubo = csGet(d, 'catarsis', r.nombre, tn[0], 'hubo');
+        const sinReg = hubo === '' ? ' class="cs-cat-vacio"' : '';
+        tds += `<td${sinReg}>${csSelect('catarsis', d, r.nombre, tn[0]+'.hubo', hubo, ['','Sí','No'])}</td>`;
+        tds += `<td>${csInput('catarsis', d, r.nombre, tn[0]+'.tipo', csGet(d,'catarsis',r.nombre,tn[0],'tipo'), true)}</td>`;
+      });
     });
     rows += `<tr>${tds}</tr>`;
   });
