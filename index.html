@@ -558,6 +558,8 @@ input:focus, select:focus, textarea:focus {
 .cs-tabla thead .cs-resname { background: var(--azul-1); color: white; z-index: 2; }
 .cs-tabla tbody tr:nth-child(even) td { background: #FAFBFD; }
 .cs-tabla tbody tr:nth-child(even) .cs-resname { background: #EEF2F7; }
+.cs-tabla td.cs-cat-vacio { background: #FFD6D6 !important; }
+.cs-tabla td.cs-cat-vacio .cs-sel { background: #FFD6D6; color: #C00000; font-weight: bold; }
 .cs-resrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .cs-resnombre { overflow: hidden; text-overflow: ellipsis; }
 .cs-resacc { display: flex; gap: 1px; flex-shrink: 0; }
@@ -3275,7 +3277,9 @@ function csTablaCatarsis(f) {
   state.residentes.forEach(r => {
     let tds = csResNameCell(r.nombre);
     dias.forEach(d => {
-      tds += `<td>${csSelect('catarsis', d, r.nombre, 'hubo', csGet(d,'catarsis',r.nombre,'hubo'), ['','Sí','No'])}</td>`;
+      const hubo = csGet(d,'catarsis',r.nombre,'hubo');
+      const sinReg = hubo === '' ? ' class="cs-cat-vacio"' : '';
+      tds += `<td${sinReg}>${csSelect('catarsis', d, r.nombre, 'hubo', hubo, ['','Sí','No'])}</td>`;
       tds += `<td>${csInput('catarsis', d, r.nombre, 'tipo', csGet(d,'catarsis',r.nombre,'tipo'), true)}</td>`;
     });
     rows += `<tr>${tds}</tr>`;
