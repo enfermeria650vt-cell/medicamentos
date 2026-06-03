@@ -3271,19 +3271,18 @@ function csTablaHidro(f) {
   return `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function csAlertasCatarsis() {
-  // Detecta residentes con 3+ días consecutivos sin catarsis 'Sí'
-  // Revisa hacia atrás desde ayer hasta 30 días
+function csAlertasCatarsis(dias) {
+  // Solo mira los días de la semana mostrada (hasta hoy inclusive)
   const hoy = csHoy();
+  const diasHoy = dias.filter(d => d <= hoy);
+  if (diasHoy.length < 3) return '';
   const alertas = [];
   state.residentes.forEach(r => {
+    // Contar días consecutivos sin 'Sí' desde el último día hacia atrás
     let diasSin = 0;
-    for (let i = 1; i <= 30; i++) {
-      const dt = new Date(hoy + 'T00:00:00');
-      dt.setDate(dt.getDate() - i);
-      const f = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
-      const val = csGet(f, 'catarsis', r.nombre, 'hubo');
-      if (val === 'Sí') break; // tuvo catarsis ese día → corta
+    for (let i = diasHoy.length - 1; i >= 0; i--) {
+      const val = csGet(diasHoy[i], 'catarsis', r.nombre, 'hubo');
+      if (val === 'Sí') break;
       diasSin++;
     }
     if (diasSin >= 3) alertas.push({ nombre: r.nombre, dias: diasSin });
@@ -3293,7 +3292,7 @@ function csAlertasCatarsis() {
     `<div class="cs-alerta-item">⚠️ <strong>${a.nombre}</strong> — ${a.dias} días sin catarsis → <span class="cs-alerta-motrax">DAR MOTRAX</span></div>`
   ).join('');
   return `<div class="cs-alertas-catarsis">
-    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (3+ días sin registro)</div>
+    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (3+ días sin registro esta semana)</div>
     ${items}
   </div>`;
 }
@@ -3317,7 +3316,7 @@ function csTablaCatarsis(f) {
     rows += `<tr>${tds}</tr>`;
   });
   const wk = `<div class="cs-semana">Semana del ${csFmtFecha(dias[0])} al ${csFmtFecha(dias[6])}</div>`;
-  return csAlertasCatarsis() + wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+  return csAlertasCatarsis(dias) + wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---- Historial: archivo por semana y día ----
