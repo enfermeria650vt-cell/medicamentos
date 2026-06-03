@@ -4067,8 +4067,8 @@ function attachInsumos() {
   const mesEl = document.getElementById('ins-mes-sel');
   const btnCargar = document.getElementById('ins-btn-cargar');
 
-  if (resEl) resEl.onchange = () => { insumosState.residente = resEl.value; };
-  if (mesEl) mesEl.onchange = () => { insumosState.mes = mesEl.value; };
+  if (resEl) resEl.onchange = () => { insumosState.residente = resEl.value; insumosState.datos = {}; render(); };
+  if (mesEl) mesEl.onchange = () => { insumosState.mes = mesEl.value; insumosState.datos = {}; render(); };
 
   if (btnCargar) btnCargar.onclick = async () => {
     const res = resEl ? resEl.value : insumosState.residente;
