@@ -3294,7 +3294,7 @@ function csAlertasCatarsis(dias) {
   const hoy = csHoy();
   const turnos = ['m','t','n'];
   const diasHoy = dias.filter(d => d <= hoy);
-  if (diasHoy.length < 3) return '';
+  if (diasHoy.length < 4) return '';
   const alertas = [];
   state.residentes.forEach(r => {
     let diasSin = 0;
@@ -3303,14 +3303,14 @@ function csAlertasCatarsis(dias) {
       if (tuvoCatarsis) break;
       diasSin++;
     }
-    if (diasSin >= 3) alertas.push({ nombre: r.nombre, dias: diasSin });
+    if (diasSin >= 4) alertas.push({ nombre: r.nombre, dias: diasSin });
   });
   if (alertas.length === 0) return '';
   const items = alertas.map(a =>
     `<div class="cs-alerta-item">⚠️ <strong>${a.nombre}</strong> — ${a.dias} días sin catarsis → <span class="cs-alerta-motrax">DAR MOTRAX</span></div>`
   ).join('');
   return `<div class="cs-alertas-catarsis">
-    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (3+ días sin registro esta semana)</div>
+    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días sin registro esta semana)</div>
     ${items}
   </div>`;
 }
