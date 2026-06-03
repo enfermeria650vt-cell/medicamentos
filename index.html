@@ -932,6 +932,23 @@ function saveCS() {
   localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos));
   if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('controlSignos', state.controlSignos);
 }
+function migrarCatarsisTurnos() {
+  // Migra datos viejos de catarsis (sin turno) al nuevo formato con turno 'm' (mañana)
+  let cambios = false;
+  for (const fecha in state.controlSignos) {
+    const dia = state.controlSignos[fecha];
+    if (!dia.catarsis) continue;
+    for (const nombre in dia.catarsis) {
+      const cat = dia.catarsis[nombre];
+      // Si tiene hubo/tipo directamente (formato viejo) → migrar a turno 'm'
+      if (cat && typeof cat.hubo !== 'undefined') {
+        dia.catarsis[nombre] = { m: { hubo: cat.hubo, tipo: cat.tipo || '' } };
+        cambios = true;
+      }
+    }
+  }
+  if (cambios) saveCS();
+}
 
 // ============ STATE ============
 const state = {
@@ -4162,6 +4179,7 @@ render = function() {
 
 // Flujo de inicio: pedir usuario si no hay, después renderizar
 (async function init() {
+  migrarCatarsisTurnos(); // migra datos viejos de catarsis al formato con turnos M/T/N
   if (getSession() || getCurrentUser()) { await pedirClaveEnfermero(); if (!getCurrentUser()) { await pedirUsuario(false); } }
   render();
   if (syncHabilitado()) {
