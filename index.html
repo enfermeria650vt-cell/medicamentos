@@ -709,6 +709,11 @@ input:focus, select:focus, textarea:focus {
 
 <div id="toast-container"></div>
 
+<div id="sync-banner" onclick="cloudPull(false)" title="Tocá para actualizar ahora"
+     style="display:none;position:fixed;top:12px;right:16px;z-index:99999;padding:8px 14px;border-radius:10px;
+            font-size:13px;font-weight:700;color:#fff;box-shadow:0 3px 12px rgba(0,0,0,.25);cursor:pointer;
+            max-width:330px;line-height:1.25;background:#7a7a7a;transition:background .3s"></div>
+
 <script>
 
 // ===== SISTEMA DE LOGIN =====
@@ -1562,6 +1567,7 @@ function saveHistCloud() {
 }
 
 function actualizarBadgeSync(textoForzado) {
+  try { actualizarBannerSync(); } catch (e) {}
   const el = document.getElementById('sync-status');
   if (!el) return;
   if (textoForzado) { el.textContent = textoForzado; el.style.color = '#FFC107'; return; }
@@ -1576,6 +1582,52 @@ function actualizarBadgeSync(textoForzado) {
   }
   el.textContent = '☁️ Conectado';
   el.style.color = 'rgba(255,255,255,.7)';
+}
+
+// Indicador SIEMPRE visible del estado de sincronización (salud: nunca mostrar datos viejos sin avisar).
+function actualizarBannerSync() {
+  const b = document.getElementById('sync-banner');
+  if (!b) return;
+  const loginVisible = !document.getElementById('login-screen').classList.contains('hidden');
+  if (loginVisible || !syncHabilitado()) { b.style.display = 'none'; return; }
+  b.style.display = 'block';
+
+  const fmtHora = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' +
+           d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  };
+  const ultima = syncState.lastOk || getLastPull();
+
+  // 1) Sin internet
+  if (navigator.onLine === false) {
+    b.style.background = '#C0392B';
+    b.textContent = '🔴 SIN CONEXIÓN — estás viendo datos guardados (última actualización: ' + fmtHora(ultima) + '). Tocá para reintentar.';
+    return;
+  }
+  // 2) Error en la última sincronización
+  if (syncState.lastError) {
+    b.style.background = '#C0392B';
+    b.textContent = '🔴 NO se pudo actualizar — última al día: ' + fmtHora(ultima) + ' — tocá para reintentar.';
+    return;
+  }
+  // 3) Sincronización OK
+  if (syncState.lastOk) {
+    const min = Math.floor((Date.now() - new Date(syncState.lastOk).getTime()) / 60000);
+    if (min <= 3) {
+      b.style.background = '#1E8449';
+      b.textContent = '🟢 Datos actualizados ' + (min <= 0 ? 'recién' : 'hace ' + min + ' min');
+    } else {
+      // El auto-sync corre cada 30s; más de 3 min sin éxito = algo no está al día.
+      b.style.background = '#E67E22';
+      b.textContent = '🟠 Reintentando actualizar… última al día: ' + fmtHora(syncState.lastOk) + '. Tocá para forzar.';
+    }
+    return;
+  }
+  // 4) Todavía no hubo primer sync
+  b.style.background = '#7a7a7a';
+  b.textContent = '⏳ Conectando con la nube…';
 }
 
 function configurarSyncV2() {
@@ -4405,6 +4457,12 @@ setInterval(() => {
     cloudPull(true);
   }
 }, 30000);
+
+// Indicador de sincronización: refrescar el texto cada 10s y reaccionar a la conexión.
+setInterval(() => { try { actualizarBannerSync(); } catch (e) {} }, 10000);
+window.addEventListener('online',  () => { try { actualizarBannerSync(); } catch (e) {} });
+window.addEventListener('offline', () => { try { actualizarBannerSync(); } catch (e) {} });
+try { actualizarBannerSync(); } catch (e) {}
 
 // Al volver el foco a la ventana, refrescar
 window.addEventListener('focus', () => {
