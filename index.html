@@ -1813,7 +1813,7 @@ function viewHistoriasCli() {
   const hc = sel ? (state.historiasCli[sel] || {}) : {};
 
   const listaHtml = lista.map(r => {
-    const tiene = state.historiasCli[r.nombre] && Object.values(state.historiasCli[r.nombre]).some(v => v && v.trim());
+    const tiene = state.historiasCli[r.nombre] && ['diagnostico','antecedentes','medico','obraSocial','alergias','notas'].some(k => (state.historiasCli[r.nombre][k]||'').trim());
     const activo = r.nombre === sel ? ' active' : '';
     return `<div class="hc-item${activo}" onclick="selHC('${jsAttr(r.nombre)}')">${tiene ? '🟢' : '⚪'} ${escapeHtml(r.nombre)}</div>`;
   }).join('');
@@ -1845,7 +1845,25 @@ function viewHistoriasCli() {
         <button class="btn" id="hc-guardar">💾 Guardar historia clínica</button>
         <button class="btn" id="hc-exportar" style="background:#2e7d32;margin-left:8px">📄 Exportar todas (archivo)</button>
       </div>
-      ${hc.ultimaActualizacion ? `<div class="hc-update-info">Última actualización: ${hc.ultimaActualizacion}</div>` : ''}
+      ${hc.ultimaActualizacion ? `<div class="hc-update-info">Última actualización: ${escapeHtml(hc.ultimaActualizacion)}${hc.usuario ? ' · ' + escapeHtml(hc.usuario) : ''}</div>` : ''}
+      ${(() => {
+        const vs = Array.isArray(hc.versiones) ? hc.versiones : [];
+        if (!vs.length) return '';
+        const items = vs.slice().reverse().map((v, i) => {
+          const num = vs.length - i;
+          const campos = [
+            ['🩺 Diagnóstico', v.diagnostico],
+            ['📋 Antecedentes', v.antecedentes],
+            ['👨‍⚕️ Médico', v.medico],
+            ['🏥 Obra social', v.obraSocial],
+            ['⚠️ Alergias', v.alergias],
+            ['📝 Notas', v.notas],
+          ].filter(c => (c[1] || '').trim())
+           .map(c => `<div class="hc-ver-campo"><b>${c[0]}:</b> ${escapeHtml(c[1])}</div>`).join('');
+          return `<details class="hc-ver"${i === 0 ? ' open' : ''}><summary>Versión ${num} — ${escapeHtml(v.guardadoEl || '')}${v.guardadoPor ? ' · ' + escapeHtml(v.guardadoPor) : ''}</summary><div class="hc-ver-body">${campos || '<i>(sin datos)</i>'}</div></details>`;
+        }).join('');
+        return `<div class="hc-historial"><h3>📚 Historial de versiones (${vs.length})</h3>${items}</div>`;
+      })()}
     </div>
   ` : '<div class="hc-empty">Seleccioná un residente para ver o editar su historia clínica.</div>';
 
@@ -1864,6 +1882,13 @@ function viewHistoriasCli() {
       .hc-actions { margin-top: 20px; }
       .hc-update-info { margin-top: 8px; font-size: 11px; color: #888; }
       .hc-empty { color: #888; padding: 30px; font-style: italic; }
+      .hc-historial { margin-top: 26px; border-top: 1px solid #e3e7eb; padding-top: 16px; }
+      .hc-historial h3 { font-size: 14px; color: #1F4E78; margin: 0 0 12px; }
+      .hc-ver { border: 1px solid #dde2e7; border-radius: 6px; margin-bottom: 8px; background: #fafbfc; }
+      .hc-ver summary { cursor: pointer; padding: 8px 12px; font-size: 12px; font-weight: bold; color: #444; }
+      .hc-ver[open] summary { border-bottom: 1px solid #e3e7eb; }
+      .hc-ver-body { padding: 10px 14px; font-size: 12px; color: #333; }
+      .hc-ver-campo { margin: 3px 0; line-height: 1.4; }
     </style>
     <div class="hc-container">
       <div class="hc-sidebar">${listaHtml}</div>
@@ -1879,16 +1904,24 @@ function selHC(nombre) {
 
 function exportarHistoriasCli() {
   const hc = state.historiasCli || {};
-  const headers = ['Residente','Diagnóstico principal','Antecedentes patológicos','Médico tratante','Obra social / Cobertura','Alergias','Notas adicionales','Última actualización'];
+  const headers = ['Residente','Versión','Guardado el','Guardado por','Diagnóstico principal','Antecedentes patológicos','Médico tratante','Obra social / Cobertura','Alergias','Notas adicionales'];
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const campos = ['diagnostico','antecedentes','medico','obraSocial','alergias','notas'];
   let csv = headers.join(',') + '\n';
   let n = 0;
   state.residentes.forEach(r => {
     const h = hc[r.nombre];
-    if (!h || !Object.values(h).some(v => v && String(v).trim())) return;
-    const row = [r.nombre, h.diagnostico, h.antecedentes, h.medico, h.obraSocial, h.alergias, h.notas, h.ultimaActualizacion]
-      .map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"');
-    csv += row.join(',') + '\n';
-    n++;
+    if (!h) return;
+    let vs = Array.isArray(h.versiones) && h.versiones.length ? h.versiones : null;
+    if (!vs) {
+      // Compatibilidad: ficha guardada antes de tener versiones
+      if (!campos.some(k => (h[k] || '').trim())) return;
+      vs = [{ ...h, guardadoEl: h.ultimaActualizacion, guardadoPor: h.usuario }];
+    }
+    vs.forEach((v, i) => {
+      csv += [r.nombre, i + 1, v.guardadoEl, v.guardadoPor, v.diagnostico, v.antecedentes, v.medico, v.obraSocial, v.alergias, v.notas].map(esc).join(',') + '\n';
+      n++;
+    });
   });
   if (n === 0) { toast('No hay historias clínicas cargadas para exportar', 'error'); return; }
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
@@ -1898,7 +1931,7 @@ function exportarHistoriasCli() {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  toast('📄 ' + n + ' historia(s) clínica(s) exportada(s)', 'success');
+  toast('📄 ' + n + ' versión(es) de historias clínicas exportada(s)', 'success');
 }
 
 function attachHistoriasCli() {
@@ -1910,17 +1943,23 @@ function attachHistoriasCli() {
     const sel = state.historiaCliSel;
     if (!sel) return;
     const ahora = new Date().toLocaleString('es-AR');
-    state.historiasCli[sel] = {
+    const session = typeof getSession === 'function' ? getSession() : null;
+    const usuario = session ? session.nombre + ' (' + session.usuario + ')' : 'Sistema';
+    const datos = {
       diagnostico: document.getElementById('hc-diagnostico').value.trim(),
       antecedentes: document.getElementById('hc-antecedentes').value.trim(),
       medico: document.getElementById('hc-medico').value.trim(),
       obraSocial: document.getElementById('hc-obraSocial').value.trim(),
       alergias: document.getElementById('hc-alergias').value.trim(),
       notas: document.getElementById('hc-notas').value.trim(),
-      ultimaActualizacion: ahora,
     };
+    // Conservar TODAS las versiones: anexamos esta a las anteriores
+    const prev = state.historiasCli[sel] || {};
+    const versiones = Array.isArray(prev.versiones) ? prev.versiones.slice() : [];
+    versiones.push({ ...datos, guardadoEl: ahora, guardadoPor: usuario });
+    state.historiasCli[sel] = { ...datos, ultimaActualizacion: ahora, usuario, versiones };
     saveHistoriasCli();
-    toast('✅ Historia clínica guardada', 'success');
+    toast('✅ Historia clínica guardada (versión ' + versiones.length + ')', 'success');
     render();
   };
 }
