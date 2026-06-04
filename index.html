@@ -925,11 +925,17 @@ function saveHist() {
 function loadCS() {
   try { return JSON.parse(localStorage.getItem(CS_KEY)) || {}; } catch(e) { return {}; }
 }
+const HC_CLINICAS_KEY = 'med_geri_hc_clinicas_v1';
 function loadHistoriasCli() {
-  try { return JSON.parse(localStorage.getItem(HC_KEY)) || {}; } catch(e) { return {}; }
+  try {
+    const v = JSON.parse(localStorage.getItem(HC_CLINICAS_KEY)) || {};
+    // Solo aceptar objeto por residente. Descartar datos viejos contaminados
+    // (cuando esta función compartía clave con el historial de cambios = array).
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch(e) { return {}; }
 }
 function saveHistoriasCli() {
-  localStorage.setItem(HC_KEY, JSON.stringify(state.historiasCli));
+  localStorage.setItem(HC_CLINICAS_KEY, JSON.stringify(state.historiasCli));
   if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('historiasCli', state.historiasCli);
 }
 
@@ -1500,13 +1506,13 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
-    if (json.data.historiasCli !== undefined && json.data.historiasCli && typeof json.data.historiasCli === 'object' &&
+    if (json.data.historiasCli !== undefined && json.data.historiasCli && typeof json.data.historiasCli === 'object' && !Array.isArray(json.data.historiasCli) &&
         (Object.keys(json.data.historiasCli).length > 0 || Object.keys(state.historiasCli || {}).length === 0)) {
       const remoto = JSON.stringify(json.data.historiasCli);
       const local = JSON.stringify(state.historiasCli);
       if (remoto !== local) {
         state.historiasCli = json.data.historiasCli;
-        localStorage.setItem(HC_KEY, remoto);
+        localStorage.setItem(HC_CLINICAS_KEY, remoto);
         cambios++;
       }
     }
@@ -1837,6 +1843,7 @@ function viewHistoriasCli() {
 
       <div class="hc-actions">
         <button class="btn" id="hc-guardar">💾 Guardar historia clínica</button>
+        <button class="btn" id="hc-exportar" style="background:#2e7d32;margin-left:8px">📄 Exportar todas (archivo)</button>
       </div>
       ${hc.ultimaActualizacion ? `<div class="hc-update-info">Última actualización: ${hc.ultimaActualizacion}</div>` : ''}
     </div>
@@ -1870,7 +1877,33 @@ function selHC(nombre) {
   render();
 }
 
+function exportarHistoriasCli() {
+  const hc = state.historiasCli || {};
+  const headers = ['Residente','Diagnóstico principal','Antecedentes patológicos','Médico tratante','Obra social / Cobertura','Alergias','Notas adicionales','Última actualización'];
+  let csv = headers.join(',') + '\n';
+  let n = 0;
+  state.residentes.forEach(r => {
+    const h = hc[r.nombre];
+    if (!h || !Object.values(h).some(v => v && String(v).trim())) return;
+    const row = [r.nombre, h.diagnostico, h.antecedentes, h.medico, h.obraSocial, h.alergias, h.notas, h.ultimaActualizacion]
+      .map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"');
+    csv += row.join(',') + '\n';
+    n++;
+  });
+  if (n === 0) { toast('No hay historias clínicas cargadas para exportar', 'error'); return; }
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'historias_clinicas_' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  toast('📄 ' + n + ' historia(s) clínica(s) exportada(s)', 'success');
+}
+
 function attachHistoriasCli() {
+  const btnExp = document.getElementById('hc-exportar');
+  if (btnExp) btnExp.onclick = exportarHistoriasCli;
   const btn = document.getElementById('hc-guardar');
   if (!btn) return;
   btn.onclick = () => {
