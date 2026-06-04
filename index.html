@@ -3147,6 +3147,48 @@ function pintarIndicacion(d) {
     const colAct = panel.querySelector('.indic-diff-col.actual');
     if (colAnt && colAct) resaltarCambiosDiff(colAnt, colAct);
   }
+
+  // Botón + contenedor para ver TODAS las versiones anteriores archivadas
+  const histBtn = document.createElement('button');
+  histBtn.className = 'btn';
+  histBtn.style.cssText = 'margin-top:18px;background:#6c5ce7';
+  histBtn.textContent = '📚 Ver versiones anteriores';
+  const histCont = document.createElement('div');
+  histCont.id = 'indic-hist-cont';
+  histCont.style.marginTop = '12px';
+  histBtn.onclick = () => cargarHistorialIndicacion(d.fileId, histBtn, histCont);
+  panel.appendChild(histBtn);
+  panel.appendChild(histCont);
+}
+
+async function cargarHistorialIndicacion(fileId, btn, cont) {
+  cont.innerHTML = '<div class="indic-loading">Cargando versiones anteriores…</div>';
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(getIndicUrl() + '?action=getIndicacionHistorial&id=' + encodeURIComponent(fileId) + '&t=' + Date.now());
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Error');
+    const vs = j.data || [];
+    if (!vs.length) {
+      cont.innerHTML = '<div style="color:#6c7a8a;font-style:italic;padding:10px 0">Todavía no hay versiones anteriores archivadas para este residente. Se guardan automáticamente cada vez que cambia la indicación.</div>';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    cont.innerHTML = '<h3 style="font-size:14px;color:#1F4E78;margin:6px 0 10px">📚 Versiones anteriores (' + vs.length + ')</h3>' +
+      vs.map(function(v, i){
+        var f = '';
+        try { f = new Date(v.fecha).toLocaleString('es-AR', {day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(e) { f = v.fecha || ''; }
+        return '<details style="border:1px solid #dde2e7;border-radius:6px;margin-bottom:8px;background:#fafbfc"' + (i===0?' open':'') +
+          '><summary style="cursor:pointer;padding:8px 12px;font-size:13px;font-weight:bold;color:#444">Guardada el ' + escapeHtml(f) +
+          (v.modificado ? ' · cambió: ' + escapeHtml(v.modificado) : '') + '</summary>' +
+          '<div class="indic-doc" style="padding:10px 14px">' + (v.html || '<p>(sin contenido)</p>') + '</div></details>';
+      }).join('');
+    cont.querySelectorAll('.indic-doc').forEach(function(c){ ordenarTablaIndicacionPorHorario(c); });
+    if (btn) btn.style.display = 'none';
+  } catch (e) {
+    cont.innerHTML = '<div class="indic-error">No se pudo cargar el historial (puede que el backend aún no esté actualizado).</div>';
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ─── DIFF: resalta filas y celdas que cambiaron entre pase anterior y actual ───
