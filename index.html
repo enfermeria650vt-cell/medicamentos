@@ -1437,7 +1437,10 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
-    if (json.data.semanal !== undefined && json.data.semanal && typeof json.data.semanal === 'object') {
+    // PROTECCIÓN: ignorar una planilla semanal casi vacía del servidor (respuesta rota) si local tiene datos.
+    // Un reinicio legítimo de semana conserva los horarios (cientos de claves), así que esto solo frena respuestas rotas.
+    if (json.data.semanal !== undefined && json.data.semanal && typeof json.data.semanal === 'object' &&
+        (Object.keys(json.data.semanal).length > 5 || Object.keys(state.semanal || {}).length <= 5)) {
       const remoto = json.data.semanal;
       // Proteger horarios: si la nube trae menos horarios que local, no pisar los locales
       const localHorarios = Object.keys(state.semanal).filter(k => k.includes('_horario')).length;
@@ -1466,7 +1469,9 @@ async function cloudPull(silencioso = false) {
       }));
       if (recuperados > 0) localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
     }
-    if (json.data.historial !== undefined && Array.isArray(json.data.historial)) {
+    // PROTECCIÓN: no pisar un historial local con datos por una respuesta vacía del servidor (lento/parcial)
+    if (json.data.historial !== undefined && Array.isArray(json.data.historial) &&
+        (json.data.historial.length > 0 || (state.historial || []).length === 0)) {
       const remoto = JSON.stringify(json.data.historial);
       const local = JSON.stringify(state.historial);
       if (remoto !== local) {
@@ -1475,7 +1480,8 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
-    if (json.data.controlSignos !== undefined && json.data.controlSignos && typeof json.data.controlSignos === 'object') {
+    if (json.data.controlSignos !== undefined && json.data.controlSignos && typeof json.data.controlSignos === 'object' &&
+        (Object.keys(json.data.controlSignos).length > 0 || Object.keys(state.controlSignos || {}).length === 0)) {
       const remoto = JSON.stringify(json.data.controlSignos);
       const local = JSON.stringify(state.controlSignos);
       if (remoto !== local) {
@@ -1484,7 +1490,8 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
-    if (json.data.recetas !== undefined && json.data.recetas && typeof json.data.recetas === 'object') {
+    if (json.data.recetas !== undefined && json.data.recetas && typeof json.data.recetas === 'object' &&
+        (Object.keys(json.data.recetas).length > 0 || Object.keys(state.recetas || {}).length === 0)) {
       const remoto = JSON.stringify(json.data.recetas);
       const local = JSON.stringify(state.recetas);
       if (remoto !== local) {
@@ -1493,7 +1500,8 @@ async function cloudPull(silencioso = false) {
         cambios++;
       }
     }
-    if (json.data.historiasCli !== undefined && json.data.historiasCli && typeof json.data.historiasCli === 'object') {
+    if (json.data.historiasCli !== undefined && json.data.historiasCli && typeof json.data.historiasCli === 'object' &&
+        (Object.keys(json.data.historiasCli).length > 0 || Object.keys(state.historiasCli || {}).length === 0)) {
       const remoto = JSON.stringify(json.data.historiasCli);
       const local = JSON.stringify(state.historiasCli);
       if (remoto !== local) {
