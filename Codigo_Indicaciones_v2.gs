@@ -11,6 +11,7 @@ const FOLDER_INDICACIONES_ID = '1worGuGb8fm79t-4A_3AztA-zxymcpyZf';
 const AUTHORIZED_EMAIL = 'enfermeria650vt@gmail.com';
 const SHEET_INDICACIONES = 'INDICACIONES';
 const SHEET_RESPALDO = 'INDICACIONES_RESPALDO';
+const SHEET_HISTORIAL = 'INDICACIONES_HISTORIAL';
 const NCOL = 14;
 const HEADERS = ['Residente', 'FileID', 'Modif. Drive', 'Última Sync', 'Hash',
                  'Diagnóstico', 'HTML', 'Texto', 'HashMed', 'HashHor', 'HashEvo',
@@ -172,7 +173,7 @@ function syncIndicaciones() {
         rowIndex: idx + 2, hash: row[4], modifDrive: row[2],
         hashMed: row[8], hashHor: row[9], hashEvo: row[10],
         modificado: row[11], fechaModif: row[12],
-        html: row[6],
+        html: row[6], texto: row[7],
         htmlAnterior: row[13]
       };
     });
@@ -237,6 +238,8 @@ function syncIndicaciones() {
         modificado = 'actualizado';
       }
       fechaModif = now;
+      // Archivar la versión que estamos por reemplazar (historial completo)
+      archivarVersionIndicacion(fileName, fileId, modificado, prev.html, prev.texto, now);
       htmlAnterior = prev.html || '';
     }
 
@@ -295,6 +298,40 @@ function respaldoSemanalIndicaciones() {
   return { semana: semana, filas: filas.length };
 }
 
+// Guarda en INDICACIONES_HISTORIAL la versión anterior de una indicación
+// (se llama desde syncIndicaciones cada vez que se detecta un cambio).
+function archivarVersionIndicacion(fileName, fileId, modificado, html, texto, fecha) {
+  if (!html && !texto) return; // nada que archivar
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let h = ss.getSheetByName(SHEET_HISTORIAL);
+  if (!h) {
+    h = ss.insertSheet(SHEET_HISTORIAL);
+    h.getRange(1, 1, 1, 6).setValues([['FechaArchivado', 'FileID', 'Residente', 'Modificado', 'HTML', 'Texto']]);
+    h.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#1a73e8').setFontColor('white');
+    h.setFrozenRows(1);
+    h.setColumnWidth(1, 150);
+    h.setColumnWidth(3, 220);
+    h.hideColumns(5);
+    h.hideColumns(6);
+  }
+  h.appendRow([fecha, fileId, fileName, modificado || '', html || '', texto || '']);
+}
+
+function apiGetIndicacionHistorial(fileId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_HISTORIAL);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
+  return data.filter(function(r){ return r[1] === fileId; }).map(function(r){
+    return {
+      fecha: r[0] instanceof Date ? r[0].toISOString() : r[0],
+      residente: r[2],
+      modificado: r[3] || '',
+      html: r[4] || '',
+      texto: r[5] || ''
+    };
+  }).reverse(); // más reciente primero
+}
+
 function renderDocToHTML(doc) {
   const body = doc.getBody();
   let html = '';
@@ -334,6 +371,7 @@ function doGet(e) {
     switch (action) {
       case 'getIndicaciones': payload = apiGetIndicaciones(); break;
       case 'getIndicacion':   payload = apiGetIndicacion(e.parameter.id); break;
+      case 'getIndicacionHistorial': payload = apiGetIndicacionHistorial(e.parameter.id); break;
       case 'syncNow':
         if (!isAuthorized(e.parameter.email)) return jsonError('No autorizado');
         payload = { sync: syncIndicaciones() };
