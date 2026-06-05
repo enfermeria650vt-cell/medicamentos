@@ -4300,7 +4300,16 @@ function attachInsumos() {
       try {
         const params = new URLSearchParams({ action: 'setInsumo', residente: res, mes: mes, dia: dia });
         INSUMOS_CAMPOS_TURNOS.forEach(c => params.set(c, vals[c]));
-        await fetch(`${url}?${params.toString()}`);
+        const resp = await fetch(`${url}?${params.toString()}`);
+        const jr = await resp.json().catch(() => null);
+        const okReal = jr && jr.ok === true && (!jr.data || jr.data.ok !== false);
+        if (!okReal) {
+          btn.textContent = '❌';
+          const msg = (jr && jr.data && jr.data.error) || (jr && jr.error) || 'No se pudo guardar';
+          if (typeof toast === 'function') toast('❌ ' + msg);
+          setTimeout(() => btn.textContent = '💾', 2500);
+          return;
+        }
         btn.textContent = '✅';
         setTimeout(() => btn.textContent = '💾', 1500);
         // Actualizar totales
