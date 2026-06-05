@@ -17,9 +17,21 @@ const HEADERS = ['Residente', 'FileID', 'Modif. Drive', 'Última Sync', 'Hash',
                  'Diagnóstico', 'HTML', 'Texto', 'HashMed', 'HashHor', 'HashEvo',
                  'Modificado', 'FechaModif', 'HtmlAnterior'];
 
-// --- INSUMOS ---
+// --- INSUMOS (uso diario, por turno: M=mañana, T=tarde, N=noche, P=propio) ---
 const SHEET_INSUMOS = 'INSUMOS';
-const INSUMOS_HEADERS = ['Residente', 'AñoMes', 'Dia', 'Pañal', 'Zalea', 'Aposito', 'Bombacha'];
+// 16 campos por turno, en el MISMO orden que el frontend (INSUMOS_CAMPOS_TURNOS)
+const INSUMOS_FIELDS = [
+  'pañal_m','pañal_t','pañal_n','pañal_p',
+  'zalea_m','zalea_t','zalea_n','zalea_p',
+  'aposito_m','aposito_t','aposito_n','aposito_p',
+  'bombacha_m','bombacha_t','bombacha_n','bombacha_p'
+];
+const INSUMOS_HEADERS = ['Residente', 'AñoMes', 'Dia',
+  'Pañal_M','Pañal_T','Pañal_N','Pañal_P',
+  'Zalea_M','Zalea_T','Zalea_N','Zalea_P',
+  'Aposito_M','Aposito_T','Aposito_N','Aposito_P',
+  'Bombacha_M','Bombacha_T','Bombacha_N','Bombacha_P'];
+const INSUMOS_NCOLS = 3 + INSUMOS_FIELDS.length; // 19
 
 // --- STOCK DE INSUMOS ---
 const SHEET_STOCK = 'STOCK_INSUMOS';
@@ -387,7 +399,7 @@ function doGet(e) {
       case 'setInsumo':
         payload = apiSetInsumo(
           e.parameter.residente, e.parameter.mes, e.parameter.dia,
-          e.parameter.pañal, e.parameter.zalea, e.parameter.aposito, e.parameter.bombacha
+          e.parameter
         );
         break;
       // STOCK de insumos
@@ -475,55 +487,60 @@ function apiGetIndicacion(fileId) {
 // API INSUMOS (uso diario)
 // =====================================================
 
+// Devuelve la hoja INSUMOS, creándola con encabezados si no existe.
+function ensureInsumosSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_INSUMOS);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_INSUMOS);
+    sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length).setValues([INSUMOS_HEADERS]);
+    sheet.getRange(1, 1, 1, INSUMOS_HEADERS.length)
+      .setFontWeight('bold').setBackground('#1a73e8').setFontColor('white');
+    sheet.setFrozenRows(1);
+    SpreadsheetApp.flush();
+  }
+  return sheet;
+}
+
 function apiGetInsumos(residente, mes) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
-  if (!sheet) return [];
+  const sheet = ensureInsumosSheet_();
   const last = sheet.getLastRow();
   if (last < 2) return [];
-  const data = sheet.getRange(2, 1, last - 1, 7).getValues();
+  const data = sheet.getRange(2, 1, last - 1, INSUMOS_NCOLS).getValues();
   const result = [];
   data.forEach(function(row) {
     if (String(row[0]).toLowerCase() === String(residente).toLowerCase() &&
         String(row[1]) === String(mes)) {
-      result.push({
-        dia: row[2],
-        pañal: row[3] || 0,
-        zalea: row[4] || 0,
-        aposito: row[5] || 0,
-        bombacha: row[6] || 0
-      });
+      const o = { dia: row[2] };
+      INSUMOS_FIELDS.forEach(function(f, i) { o[f] = Number(row[3 + i]) || 0; });
+      result.push(o);
     }
   });
   return result;
 }
 
-function apiSetInsumo(residente, mes, dia, pañal, zalea, aposito, bombacha) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_INSUMOS);
-  if (!sheet) return { ok: false, error: 'Hoja INSUMOS no encontrada' };
+// p = e.parameter (objeto con los 16 campos por turno)
+function apiSetInsumo(residente, mes, dia, p) {
+  const sheet = ensureInsumosSheet_();
   const last = sheet.getLastRow();
   const diaNum = Number(dia);
-  // Buscar fila existente
+  p = p || {};
+  const valores = INSUMOS_FIELDS.map(function(f) { return Number(p[f]) || 0; });
+  // Buscar fila existente (Residente + AñoMes + Dia)
   if (last >= 2) {
     const data = sheet.getRange(2, 1, last - 1, 3).getValues();
     for (let i = 0; i < data.length; i++) {
       if (String(data[i][0]).toLowerCase() === String(residente).toLowerCase() &&
           String(data[i][1]) === String(mes) &&
           Number(data[i][2]) === diaNum) {
-        sheet.getRange(i + 2, 4, 1, 4).setValues([[
-          Number(pañal) || 0, Number(zalea) || 0,
-          Number(aposito) || 0, Number(bombacha) || 0
-        ]]);
+        sheet.getRange(i + 2, 4, 1, INSUMOS_FIELDS.length).setValues([valores]);
         SpreadsheetApp.flush();
         return { ok: true, action: 'updated' };
       }
     }
   }
   // Nueva fila
-  sheet.appendRow([
-    residente, mes, diaNum,
-    Number(pañal) || 0, Number(zalea) || 0,
-    Number(aposito) || 0, Number(bombacha) || 0
-  ]);
+  sheet.appendRow([residente, mes, diaNum].concat(valores));
   SpreadsheetApp.flush();
   return { ok: true, action: 'inserted' };
 }
@@ -559,17 +576,18 @@ function apiGetStockResumen(residente) {
     });
   }
 
-  // Sumar uso total desde hoja INSUMOS
+  // Sumar uso total desde hoja INSUMOS (16 columnas por turno -> 4 totales)
   const insSheet = ss.getSheetByName(SHEET_INSUMOS);
   let totUso = { pañal: 0, zalea: 0, aposito: 0, bombacha: 0 };
   if (insSheet && insSheet.getLastRow() >= 2) {
-    const rows = insSheet.getRange(2, 1, insSheet.getLastRow() - 1, 7).getValues();
+    const rows = insSheet.getRange(2, 1, insSheet.getLastRow() - 1, INSUMOS_NCOLS).getValues();
     rows.forEach(function(r) {
       if (String(r[0]).toLowerCase() === String(residente).toLowerCase()) {
-        totUso.pañal    += Number(r[3]) || 0;
-        totUso.zalea    += Number(r[4]) || 0;
-        totUso.aposito  += Number(r[5]) || 0;
-        totUso.bombacha += Number(r[6]) || 0;
+        // cols: 3..6 pañal, 7..10 zalea, 11..14 aposito, 15..18 bombacha
+        for (let i = 0; i < 4; i++)  totUso.pañal    += Number(r[3 + i])  || 0;
+        for (let i = 0; i < 4; i++)  totUso.zalea    += Number(r[7 + i])  || 0;
+        for (let i = 0; i < 4; i++)  totUso.aposito  += Number(r[11 + i]) || 0;
+        for (let i = 0; i < 4; i++)  totUso.bombacha += Number(r[15 + i]) || 0;
       }
     });
   }
