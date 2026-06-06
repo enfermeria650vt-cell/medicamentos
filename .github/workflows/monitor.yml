@@ -1,0 +1,38 @@
+name: Monitor Villa Teresa
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chequeo de salud
+        env:
+          WA_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          WA_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+        run: |
+          set +e
+          SITE="https://enfermeria650vt-cell.github.io/medicamentos/index.html"
+          API="https://script.google.com/macros/s/AKfycbzNsNlspZ93MU9ReVk9pH8_gIAhzLS7vX4hyWX2uDcYSXIpSnVkp7ZQsGSl_zw_zI_d9Q/exec?action=pull"
+          fail=""
+          html=$(curl -sL --max-time 30 "$SITE")
+          echo "$html" | grep -q "Residencia Villa Teresa" || fail="La app NO carga (pagina caida o version rota)."
+          if [ -z "$fail" ]; then
+            ok=""
+            for i in 1 2 3; do
+              body=$(curl -sL --max-time 60 "$API&t=$(date +%s)")
+              size=${#body}
+              if echo "$body" | grep -q '"ok":true' && [ "$size" -gt 50000 ]; then ok="1"; break; fi
+              sleep 20
+            done
+            [ -z "$ok" ] && fail="El servidor de datos NO responde tras varios intentos (nube caida o vacia)."
+          fi
+          if [ -n "$fail" ]; then
+            MSG="ALERTA - Sistema Villa Teresa: $fail"
+            if [ -n "$WA_PHONE" ] && [ -n "$WA_APIKEY" ]; then
+              curl -s -G "https://api.callmebot.com/whatsapp.php" --data-urlencode "phone=$WA_PHONE" --data-urlencode "text=$MSG" --data-urlencode "apikey=$WA_APIKEY" >/dev/null
+            fi
+            echo "$MSG"; exit 1
+          fi
+          echo "OK - sistema sano"
