@@ -625,46 +625,90 @@ input:focus, select:focus, textarea:focus {
   font-size: 12px; font-family: inherit; background: white;
 }
 
-/* ===== LOGIN SCREEN ===== */
+/* ===== LOGIN SCREEN PIN ===== */
 #login-screen {
   position:fixed; inset:0; z-index:9999;
   background: linear-gradient(135deg, #1F4E78 0%, #2E75B6 100%);
-  display:flex; align-items:center; justify-content:center;
-  font-family: 'Segoe UI', sans-serif;
+  display:flex; align-items:flex-start; justify-content:center;
+  overflow-y:auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 }
 #login-screen.hidden { display:none; }
-.login-box {
-  background:white; border-radius:16px; padding:40px 36px;
-  width:100%; max-width:360px; box-shadow:0 20px 60px rgba(0,0,0,0.3);
-  text-align:center;
-}
-.login-logo { width:90px; height:90px; object-fit:cover; border-radius:50%; margin-bottom:16px; }
-.login-box h2 { color:#1F4E78; font-size:20px; margin-bottom:4px; }
-.login-box p { color:#888; font-size:13px; margin-bottom:24px; }
-.login-field { width:100%; padding:12px 14px; border:1.5px solid #DDE3EB;
-  border-radius:8px; font-size:14px; margin-bottom:12px;
-  outline:none; transition:.2s; box-sizing:border-box; }
-.login-field:focus { border-color:#2E75B6; }
-.login-btn { width:100%; padding:13px; background:#1F4E78; color:white;
-  border:none; border-radius:8px; font-size:15px; font-weight:600;
-  cursor:pointer; transition:.2s; }
-.login-btn:hover { background:#2E75B6; }
-.login-error { color:#e74c3c; font-size:13px; margin-top:8px; min-height:20px; }
-.login-version { color:#bbb; font-size:11px; margin-top:20px; }
+.login-wrap { display:flex; flex-direction:column; align-items:center; padding:28px 16px 40px; gap:16px; width:100%; max-width:440px; }
+.login-logo-img { width:64px; height:64px; border-radius:50%; object-fit:cover; border:3px solid rgba(255,255,255,.3); }
+.login-title { color:white; font-size:19px; font-weight:700; text-align:center; margin:0; }
+.login-sub { color:rgba(255,255,255,.7); font-size:13px; text-align:center; margin:0; }
+.login-card { background:white; border-radius:14px; padding:18px; width:100%; }
+.login-role-lbl { font-size:10px; font-weight:700; color:#8A97A8; text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; }
+.login-user-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-bottom:14px; }
+.login-user-grid.g3 { grid-template-columns:repeat(3,1fr); }
+.lug-btn { border:1.5px solid #E5EAF0; border-radius:10px; padding:10px 4px; cursor:pointer; background:white; display:flex; flex-direction:column; align-items:center; gap:4px; transition:all .15s; }
+.lug-btn:hover { border-color:#2E75B6; background:#EAF1FA; }
+.lug-btn.sel { border:2px solid #2E75B6; background:#EAF1FA; }
+.lug-avatar { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+.av-enf { background:#E6F1FB; color:#0C447C; }
+.av-med { background:#E1F5EE; color:#085041; }
+.av-own { background:#EEEDFE; color:#3C3489; }
+.av-adm { background:#FAEEDA; color:#633806; }
+.lug-name { font-size:10px; font-weight:500; color:#2B3A4A; text-align:center; line-height:1.25; }
+.login-pin-card { background:white; border-radius:14px; padding:20px; width:100%; display:flex; flex-direction:column; align-items:center; gap:14px; }
+.login-sel-name { font-size:13px; color:#667; margin:0; }
+.login-sel-name b { color:#1F4E78; }
+.pin-dots { display:flex; gap:13px; }
+.pin-dot { width:13px; height:13px; border-radius:50%; border:2px solid #C5D0DB; background:transparent; transition:background .1s; }
+.pin-dot.on { background:#1F4E78; border-color:#1F4E78; }
+.pin-numpad { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; width:216px; }
+.pin-btn { border:1.5px solid #E5EAF0; border-radius:10px; padding:14px 0; font-size:20px; font-weight:500; cursor:pointer; background:white; color:#2B3A4A; text-align:center; transition:background .1s; }
+.pin-btn:hover { background:#EAF1FA; }
+.pin-btn:active { background:#D5E5F7; transform:scale(.97); }
+.pin-btn.del { font-size:16px; color:#8A97A8; }
+.pin-zero { grid-column:2; }
+.pin-enter { width:216px; padding:13px; border-radius:10px; background:#1F4E78; color:white; border:none; font-size:15px; font-weight:600; cursor:pointer; transition:background .2s; }
+.pin-enter:disabled { opacity:.35; cursor:default; }
+.pin-enter:not(:disabled):hover { background:#2E75B6; }
+.pin-error { color:#e74c3c; font-size:12px; min-height:16px; text-align:center; margin:0; }
 </style>
 </head>
 <body>
 
 <div id="login-screen">
-  <div class="login-box">
-    <img class="login-logo" src="icon-192.png" alt="Logo">
-    <h2>Residencia Villa Teresa</h2>
-    <p>Sistema de Medicamentos</p>
-    <input class="login-field" type="text" id="login-user" placeholder="Usuario" autocomplete="username">
-    <input class="login-field" type="password" id="login-pass" placeholder="Contraseña" autocomplete="current-password">
-    <button class="login-btn" id="login-btn">Ingresar</button>
-    <div class="login-error" id="login-error"></div>
-    <div class="login-version">v2.0 — Villa Teresa</div>
+  <div class="login-wrap">
+    <img class="login-logo-img" src="icon-192.png" alt="Logo">
+    <p class="login-title">Residencia Villa Teresa</p>
+    <p class="login-sub">Sistema de Medicamentos</p>
+    <div class="login-card">
+      <div class="login-role-lbl">Enfermeros/as</div>
+      <div class="login-user-grid" id="lg-enf"></div>
+      <div class="login-role-lbl">Médico</div>
+      <div class="login-user-grid g3" id="lg-med"></div>
+      <div class="login-role-lbl">Dueños</div>
+      <div class="login-user-grid g3" id="lg-own"></div>
+      <div class="login-role-lbl">Administración</div>
+      <div class="login-user-grid g3" id="lg-adm"></div>
+    </div>
+    <div class="login-pin-card">
+      <p class="login-sel-name">PIN para <b id="pin-sel-name">—</b></p>
+      <div class="pin-dots">
+        <div class="pin-dot" id="pd0"></div>
+        <div class="pin-dot" id="pd1"></div>
+        <div class="pin-dot" id="pd2"></div>
+        <div class="pin-dot" id="pd3"></div>
+      </div>
+      <div class="pin-numpad">
+        <button class="pin-btn" onclick="pinAdd('1')">1</button>
+        <button class="pin-btn" onclick="pinAdd('2')">2</button>
+        <button class="pin-btn" onclick="pinAdd('3')">3</button>
+        <button class="pin-btn" onclick="pinAdd('4')">4</button>
+        <button class="pin-btn" onclick="pinAdd('5')">5</button>
+        <button class="pin-btn" onclick="pinAdd('6')">6</button>
+        <button class="pin-btn" onclick="pinAdd('7')">7</button>
+        <button class="pin-btn" onclick="pinAdd('8')">8</button>
+        <button class="pin-btn" onclick="pinAdd('9')">9</button>
+        <button class="pin-btn pin-zero" onclick="pinAdd('0')">0</button>
+        <button class="pin-btn del" onclick="pinDel()">⌫</button>
+      </div>
+      <div class="pin-error" id="pin-error"></div>
+      <button class="pin-enter" id="pin-enter-btn" disabled onclick="pinIngresar()">Ingresar</button>
+    </div>
   </div>
 </div>
 
@@ -716,17 +760,108 @@ input:focus, select:focus, textarea:focus {
 
 <script>
 
-// ===== SISTEMA DE LOGIN =====
-const USUARIOS = {
-  'admin':     { hash: 'f1c209e951d4bd466f9da8be1779301861ab8ed17c4e0380b5155a6e77440206', rol: 'admin',     nombre: 'Administrador' },
-  'enfermera': { hash: '4f17f1bb629f9a5b222538c740b80368359877369bf79005d8d900d815c9da7c', rol: 'enfermera', nombre: 'Enfermería' },
-  'medico':    { hash: '586aaf52428a5cc59a4e893a1e00a2a5654f7d8ec3fcbe130beafb6b57de2a7a', rol: 'medico',    nombre: 'Médico/a' }
-};
-// Contraseñas: admin=villa2024, enfermera=enf2024, medico=med2024
+// ===== SISTEMA DE LOGIN PIN =====
+const VT_USERS = [
+  { nombre:'Federico Santillán', iniciales:'FS', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Paola Flores',       iniciales:'PF', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Teresa Aparicio',    iniciales:'TA', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Natalia Ibarra',     iniciales:'NI', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Georgina Cruz',      iniciales:'GC', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Soledad Flores',     iniciales:'SF', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Mariela Serapio',    iniciales:'MS', rol:'Enfermero', av:'av-enf' },
+  { nombre:'Agustina Tuma',      iniciales:'AT', rol:'Médico',    av:'av-med' },
+  { nombre:'Martín Bellagamba',  iniciales:'MB', rol:'Dueño',     av:'av-own' },
+  { nombre:'Cecilia Abeleira',   iniciales:'CA', rol:'Dueño',     av:'av-own' },
+  { nombre:'Maximiliano Martin', iniciales:'MM', rol:'Admin',     av:'av-adm' },
+];
+
+// PIN por defecto: 1234 (SHA-256)
+const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4';
+const VT_PINS_KEY = 'vt_pins_v1';
+
+function getPinHashes() {
+  try { return JSON.parse(localStorage.getItem(VT_PINS_KEY)) || {}; } catch(e) { return {}; }
+}
+function getPinHash(nombre) {
+  return getPinHashes()[nombre] || DEFAULT_PIN_HASH;
+}
+function setPinHash(nombre, hash) {
+  const pins = getPinHashes();
+  pins[nombre] = hash;
+  localStorage.setItem(VT_PINS_KEY, JSON.stringify(pins));
+}
 
 async function sha256(msg) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+let pinCurrent = '';
+let pinSelectedUser = null;
+
+function renderLoginUsers() {
+  const groups = { 'Enfermero':'lg-enf', 'Médico':'lg-med', 'Dueño':'lg-own', 'Admin':'lg-adm' };
+  Object.keys(groups).forEach(rol => {
+    const el = document.getElementById(groups[rol]);
+    if (!el) return;
+    el.innerHTML = VT_USERS.filter(u => u.rol === rol).map(u => {
+      const p = u.nombre.split(' ');
+      return `<button class="lug-btn" data-nombre="${u.nombre}" onclick="pinSelectUser(this)">
+        <div class="lug-avatar ${u.av}">${u.iniciales}</div>
+        <div class="lug-name">${p[0]}<br>${p.slice(1).join(' ')}</div>
+      </button>`;
+    }).join('');
+  });
+}
+
+function pinSelectUser(btn) {
+  pinSelectedUser = VT_USERS.find(u => u.nombre === btn.dataset.nombre);
+  pinCurrent = '';
+  updatePinDots();
+  document.querySelectorAll('.lug-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  const el = document.getElementById('pin-sel-name');
+  if (el) el.textContent = pinSelectedUser.nombre;
+  document.getElementById('pin-error').textContent = '';
+}
+
+function pinAdd(d) {
+  if (!pinSelectedUser) { document.getElementById('pin-error').textContent = 'Seleccioná un usuario primero.'; return; }
+  if (pinCurrent.length >= 4) return;
+  pinCurrent += d;
+  updatePinDots();
+}
+function pinDel() { pinCurrent = pinCurrent.slice(0,-1); updatePinDots(); }
+
+function updatePinDots() {
+  for (let i=0; i<4; i++) {
+    const d = document.getElementById('pd'+i);
+    if (d) d.classList.toggle('on', i < pinCurrent.length);
+  }
+  const btn = document.getElementById('pin-enter-btn');
+  if (btn) btn.disabled = pinCurrent.length < 4;
+}
+
+async function pinIngresar() {
+  if (!pinSelectedUser || pinCurrent.length < 4) return;
+  document.getElementById('pin-error').textContent = '';
+  try {
+    const hash = await sha256(pinCurrent);
+    if (hash !== getPinHash(pinSelectedUser.nombre)) {
+      document.getElementById('pin-error').textContent = 'PIN incorrecto. Intentá de nuevo.';
+      pinCurrent = '';
+      updatePinDots();
+      return;
+    }
+  } catch(e) {
+    if (pinCurrent !== '1234') {
+      document.getElementById('pin-error').textContent = 'PIN incorrecto.';
+      pinCurrent = ''; updatePinDots(); return;
+    }
+  }
+  const u = pinSelectedUser;
+  setSession({ usuario: u.nombre, rol: u.rol, nombre: u.nombre, iniciales: u.iniciales });
+  showApp({ rol: u.rol, nombre: u.nombre });
 }
 
 function getSession() {
@@ -735,8 +870,7 @@ function getSession() {
 
 function setSession(user) {
   sessionStorage.setItem('vt_user', JSON.stringify(user));
-  // Log login (after state loads)
-  setTimeout(() => logCambio('sesion', `Inicio de sesión: ${user.usuario} (${user.rol})`), 2000);
+  setTimeout(() => logCambio('sesion', `Inicio de sesión: ${user.nombre} (${user.rol})`), 2000);
 }
 
 function showApp(user) {
@@ -746,72 +880,36 @@ function showApp(user) {
   const disp = document.getElementById('user-display');
   if (disp) disp.textContent = user.nombre + ' (' + user.rol + ')';
   aplicarPermisos(user.rol);
-  // Pull automático de la nube al iniciar sesión (restaura horarios y datos)
   setTimeout(() => {
     if (typeof syncHabilitado === 'function' && syncHabilitado()) {
       cloudPull(true).then(() => render());
     }
   }, 800);
-  // Mostrar alerta de stock crítico al iniciar sesión
   setTimeout(() => {
     if (typeof mostrarAlertaLoginSiHay === 'function') mostrarAlertaLoginSiHay();
   }, 1500);
 }
 
 function aplicarPermisos(rol) {
-  if (rol === 'medico') {
-    // Médico: ocultar acciones de gestión
+  if (rol === 'Médico') {
     ['btn-nuevo-residente','btn-reset','btn-export','btn-sync-cloud','btn-config-sync-v2','btn-sync'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
+      const el = document.getElementById(id); if (el) el.style.display='none';
     });
   }
-  if (rol === 'enfermera') {
-    // Enfermera: ocultar reset y config
-    ['btn-reset','btn-config-sync-v2','btn-sync'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = 'none';
+  if (rol === 'Enfermero') {
+    ['btn-nuevo-residente','btn-reset','btn-export','btn-config-sync-v2','btn-sync'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display='none';
     });
   }
-}
-
-async function intentarLogin() {
-  const user = document.getElementById('login-user').value.trim().toLowerCase();
-  const pass = document.getElementById('login-pass').value;
-  const errEl = document.getElementById('login-error');
-  errEl.textContent = '';
-  if (!user || !pass) { errEl.textContent = 'Completá usuario y contraseña.'; return; }
-  const userData = USUARIOS[user];
-  if (!userData) { errEl.textContent = 'Usuario incorrecto.'; return; }
-  try {
-    const hash = await sha256(pass);
-    if (hash !== userData.hash) { errEl.textContent = 'Contraseña incorrecta.'; return; }
-  } catch(e) {
-    // Fallback: comparación directa si crypto.subtle no está disponible
-    const claves = { admin: 'villa2024', enfermera: 'enf2024', medico: 'med2024' };
-    if (pass !== claves[user]) { errEl.textContent = 'Contraseña incorrecta.'; return; }
-  }
-  setSession({ usuario: user, rol: userData.rol, nombre: userData.nombre });
-  showApp({ rol: userData.rol, nombre: userData.nombre });
+  // Admin y Dueño: acceso completo
 }
 
 // Init login
 window.addEventListener('DOMContentLoaded', () => {
+  renderLoginUsers();
   const session = getSession();
-  if (session) {
-    showApp(session);
-  }
-  // else login screen stays visible (default)
+  if (session) showApp(session);
 
-  document.getElementById('login-btn').addEventListener('click', intentarLogin);
-  document.getElementById('login-pass').addEventListener('keydown', e => {
-    if (e.key === 'Enter') intentarLogin();
-  });
-  document.getElementById('login-user').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('login-pass').focus();
-  });
-
-  // Cerrar sesión
   const btnCerrar = document.getElementById('btn-cerrar-sesion');
   if (btnCerrar) {
     btnCerrar.addEventListener('click', () => {
@@ -824,7 +922,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
-// ===== FIN LOGIN =====
+// ===== FIN LOGIN PIN =====
 
 
 // ============ DATOS INICIALES ============
@@ -4169,9 +4267,11 @@ function viewInsumos() {
   <div id="ins-stock-panel">
     <div class="card" style="max-width:480px;margin-bottom:14px">
       <div class="form-row">
-        <div><label>Residente</label>
+        <div><label>Residente / Depósito</label>
           <select class="ins-select" id="ins-stock-res">
-            <option value="">— Seleccionar —</option>${resOpts}
+            <option value="">— Seleccionar —</option>
+            <option value="__DEPOSITO_GENERAL__">🏥 Depósito general (institución)</option>
+            ${resOpts}
           </select></div>
         <div style="align-self:flex-end">
           <button class="btn primary" id="ins-stock-cargar">🔄 Ver stock</button>
@@ -4179,7 +4279,7 @@ function viewInsumos() {
       </div>
     </div>
     <div id="ins-stock-contenido">
-      <div style="color:#888;padding:20px">Seleccioná un residente y hacé clic en <b>🔄 Ver stock</b>.</div>
+      <div style="color:#888;padding:20px">Elegí <b>🏥 Depósito general</b> (lo que trae el geriátrico) o un residente. El stock y el botón <b>📥 Registrar ingreso</b> aparecen al seleccionar.</div>
     </div>
   </div>` : '';
 
@@ -4262,10 +4362,17 @@ function attachInsumos() {
       selRes.value = insumosState.residente;
       cargarStockInsumos(insumosState.residente);
     }
+    // Auto-cargar stock al elegir en el dropdown (sin pasos ocultos)
+    if (selRes) selRes.onchange = () => {
+      const res = selRes.value;
+      if (!res) return;
+      insumosState.residente = res;
+      cargarStockInsumos(res);
+    };
     const btnStockCargar = document.getElementById('ins-stock-cargar');
     if (btnStockCargar) btnStockCargar.onclick = () => {
       const res = selRes?.value;
-      if (!res) { toast('Seleccioná un residente'); return; }
+      if (!res) { toast('Seleccioná un residente o el depósito general'); return; }
       insumosState.residente = res;
       cargarStockInsumos(res);
     };
@@ -4450,7 +4557,12 @@ async function cargarStockInsumos(res) {
   }
 }
 
+function nombreStock(res) {
+  return res === '__DEPOSITO_GENERAL__' ? '🏥 Depósito general' : res;
+}
+
 function renderStockCards(res, data) {
+  res = nombreStock(res);
   const ets = { pañal:'Pañal', zalea:'Zalea', aposito:'Apósito', bombacha:'Bombacha/Calzoncillo' };
   let alertasHtml = '';
   const cards = Object.keys(ets).map(campo => {
@@ -4600,7 +4712,7 @@ function attachStockListeners(res) {
         <td style="font-size:11px;color:#6c7a8a">${escapeHtml(it.obs||'')}</td>
       </tr>`).join('');
       wHist.innerHTML = `
-        <h3 style="margin:0 0 10px">📚 Historial de ingresos — ${escapeHtml(res)}</h3>
+        <h3 style="margin:0 0 10px">📚 Historial de ingresos — ${escapeHtml(nombreStock(res))}</h3>
         <div style="overflow-x:auto"><table class="tabla">
           <thead><tr><th>Fecha</th><th>Pañal</th><th>Zalea</th><th>Apósito</th><th>Bombacha</th><th>Observación</th></tr></thead>
           <tbody>${filas||'<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Sin ingresos registrados</td></tr>'}</tbody>
