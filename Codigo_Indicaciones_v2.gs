@@ -551,6 +551,8 @@ function apiSetInsumo(residente, mes, dia, p) {
 
 function apiGetStockResumen(residente) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Depósito general: el "usado" suma el consumo de TODOS los residentes.
+  const ES_GENERAL = String(residente) === '__DEPOSITO_GENERAL__';
 
   // Obtener mínimos
   const stockSheet = ss.getSheetByName(SHEET_STOCK);
@@ -582,7 +584,7 @@ function apiGetStockResumen(residente) {
   if (insSheet && insSheet.getLastRow() >= 2) {
     const rows = insSheet.getRange(2, 1, insSheet.getLastRow() - 1, INSUMOS_NCOLS).getValues();
     rows.forEach(function(r) {
-      if (String(r[0]).toLowerCase() === String(residente).toLowerCase()) {
+      if (ES_GENERAL || String(r[0]).toLowerCase() === String(residente).toLowerCase()) {
         // cols: 3..6 pañal, 7..10 zalea, 11..14 aposito, 15..18 bombacha
         for (let i = 0; i < 4; i++)  totUso.pañal    += Number(r[3 + i])  || 0;
         for (let i = 0; i < 4; i++)  totUso.zalea    += Number(r[7 + i])  || 0;
