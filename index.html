@@ -1024,6 +1024,24 @@ function logCambio(tipo, descripcion, extra) {
   const fecha = ahora.toLocaleDateString('es-AR') + ' ' + ahora.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   state.historialCambios.push({ tipo, descripcion, usuario, fecha, ts: ahora.toISOString(), extra: extra || null });
   saveHistorialCambios();
+  // Enviar a Google Sheets en segundo plano (fire-and-forget)
+  try {
+    const url = getCloudUrl();
+    if (url && session) {
+      // Extraer residente de la descripción (ej: "... (Nombre Apellido) ...")
+      const matchRes = descripcion.match(/\(([^)]+)\)/);
+      const residente = matchRes ? matchRes[1] : '';
+      const params = new URLSearchParams({
+        action: 'registrarCambio',
+        usuario: session.nombre || session.usuario || 'Sistema',
+        rol: session.rol || '',
+        accion: tipo,
+        residente: residente,
+        detalle: descripcion
+      });
+      fetch(url + '?' + params.toString()).catch(() => {});
+    }
+  } catch(e) {}
 }
 function loadHist() {
   try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch(e) { return []; }
