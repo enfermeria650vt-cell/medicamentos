@@ -39,6 +39,10 @@ const SHEET_INGRESOS = 'INGRESOS_INSUMOS';
 const STOCK_HEADERS = ['Residente', 'MinPañal', 'MinZalea', 'MinAposito', 'MinBombacha'];
 const INGRESOS_HEADERS = ['Fecha', 'Residente', 'Pañal', 'Zalea', 'Aposito', 'Bombacha', 'Observacion'];
 
+// --- HISTORIAL DE CAMBIOS ---
+const SHEET_HISTORIAL_CAMBIOS = 'HISTORIAL_CAMBIOS';
+const HISTORIAL_HEADERS = ['Fecha', 'Usuario', 'Rol', 'Acción', 'Residente', 'Detalle'];
+
 // =====================================================
 // SETUP
 // =====================================================
@@ -419,6 +423,17 @@ function doGet(e) {
       case 'getIngresos':
         payload = apiGetIngresos(e.parameter.residente);
         break;
+      // HISTORIAL DE CAMBIOS
+      case 'registrarCambio':
+        payload = apiRegistrarCambio(
+          e.parameter.usuario, e.parameter.rol,
+          e.parameter.accion, e.parameter.residente || '',
+          e.parameter.detalle || ''
+        );
+        break;
+      case 'getHistorial':
+        payload = apiGetHistorial(e.parameter.residente || '', Number(e.parameter.limit) || 200);
+        break;
       case 'setMinimos':
         payload = apiSetMinimos(
           e.parameter.residente,
@@ -660,6 +675,60 @@ function apiGetIngresos(residente) {
     }
   });
   return result.reverse(); // más reciente primero
+}
+
+// =====================================================
+// API HISTORIAL DE CAMBIOS
+// =====================================================
+
+function ensureHistorialCambiosSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_HISTORIAL_CAMBIOS);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_HISTORIAL_CAMBIOS);
+    sheet.getRange(1, 1, 1, HISTORIAL_HEADERS.length).setValues([HISTORIAL_HEADERS]);
+    sheet.getRange(1, 1, 1, HISTORIAL_HEADERS.length)
+      .setFontWeight('bold').setBackground('#4a4a8a').setFontColor('white');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 150); // Fecha
+    sheet.setColumnWidth(2, 180); // Usuario
+    sheet.setColumnWidth(3, 110); // Rol
+    sheet.setColumnWidth(4, 140); // Acción
+    sheet.setColumnWidth(5, 200); // Residente
+    sheet.setColumnWidth(6, 340); // Detalle
+    SpreadsheetApp.flush();
+  }
+  return sheet;
+}
+
+function apiRegistrarCambio(usuario, rol, accion, residente, detalle) {
+  if (!usuario || !accion) return { ok: false, error: 'Faltan campos' };
+  const sheet = ensureHistorialCambiosSheet_();
+  const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+  sheet.appendRow([fecha, usuario, rol || '', accion, residente || '', detalle || '']);
+  SpreadsheetApp.flush();
+  return { ok: true };
+}
+
+function apiGetHistorial(residente, limit) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_HISTORIAL_CAMBIOS);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const last = sheet.getLastRow();
+  const data = sheet.getRange(2, 1, last - 1, HISTORIAL_HEADERS.length).getValues();
+  let result = data.map(function(row) {
+    return {
+      fecha: row[0] instanceof Date
+        ? Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
+        : String(row[0]),
+      usuario: row[1], rol: row[2], accion: row[3],
+      residente: row[4], detalle: row[5]
+    };
+  });
+  if (residente) {
+    result = result.filter(function(r){ return String(r.residente).toLowerCase() === String(residente).toLowerCase(); });
+  }
+  result.reverse(); // más reciente primero
+  return result.slice(0, limit || 200);
 }
 
 function apiSetMinimos(residente, minPañal, minZalea, minAposito, minBombacha) {
