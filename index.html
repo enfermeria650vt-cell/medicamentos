@@ -4801,7 +4801,7 @@ window.addEventListener('focus', () => {
 // NUTRICIÓN
 // =====================================================
 
-let nutricionState = { residente: null, tab: 'dieta', mes: '', dieta: null, pesos: null, registros: {}, notas: null, menuSemana: '', menuData: null };
+let nutricionState = { residente: null, tab: 'dieta', mes: '', dieta: null, pesos: null, registros: {}, notas: null, menuMes: '', menuMesData: {} };
 
 function viewNutricion() {
   const ahora = new Date();
@@ -4939,61 +4939,73 @@ function viewNutricion() {
   }
 
   if (tab === 'menu') {
-    // Calcular lunes de la semana actual o seleccionada
-    const getLunes = (ref) => {
-      const d = ref ? new Date(ref+'T00:00:00') : new Date();
-      const day = d.getDay() || 7;
-      d.setDate(d.getDate() - day + 1);
-      return d;
-    };
-    const semRef = nutricionState.menuSemana || '';
-    const lunes = getLunes(semRef);
-    const semKey = lunes.toISOString().slice(0,10);
-    if (!nutricionState.menuSemana) nutricionState.menuSemana = semKey;
+    const now = new Date();
+    if (!nutricionState.menuMes) {
+      nutricionState.menuMes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    }
+    const menuMes = nutricionState.menuMes;
+    const [mesY, mesM] = menuMes.split('-').map(Number);
+    const mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const mesLabel = `${mesNombres[mesM-1]} ${mesY}`;
+    const prevMes = new Date(mesY, mesM-2, 1);
+    const nextMes = new Date(mesY, mesM, 1);
+    const prevMesStr = `${prevMes.getFullYear()}-${String(prevMes.getMonth()+1).padStart(2,'0')}`;
+    const nextMesStr = `${nextMes.getFullYear()}-${String(nextMes.getMonth()+1).padStart(2,'0')}`;
+    const mondays = getMondaysOfMonth(menuMes);
     const dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
     const diasFull = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-    const fechasDia = diasFull.map((_, i) => {
-      const fd = new Date(lunes); fd.setDate(fd.getDate()+i);
-      return fd.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
-    });
     const secciones = [
       { key:'alm', label:'ALMUERZO', color:'#E8F4FD', hColor:'#2E75B6' },
       { key:'cen', label:'CENA',     color:'#F0EAF8', hColor:'#7B1060' }
     ];
     const filas = ['sopa','plato','postre'];
     const filaLabels = { sopa:'Sopa', plato:'Plato principal', postre:'Postre' };
-    const md = nutricionState.menuData || {};
-    let tbodyHtml = '';
-    secciones.forEach(sec => {
-      tbodyHtml += `<tr><td colspan="8" style="background:${sec.hColor};color:#fff;font-weight:700;font-size:12px;padding:5px 10px;text-align:center;letter-spacing:.05em">${sec.label}</td></tr>`;
-      filas.forEach(fila => {
-        const cellKey = (d) => `${sec.key}_${fila}_${d}`;
-        let celdas = dias.map((d,i) => {
-          const val = (md[cellKey(d)]||'');
-          return `<td style="padding:3px;vertical-align:top"><textarea class="nut-menu-cell" data-key="${cellKey(d)}" rows="3" style="width:100%;font-size:11px;padding:4px 5px;border:1px solid #ddd;border-radius:4px;resize:vertical;font-family:inherit;box-sizing:border-box">${escapeHtml(val)}</textarea></td>`;
-        }).join('');
-        tbodyHtml += `<tr><td style="padding:5px 8px;font-size:12px;font-weight:600;white-space:nowrap;background:${sec.color};min-width:80px">${filaLabels[fila]}</td>${celdas}</tr>`;
+
+    let weeksHtml = '';
+    mondays.forEach(monday => {
+      const weekDates = Array.from({length:7}, (_,i) => {
+        const d = new Date(monday+'T00:00:00'); d.setDate(d.getDate()+i); return d;
       });
-    });
-    const prevLun = new Date(lunes); prevLun.setDate(prevLun.getDate()-7);
-    const nextLun = new Date(lunes); nextLun.setDate(nextLun.getDate()+7);
-    const semLabel = `Semana del ${lunes.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})} al ${new Date(lunes.getTime()+6*86400000).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
-    content = `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <button class="btn secondary" id="nut-menu-prev" data-sem="${prevLun.toISOString().slice(0,10)}">◀ Semana anterior</button>
-        <strong style="font-size:13px">${semLabel}</strong>
-        <button class="btn secondary" id="nut-menu-next" data-sem="${nextLun.toISOString().slice(0,10)}">Semana siguiente ▶</button>
-        <button class="btn primary" id="nut-menu-guardar" style="margin-left:auto">💾 Guardar menú</button>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
-          <thead><tr style="background:#F0F3F7">
-            <th style="padding:7px 8px;text-align:left;border-bottom:2px solid #ddd;width:85px">Comida</th>
-            ${diasFull.map((d,i)=>`<th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center;font-size:11px">${d}<br><span style="font-weight:400;color:#888">${fechasDia[i]}</span></th>`).join('')}
-          </tr></thead>
-          <tbody>${tbodyHtml}</tbody>
-        </table>
+      const weekLabel = `${weekDates[0].getDate()}/${weekDates[0].getMonth()+1} al ${weekDates[6].getDate()}/${weekDates[6].getMonth()+1}`;
+      const md = (nutricionState.menuMesData||{})[monday] || {};
+      let tbodyHtml = '';
+      secciones.forEach(sec => {
+        tbodyHtml += `<tr><td colspan="8" style="background:${sec.hColor};color:#fff;font-weight:700;font-size:12px;padding:5px 10px;text-align:center;letter-spacing:.05em">${sec.label}</td></tr>`;
+        filas.forEach(fila => {
+          let celdas = dias.map((d,i) => {
+            const key = `${sec.key}_${fila}_${d}`;
+            const val = md[key]||'';
+            return `<td style="padding:3px;vertical-align:top"><textarea class="nut-menu-cell" data-sem="${monday}" data-key="${key}" rows="2" style="width:100%;font-size:11px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;resize:vertical;font-family:inherit;box-sizing:border-box">${escapeHtml(val)}</textarea></td>`;
+          }).join('');
+          tbodyHtml += `<tr><td style="padding:4px 8px;font-size:12px;font-weight:600;white-space:nowrap;background:${sec.color};min-width:80px">${filaLabels[fila]}</td>${celdas}</tr>`;
+        });
+      });
+      weeksHtml += `
+      <div style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong style="font-size:13px;color:#555">📅 Semana ${weekLabel}</strong>
+          <button class="btn secondary nut-semana-guardar" data-sem="${monday}" style="font-size:12px;padding:5px 10px">💾 Guardar semana</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+            <thead><tr style="background:#F0F3F7">
+              <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #ddd;width:85px">Comida</th>
+              ${diasFull.map((d,i)=>`<th style="padding:6px 4px;border-bottom:2px solid #ddd;text-align:center;font-size:11px">${d}<br><span style="font-weight:400;color:#888">${weekDates[i].getDate()}/${weekDates[i].getMonth()+1}</span></th>`).join('')}
+            </tr></thead>
+            <tbody>${tbodyHtml}</tbody>
+          </table>
+        </div>
       </div>`;
+    });
+
+    content = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn secondary" id="nut-menu-prev-mes" data-mes="${prevMesStr}">◀ Mes anterior</button>
+        <strong style="font-size:15px">${mesLabel}</strong>
+        <button class="btn secondary" id="nut-menu-next-mes" data-mes="${nextMesStr}">Mes siguiente ▶</button>
+        <button class="btn primary" id="nut-menu-word" style="margin-left:auto">📄 Descargar Word A4</button>
+      </div>
+      ${weeksHtml}`;
   }
 
   if (tab === 'notas' && nutricionState.notas !== null) {
@@ -5127,35 +5139,42 @@ function attachNutricion() {
     };
   });
 
-  // Menú — navegar semana
-  ['nut-menu-prev','nut-menu-next'].forEach(id => {
+  // Menú — navegar mes
+  ['nut-menu-prev-mes','nut-menu-next-mes'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.onclick = () => {
-      nutricionState.menuSemana = btn.dataset.sem;
-      nutricionState.menuData = null;
+      nutricionState.menuMes = btn.dataset.mes;
+      nutricionState.menuMesData = {};
       document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
-      if (url) nutricionCargarMenu();
+      if (url) nutricionCargarMenuMensual();
     };
   });
-  // Menú — guardar
-  const btnMenuGuardar = document.getElementById('nut-menu-guardar');
-  if (btnMenuGuardar) btnMenuGuardar.onclick = async () => {
-    if (!url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
-    const data = {};
-    document.querySelectorAll('.nut-menu-cell').forEach(ta => { data[ta.dataset.key] = ta.value; });
-    const semana = nutricionState.menuSemana;
-    const usuario = getCurrentUser()||'';
-    btnMenuGuardar.textContent = '⏳ Guardando...'; btnMenuGuardar.disabled = true;
-    try {
-      const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionMenu',semana,data:JSON.stringify(data),usuario})}`);
-      const j = await r.json();
-      if (j.ok) { nutricionState.menuData = data; if(typeof toast==='function') toast('✅ Menú guardado'); }
-      else if(typeof toast==='function') toast('❌ Error al guardar');
-    } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
-    btnMenuGuardar.textContent = '💾 Guardar menú'; btnMenuGuardar.disabled = false;
-  };
-  // Cargar menú si tab activo
-  if (tab === 'menu' && !nutricionState.menuData && url) nutricionCargarMenu();
+  // Menú — guardar semana individual
+  document.querySelectorAll('.nut-semana-guardar').forEach(btn => {
+    btn.onclick = async () => {
+      if (!url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+      const semana = btn.dataset.sem;
+      const data = {};
+      document.querySelectorAll(`.nut-menu-cell[data-sem="${semana}"]`).forEach(ta => { data[ta.dataset.key] = ta.value; });
+      const usuario = getCurrentUser()||'';
+      btn.textContent = '⏳'; btn.disabled = true;
+      try {
+        const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionMenu',semana,data:JSON.stringify(data),usuario})}`);
+        const j = await r.json();
+        if (j.ok) {
+          if (!nutricionState.menuMesData) nutricionState.menuMesData = {};
+          nutricionState.menuMesData[semana] = data;
+          if(typeof toast==='function') toast('✅ Semana guardada');
+        } else if(typeof toast==='function') toast('❌ Error al guardar');
+      } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
+      btn.textContent = '💾 Guardar semana'; btn.disabled = false;
+    };
+  });
+  // Menú — Descargar Word A4
+  const btnWord = document.getElementById('nut-menu-word');
+  if (btnWord) btnWord.onclick = () => exportMenuMensualWord();
+  // Cargar menú mensual si tab activo
+  if (tab === 'menu' && (!nutricionState.menuMesData || Object.keys(nutricionState.menuMesData).length === 0) && url) nutricionCargarMenuMensual();
 
   // Notas — agregar
   const btnNota = document.getElementById('nut-agregar-nota');
@@ -5240,16 +5259,105 @@ async function nutricionCargarRegistros(residente) {
   } catch(e) { console.error('nutricionCargarRegistros', e); }
 }
 
-async function nutricionCargarMenu() {
+function getMondaysOfMonth(ym) {
+  const [y,m] = ym.split('-').map(Number);
+  const mondays = [];
+  const end = new Date(y, m, 0);
+  const d = new Date(y, m-1, 1);
+  const dow = d.getDay() || 7;
+  d.setDate(d.getDate() - (dow-1));
+  while (d <= end) {
+    mondays.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate()+7);
+  }
+  return mondays;
+}
+
+async function nutricionCargarMenuMensual() {
   const url = getIndicUrl();
   if (!url) return;
-  const semana = nutricionState.menuSemana;
-  try {
-    const r = await fetch(`${url}?action=getNutricionMenu&semana=${encodeURIComponent(semana)}`);
-    const j = await r.json();
-    nutricionState.menuData = (j.ok && j.data) ? j.data : {};
-    document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
-  } catch(e) { console.error('nutricionCargarMenu', e); }
+  const mes = nutricionState.menuMes;
+  if (!mes) return;
+  const mondays = getMondaysOfMonth(mes);
+  if (!nutricionState.menuMesData) nutricionState.menuMesData = {};
+  for (const semana of mondays) {
+    try {
+      const r = await fetch(`${url}?action=getNutricionMenu&semana=${encodeURIComponent(semana)}`);
+      const j = await r.json();
+      nutricionState.menuMesData[semana] = (j.ok && j.data) ? j.data : {};
+    } catch(e) { nutricionState.menuMesData[semana] = {}; }
+  }
+  document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+}
+
+function exportMenuMensualWord() {
+  const mes = nutricionState.menuMes;
+  if (!mes) { if(typeof toast==='function') toast('Seleccioná un mes'); return; }
+  const [mesY, mesM] = mes.split('-').map(Number);
+  const mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const mesLabel = `${mesNombres[mesM-1]} ${mesY}`;
+  const sel = nutricionState.residente || '';
+  const mondays = getMondaysOfMonth(mes);
+  const dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const diasFull = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const secciones = [{key:'alm',label:'ALMUERZO',color:'#2E75B6'},{key:'cen',label:'CENA',color:'#7B1060'}];
+  const filas = [{key:'sopa',label:'Sopa'},{key:'plato',label:'Plato principal'},{key:'postre',label:'Postre'}];
+  // Leer valores actuales del DOM (incluye cambios no guardados)
+  const domData = {};
+  document.querySelectorAll('.nut-menu-cell').forEach(ta => {
+    const sem = ta.dataset.sem, key = ta.dataset.key;
+    if (sem && key) { if (!domData[sem]) domData[sem]={}; domData[sem][key]=ta.value; }
+  });
+  let tablesHtml = '';
+  mondays.forEach(monday => {
+    const weekDates = Array.from({length:7}, (_,i) => {
+      const d = new Date(monday+'T00:00:00'); d.setDate(d.getDate()+i); return d;
+    });
+    const weekLabel = `Semana del ${weekDates[0].getDate()}/${weekDates[0].getMonth()+1} al ${weekDates[6].getDate()}/${weekDates[6].getMonth()+1}`;
+    const md = domData[monday] || (nutricionState.menuMesData||{})[monday] || {};
+    let rows = '';
+    rows += `<tr><th class="row-lbl">Comida</th>${diasFull.map((d,i)=>`<th>${d}<br><span style="font-weight:400;font-size:7pt;color:#666">${weekDates[i].getDate()}/${weekDates[i].getMonth()+1}</span></th>`).join('')}</tr>`;
+    secciones.forEach(sec => {
+      rows += `<tr><td colspan="8" class="sec-hdr" style="background:${sec.color}">${sec.label}</td></tr>`;
+      filas.forEach(f => {
+        rows += `<tr><td class="row-lbl">${f.label}</td>`;
+        dias.forEach(d => {
+          const val = (md[`${sec.key}_${f.key}_${d}`]||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+          rows += `<td class="cell">${val}</td>`;
+        });
+        rows += `</tr>`;
+      });
+    });
+    tablesHtml += `<h3>${weekLabel}</h3><table>${rows}</table><br>`;
+  });
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  @page WordSection1 { size:21cm 29.7cm; margin:1.5cm 1.5cm 1.5cm 1.5cm; mso-page-orientation:portrait; }
+  div.WordSection1 { page:WordSection1; }
+  body { font-family:Arial,sans-serif; font-size:9pt; }
+  h1 { font-size:14pt; text-align:center; margin-bottom:4pt; color:#7B1060; }
+  h2 { font-size:11pt; text-align:center; margin:0 0 10pt; color:#555; }
+  h3 { font-size:10pt; margin:12pt 0 3pt; color:#333; border-bottom:1px solid #ccc; padding-bottom:2pt; }
+  table { width:100%; border-collapse:collapse; font-size:8pt; }
+  th { font-weight:bold; padding:3px 4px; border:1px solid #999; text-align:center; background:#F0F3F7; }
+  td { padding:4px; border:1px solid #bbb; vertical-align:top; }
+  .sec-hdr { font-weight:bold; color:white; text-align:center; padding:3px 6px; font-size:9pt; }
+  .row-lbl { font-weight:bold; background:#f5f5f5; width:80px; }
+  .cell { min-height:22pt; }
+</style>
+</head>
+<body><div class="WordSection1">
+<h1>Menú Mensual — ${mesLabel}</h1>
+${sel ? `<h2>${sel}</h2>` : ''}
+${tablesHtml}
+</div></body></html>`;
+  const blob = new Blob(['﻿'+html], {type:'application/msword'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Menu_${mesLabel.replace(/ /g,'_')}_${(sel||'Geriatrico').replace(/ /g,'_')}.doc`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // =====================================================
