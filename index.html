@@ -79,6 +79,18 @@ body {
   color: rgba(255,255,255,.5);
   letter-spacing: .5px;
 }
+.nav-subitem {
+  padding: 7px 20px 7px 38px;
+  font-size: 13px;
+  opacity: .85;
+  border-left: 3px solid transparent;
+}
+.nav-subitem::before {
+  content: '└ ';
+  font-size: 11px;
+  opacity: .5;
+  margin-right: -4px;
+}
 .badge {
   margin-left: auto;
   background: var(--rojo);
@@ -731,7 +743,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-item" data-view="insumos">🧴 <span>Insumos</span></div>
     <div class="nav-item" data-view="nutricion">🥗 <span>Nutrición</span></div>
-    <div class="nav-item" data-view="menugeneral">📅 <span>Menú Geriátrico</span></div>
+    <div class="nav-item nav-subitem" data-view="menugeneral">📅 <span>Menú</span></div>
     <div class="nav-item" data-view="recetas">📝 <span>Recetas</span></div>
     <div class="nav-item" data-view="familiares">👨‍👩‍👧 <span>Familiares</span></div>
     <div class="nav-item" data-view="historiasCli">🏥 <span>Historias clínicas</span></div>
@@ -1834,6 +1846,11 @@ function configurarSyncV2() {
         '<label>URL del Apps Script</label>' +
         '<input type="text" id="sync2-url" value="' + escapeHtml(actual) + '" placeholder="https://script.google.com/macros/s/.../exec">' +
       '</div>' +
+      '<div style="margin-bottom:12px">' +
+        '<label>🤖 Clave API Gemini <small style="font-weight:400;color:#888">(para cargar menú por foto)</small></label>' +
+        '<input type="password" id="sync2-gemini" value="' + escapeHtml(localStorage.getItem('vt_gemini_key')||'') + '" placeholder="AIza...">' +
+        '<small style="color:#6c7a8a;font-size:11px">Obtenela gratis en <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#2E75B6">aistudio.google.com</a></small>' +
+      '</div>' +
       '<div style="background:#FFF8E1;padding:10px;border-radius:6px;font-size:12px;color:#92400E;margin-bottom:12px">' +
         '⚠️ El Apps Script debe estar deployado con "Who has access: Anyone". Y la primera vez correr la función <b>inicializarHojas</b> desde el editor.' +
       '</div>' +
@@ -1854,6 +1871,9 @@ function configurarSyncV2() {
   modalBg.querySelector('#sync2-save').onclick = () => {
     setCloudUrl(document.getElementById('sync2-url').value.trim());
     setSyncAuto(document.getElementById('sync2-auto').checked);
+    const gk = document.getElementById('sync2-gemini').value.trim();
+    if (gk) localStorage.setItem('vt_gemini_key', gk);
+    else localStorage.removeItem('vt_gemini_key');
     toast('Guardado. Probá hacer Pull para verificar.');
     actualizarBadgeSync();
     modalBg.remove();
@@ -5219,9 +5239,15 @@ function viewMenuGeneral() {
     });
     weeksHtml += `
     <div style="margin-bottom:20px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
         <strong style="font-size:13px;color:#555">📅 Semana ${weekLabel}</strong>
-        <button class="btn secondary mg-semana-guardar" data-sem="${monday}" style="font-size:12px;padding:5px 10px">💾 Guardar semana</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label class="btn secondary mg-foto-btn" data-sem="${monday}" style="font-size:12px;padding:5px 10px;cursor:pointer;margin:0">
+            📷 Cargar por foto
+            <input type="file" accept="image/*" class="mg-foto-input" data-sem="${monday}" style="display:none">
+          </label>
+          <button class="btn secondary mg-semana-guardar" data-sem="${monday}" style="font-size:12px;padding:5px 10px">💾 Guardar semana</button>
+        </div>
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
@@ -5287,8 +5313,67 @@ function attachMenuGeneral() {
   // Descargar Word
   const btnW = document.getElementById('mg-word');
   if (btnW) btnW.onclick = () => exportMenuGeneralWord();
+  // Handler foto por semana
+  document.querySelectorAll('.mg-foto-input').forEach(input => {
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const monday = input.dataset.sem;
+      const lbl = input.closest('.mg-foto-btn');
+      if (lbl) { lbl.textContent = '⏳ Leyendo...'; lbl.style.pointerEvents='none'; }
+      try {
+        const data = await scanMenuFotoGemini(file, monday);
+        if (data) {
+          document.querySelectorAll(`.mg-cell[data-sem="${monday}"]`).forEach(ta => {
+            if (data[ta.dataset.key] !== undefined && data[ta.dataset.key] !== '') ta.value = data[ta.dataset.key];
+          });
+          if(typeof toast==='function') toast('✅ Menú cargado desde foto — revisá y guardá');
+        }
+      } catch(err) {
+        if(typeof toast==='function') toast('❌ ' + err.message, 'error');
+      }
+      if (lbl) {
+        lbl.innerHTML = '📷 Cargar por foto<input type="file" accept="image/*" class="mg-foto-input" data-sem="'+monday+'" style="display:none">';
+        lbl.style.pointerEvents='';
+        lbl.querySelector('.mg-foto-input').onchange = input.onchange;
+      }
+      input.value = '';
+    };
+  });
   // Auto-cargar si no hay datos
   if (url && Object.keys(menuGeneralState.mesData).length === 0) cargarMenuGeneral();
+}
+
+async function scanMenuFotoGemini(file, monday) {
+  const geminiKey = localStorage.getItem('vt_gemini_key') || '';
+  if (!geminiKey) throw new Error('Configurá la clave Gemini API en ⚙️ Configurar nube');
+  const b64 = await new Promise(res => {
+    const reader = new FileReader();
+    reader.onload = ev => res(ev.target.result.split(',')[1]);
+    reader.readAsDataURL(file);
+  });
+  const dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const claves = ['alm_sopa','alm_plato','alm_postre','cen_sopa','cen_plato','cen_postre']
+    .flatMap(p => dias.map(d => p+'_'+d)).join(', ');
+  const prompt = `Esta imagen es un menú semanal impreso de un geriátrico argentino.
+Extraé toda la información y devolvé ÚNICAMENTE un JSON con estas 42 claves exactas: ${claves}.
+Para Almuerzo: alm_sopa=Sopa, alm_plato=Plato principal, alm_postre=Postre.
+Para Cena: cen_sopa=Sopa, cen_plato=Plato principal, cen_postre=Postre.
+Si un campo no existe o no es visible, usá valor "". No uses markdown, respondé solo el JSON.`;
+  const payload = {
+    contents: [{parts: [{text: prompt}, {inline_data: {mime_type: file.type||'image/jpeg', data: b64}}]}],
+    generationConfig: {temperature: 0.1, maxOutputTokens: 2048}
+  };
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+    {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}
+  );
+  const json = await r.json();
+  if (json.error) throw new Error(json.error.message);
+  const text = ((json.candidates||[])[0]?.content?.parts?.[0]?.text||'').trim();
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Gemini no devolvió JSON válido');
+  return JSON.parse(match[0]);
 }
 
 async function cargarMenuGeneral() {
