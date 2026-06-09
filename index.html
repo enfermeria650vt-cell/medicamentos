@@ -649,6 +649,7 @@ input:focus, select:focus, textarea:focus {
 .av-med { background:#E1F5EE; color:#085041; }
 .av-own { background:#EEEDFE; color:#3C3489; }
 .av-adm { background:#FAEEDA; color:#633806; }
+.av-nut { background:#FDE8F5; color:#7B1060; }
 .lug-name { font-size:10px; font-weight:500; color:#2B3A4A; text-align:center; line-height:1.25; }
 .login-pin-card { background:white; border-radius:14px; padding:20px; width:100%; display:flex; flex-direction:column; align-items:center; gap:14px; }
 .login-sel-name { font-size:13px; color:#667; margin:0; }
@@ -684,6 +685,8 @@ input:focus, select:focus, textarea:focus {
       <div class="login-user-grid g3" id="lg-own"></div>
       <div class="login-role-lbl">Administración</div>
       <div class="login-user-grid g3" id="lg-adm"></div>
+      <div class="login-role-lbl">Nutricionista</div>
+      <div class="login-user-grid g3" id="lg-nut"></div>
     </div>
     <div class="login-pin-card">
       <p class="login-sel-name">PIN para <b id="pin-sel-name">—</b></p>
@@ -727,6 +730,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-section">Indicaciones</div>
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-item" data-view="insumos">🧴 <span>Insumos</span></div>
+    <div class="nav-item" data-view="nutricion">🥗 <span>Nutrición</span></div>
     <div class="nav-item" data-view="recetas">📝 <span>Recetas</span></div>
     <div class="nav-item" data-view="familiares">👨‍👩‍👧 <span>Familiares</span></div>
     <div class="nav-item" data-view="historiasCli">🏥 <span>Historias clínicas</span></div>
@@ -773,6 +777,7 @@ const VT_USERS = [
   { nombre:'Martín Bellagamba',  iniciales:'MB', rol:'Dueño',     av:'av-own' },
   { nombre:'Cecilia Abeleira',   iniciales:'CA', rol:'Dueño',     av:'av-own' },
   { nombre:'Maximiliano Martin', iniciales:'MM', rol:'Admin',     av:'av-adm' },
+  { nombre:'Paula Ovejero',     iniciales:'PO', rol:'Nutricionista', av:'av-nut' },
 ];
 
 // PINs por defecto por usuario (SHA-256)
@@ -788,6 +793,7 @@ const DEFAULT_PINS = {
   'Martín Bellagamba':  'fb7bab9edf08f024aabf3501518399e82ab590666207a8b0ab7963b181ecf4b8',
   'Cecilia Abeleira':   '8c93cd35d2c753657eb0a18984001dba9f3c0409dcac98a381290d9e1ed151f4',
   'Maximiliano Martin': 'c7ad43af1258979d8cdd04bf6aa900a38d05295517e17d6b2f71709a5dce2a8a',
+  'Paula Ovejero':     '1b75973dd6d418c60a2e7f5c0317709f55bcdb41cc84535cc142ca5b91193bee',
 };
 const VT_PINS_KEY = 'vt_pins_v1';
 
@@ -812,7 +818,7 @@ let pinCurrent = '';
 let pinSelectedUser = null;
 
 function renderLoginUsers() {
-  const groups = { 'Enfermero':'lg-enf', 'Médico':'lg-med', 'Dueño':'lg-own', 'Admin':'lg-adm' };
+  const groups = { 'Enfermero':'lg-enf', 'Médico':'lg-med', 'Dueño':'lg-own', 'Admin':'lg-adm', 'Nutricionista':'lg-nut' };
   Object.keys(groups).forEach(rol => {
     const el = document.getElementById(groups[rol]);
     if (!el) return;
@@ -910,6 +916,11 @@ function aplicarPermisos(rol) {
   }
   if (rol === 'Enfermero') {
     ['btn-nuevo-residente','btn-reset','btn-export','btn-config-sync-v2','btn-sync'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display='none';
+    });
+  }
+  if (rol === 'Nutricionista') {
+    ['btn-nuevo-residente','btn-reset','btn-export','btn-sync-cloud','btn-config-sync-v2','btn-sync'].forEach(id => {
       const el = document.getElementById(id); if (el) el.style.display='none';
     });
   }
@@ -1953,6 +1964,7 @@ function render() {
   }
   else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
   else if (state.view === 'insumos') { main.innerHTML = viewInsumos(); attachInsumos(); return; }
+  else if (state.view === 'nutricion') { main.innerHTML = viewNutricion(); attachNutricion(); return; }
   else if (state.view === 'recetas') { main.innerHTML = viewRecetas(); attachRecetas(); return; }
   else if (state.view === 'familiares') { main.innerHTML = viewFamiliares(); attachFamiliares(); return; }
   else if (state.view === 'historiasCli') { main.innerHTML = viewHistoriasCli(); attachHistoriasCli(); return; }
@@ -4779,6 +4791,368 @@ window.addEventListener('focus', () => {
   if (syncHabilitado() && syncAutoActivado()) cloudPull(true);
 });
 
+
+// =====================================================
+// NUTRICIÓN
+// =====================================================
+
+let nutricionState = { residente: null, tab: 'dieta', mes: '', dieta: null, pesos: null, registros: {}, notas: null };
+
+function viewNutricion() {
+  const ahora = new Date();
+  const mesActual = ahora.getFullYear() + String(ahora.getMonth()+1).padStart(2,'0');
+  const residentes = (state.residentes || []).map(r => r.nombre);
+  const sel = nutricionState.residente || residentes[0] || '';
+  if (!nutricionState.residente && residentes[0]) nutricionState.residente = residentes[0];
+  const tab = nutricionState.tab || 'dieta';
+  const mes = nutricionState.mes || mesActual;
+
+  const listaHtml = residentes.map(n => {
+    const active = n === sel ? ' active' : '';
+    return `<div class="nut-item${active}" onclick="nutricionSelRes('${jsAttr(n)}')" data-nut-res="${escapeHtml(n)}">${n === sel ? '🥗' : '👤'} ${escapeHtml(n)}</div>`;
+  }).join('');
+
+  const tabs = ['dieta','peso','registros','notas'];
+  const tabLabels = { dieta:'🥙 Dieta', peso:'⚖️ Peso/Talla', registros:'📋 Registros', notas:'📝 Notas' };
+  const tabsHtml = tabs.map(t => `<div class="cs-subtab ${t===tab?'active':''}" onclick="nutricionTab('${t}')">${tabLabels[t]}</div>`).join('');
+
+  let content = '<div style="padding:20px;color:#888;text-align:center">⏳ Cargando...</div>';
+
+  if (tab === 'dieta' && nutricionState.dieta !== null) {
+    const d = nutricionState.dieta || {};
+    const tipos = ['Normal','Blanda','Líquida','Hipocalórica','Hiposódica','Diabética','Sin lactosa','Sin gluten','Mixta'];
+    const tiposOpts = tipos.map(t => `<option value="${t}"${d.tipo===t?' selected':''}>${t}</option>`).join('');
+    content = `
+      <div class="hc-form" style="max-width:600px">
+        <label>🍽️ Tipo de dieta</label>
+        <select id="nut-tipo" style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit">
+          <option value="">— Sin especificar —</option>
+          ${tiposOpts}
+        </select>
+        <label>⚠️ Restricciones / Alergias alimentarias</label>
+        <textarea id="nut-restricciones" rows="3" placeholder="Ej: Sin gluten, sin lactosa, alergia a mariscos...">${escapeHtml(d.restricciones||'')}</textarea>
+        <label>📋 Observaciones generales</label>
+        <textarea id="nut-obs" rows="3" placeholder="Consistencia, temperatura, suplementos habituales...">${escapeHtml(d.obs||'')}</textarea>
+        <label>🩺 Indicaciones de la nutricionista</label>
+        <textarea id="nut-indicaciones" rows="4" placeholder="Plan nutricional, objetivos, indicaciones especiales...">${escapeHtml(d.indicaciones||'')}</textarea>
+        <div style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <button class="btn primary" id="nut-guardar-dieta">💾 Guardar plan de dieta</button>
+          ${d.updated ? `<span style="font-size:12px;color:#888">Guardado: ${escapeHtml(d.updated)}${d.updatedBy ? ' · '+escapeHtml(d.updatedBy) : ''}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  if (tab === 'peso' && nutricionState.pesos !== null) {
+    const pesos = nutricionState.pesos || [];
+    const rowsHtml = pesos.length === 0
+      ? `<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">Sin mediciones registradas</td></tr>`
+      : pesos.map(p => {
+          const imc = p.imc;
+          const imcColor = !imc ? '' : imc < 18.5 ? '#e67e22' : imc < 25 ? '#27ae60' : imc < 30 ? '#e67e22' : '#e74c3c';
+          return `<tr>
+            <td style="padding:7px 8px">${escapeHtml(p.fecha||'')}</td>
+            <td style="padding:7px 8px;color:#888">${escapeHtml(String(p.semana||''))}</td>
+            <td style="padding:7px 8px;text-align:right"><strong>${p.peso ? p.peso+' kg' : '—'}</strong></td>
+            <td style="padding:7px 8px;text-align:right">${p.talla ? p.talla+' cm' : '—'}</td>
+            <td style="padding:7px 8px;text-align:right">${p.imc ? `<strong style="color:${imcColor}">${p.imc}</strong>` : '—'}</td>
+          </tr>`;
+        }).join('');
+    content = `
+      <div style="margin-bottom:16px;background:#F8F9FA;border-radius:8px;padding:14px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:10px">➕ Agregar medición</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+          <div><label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px">Fecha</label>
+            <input type="date" id="nut-peso-fecha" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px"></div>
+          <div><label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px">Peso (kg)</label>
+            <input type="number" id="nut-peso-kg" step="0.1" min="0" placeholder="Ej: 58.5" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px"></div>
+          <div><label style="font-size:11px;font-weight:600;color:#555;display:block;margin-bottom:3px">Talla (cm)</label>
+            <input type="number" id="nut-talla-cm" step="0.5" min="0" placeholder="Ej: 162" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px"></div>
+          <button class="btn primary" id="nut-agregar-peso" style="white-space:nowrap;height:34px">➕ Agregar</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#888;margin-bottom:6px">IMC: <span style="color:#27ae60">18.5–24.9 normal</span> · <span style="color:#e67e22">&lt;18.5 bajo peso / 25–29.9 sobrepeso</span> · <span style="color:#e74c3c">≥30 obesidad</span></div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#F0F3F7">
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd">Fecha</th>
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;color:#888">Semana</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd">Peso</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd">Talla</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd">IMC</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+  }
+
+  if (tab === 'registros') {
+    const mesOpts = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1);
+      const val = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0');
+      const lbl = d.toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+      mesOpts.push(`<option value="${val}"${val===mes?' selected':''}>${lbl.charAt(0).toUpperCase()+lbl.slice(1)}</option>`);
+    }
+    const anio = parseInt(mes.substring(0,4));
+    const mesN = parseInt(mes.substring(4,6));
+    const diasEnMes = new Date(anio, mesN, 0).getDate();
+    const diasSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const comidaOpts = `<option value="">—</option><option value="3">✅ Bien</option><option value="2">🟡 Mitad</option><option value="1">🔴 Poco</option><option value="0">❌ No comió</option>`;
+    const comidaSel = (campo, d) => {
+      const v = String((nutricionState.registros[d]||{})[campo] !== undefined ? (nutricionState.registros[d]||{})[campo] : '');
+      return `<select class="nut-reg-sel" data-dia="${d}" data-campo="${campo}" style="font-size:11px;padding:3px 2px;border:1px solid #ddd;border-radius:4px;width:100%">${comidaOpts.replace(`value="${v}"`,`value="${v}" selected`)}</select>`;
+    };
+    let filas = '';
+    for (let d = 1; d <= diasEnMes; d++) {
+      const fecha = new Date(anio, mesN-1, d);
+      const dow = diasSemana[fecha.getDay()];
+      const esFind = fecha.getDay() === 0 || fecha.getDay() === 6;
+      const reg = nutricionState.registros[d] || {};
+      filas += `<tr class="${esFind?'ins-finde':''}">
+        <td style="padding:5px 6px;white-space:nowrap;font-size:12px"><span style="color:#888;font-size:10px">${dow}</span> <b>${d}</b></td>
+        <td style="padding:3px">${comidaSel('des', d)}</td>
+        <td style="padding:3px">${comidaSel('alm', d)}</td>
+        <td style="padding:3px">${comidaSel('mer', d)}</td>
+        <td style="padding:3px">${comidaSel('cen', d)}</td>
+        <td style="padding:3px"><input type="text" class="nut-reg-sup" data-dia="${d}" value="${escapeHtml(reg.sup||'')}" placeholder="—" style="font-size:11px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;width:100%"></td>
+        <td style="padding:3px"><input type="text" class="nut-reg-obs" data-dia="${d}" value="${escapeHtml(reg.obs||'')}" placeholder="Obs" style="font-size:11px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;width:100%"></td>
+        <td style="padding:3px"><button class="ins-btn-guardar btn-sm nut-reg-guardar" data-dia="${d}" title="Guardar">💾</button></td>
+      </tr>`;
+    }
+    content = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <label style="font-weight:600;font-size:13px">Mes:</label>
+        <select id="nut-reg-mes" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px">${mesOpts.join('')}</select>
+        <button class="btn secondary" id="nut-reg-cargar">🔄 Cargar</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#F0F3F7">
+            <th style="padding:7px 6px;text-align:left;border-bottom:2px solid #ddd;white-space:nowrap">Día</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">☕<br>Desayuno</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">🍽️<br>Almuerzo</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">🫖<br>Merienda</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">🌙<br>Cena</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">💊 Suplemento</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">Obs.</th>
+            <th style="padding:7px 4px;border-bottom:2px solid #ddd"></th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+  }
+
+  if (tab === 'notas' && nutricionState.notas !== null) {
+    const notas = nutricionState.notas || [];
+    const notasHtml = notas.length === 0
+      ? `<div style="color:#888;padding:20px;text-align:center">Sin notas registradas</div>`
+      : notas.map(n => `
+          <div style="border-left:3px solid #7B1060;padding:10px 14px;margin-bottom:8px;background:#FDE8F5;border-radius:4px">
+            <div style="font-size:11px;color:#888;margin-bottom:4px">${escapeHtml(n.fecha||'')}${n.usuario?' · '+escapeHtml(n.usuario):''}</div>
+            <div style="font-size:13px;white-space:pre-wrap">${escapeHtml(n.texto||'')}</div>
+          </div>`).join('');
+    content = `
+      <div style="margin-bottom:16px;background:#F8F9FA;border-radius:8px;padding:14px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">➕ Nueva nota</div>
+        <textarea id="nut-nota-txt" rows="4" style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical" placeholder="Escribí una nota de seguimiento nutricional..."></textarea>
+        <button class="btn primary" id="nut-agregar-nota" style="margin-top:8px">💾 Guardar nota</button>
+      </div>
+      <div>${notasHtml}</div>`;
+  }
+
+  return `
+    <style>
+      .nut-layout { display:flex; height:100%; gap:0; }
+      .nut-left { width:210px; min-width:170px; border-right:1px solid #ddd; overflow-y:auto; background:#f7f9fc; flex-shrink:0; }
+      .nut-right { flex:1; overflow-y:auto; padding:16px 20px; }
+      .nut-item { padding:10px 14px; cursor:pointer; font-size:13px; border-bottom:1px solid #eee; transition:background .15s; }
+      .nut-item:hover { background:#e9ecef; }
+      .nut-item.active { background:#7B1060; color:white; font-weight:bold; }
+      @media(max-width:700px) { .nut-layout { flex-direction:column; } .nut-left { width:100%;height:auto;border-right:none;border-bottom:1px solid #ddd; } }
+    </style>
+    <div class="nut-layout">
+      <div class="nut-left">
+        <div style="padding:8px 12px;font-size:10px;font-weight:700;color:#7B1060;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #ddd">Residentes</div>
+        ${listaHtml}
+      </div>
+      <div class="nut-right">
+        ${sel ? `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+            <h2 style="margin:0;color:#7B1060;font-size:17px">🥗 ${escapeHtml(sel)}</h2>
+          </div>
+          <div class="cs-subtabs" style="margin-bottom:14px">${tabsHtml}</div>
+          ${content}
+        ` : '<div style="color:#888;padding:40px;text-align:center">Seleccioná un residente</div>'}
+      </div>
+    </div>`;
+}
+
+function attachNutricion() {
+  const url = getIndicUrl();
+  const sel = nutricionState.residente || (state.residentes[0]||{}).nombre || '';
+  const tab = nutricionState.tab || 'dieta';
+
+  // Auto-cargar datos del tab actual
+  if (sel && url) nutricionCargarTab(sel, tab);
+
+  // Dieta
+  const btnGuardarDieta = document.getElementById('nut-guardar-dieta');
+  if (btnGuardarDieta) btnGuardarDieta.onclick = async () => {
+    if (!sel || !url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+    const tipo = document.getElementById('nut-tipo')?.value||'';
+    const restricciones = document.getElementById('nut-restricciones')?.value||'';
+    const obs = document.getElementById('nut-obs')?.value||'';
+    const indicaciones = document.getElementById('nut-indicaciones')?.value||'';
+    const usuario = getCurrentUser()||'';
+    btnGuardarDieta.textContent = '⏳ Guardando...'; btnGuardarDieta.disabled = true;
+    try {
+      const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionDieta',residente:sel,tipo,restricciones,obs,indicaciones,usuario})}`);
+      const j = await r.json();
+      if (j.ok) {
+        nutricionState.dieta = {tipo,restricciones,obs,indicaciones,updated:new Date().toLocaleDateString('es-AR'),updatedBy:usuario};
+        if(typeof toast==='function') toast('✅ Dieta guardada');
+        if(typeof logCambio==='function') logCambio('nutricion', `Dieta actualizada: ${sel}`);
+      } else if(typeof toast==='function') toast('❌ Error al guardar');
+    } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
+    btnGuardarDieta.textContent = '💾 Guardar plan de dieta'; btnGuardarDieta.disabled = false;
+  };
+
+  // Peso — agregar
+  const btnPeso = document.getElementById('nut-agregar-peso');
+  if (btnPeso) btnPeso.onclick = async () => {
+    if (!sel || !url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+    const fecha = document.getElementById('nut-peso-fecha')?.value||'';
+    const peso = parseFloat(document.getElementById('nut-peso-kg')?.value)||0;
+    const talla = parseFloat(document.getElementById('nut-talla-cm')?.value)||0;
+    if (!fecha || !peso) { if(typeof toast==='function') toast('Completá fecha y peso'); return; }
+    const imc = talla > 0 ? Math.round(peso/((talla/100)**2)*10)/10 : 0;
+    const semana = nutricionGetSemanaISO(new Date(fecha+'T00:00:00'));
+    const usuario = getCurrentUser()||'';
+    btnPeso.textContent = '⏳'; btnPeso.disabled = true;
+    try {
+      const r = await fetch(`${url}?${new URLSearchParams({action:'addNutricionPeso',residente:sel,fecha,semana,peso,talla,imc,usuario})}`);
+      const j = await r.json();
+      if (j.ok) {
+        nutricionState.pesos = null;
+        if(typeof toast==='function') toast('✅ Medición guardada');
+        document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); return;
+      } else if(typeof toast==='function') toast('❌ Error al guardar');
+    } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
+    btnPeso.textContent = '➕ Agregar'; btnPeso.disabled = false;
+  };
+
+  // Registros — cargar mes
+  const btnRegCargar = document.getElementById('nut-reg-cargar');
+  if (btnRegCargar) btnRegCargar.onclick = () => {
+    const selMes = document.getElementById('nut-reg-mes');
+    if (selMes) nutricionState.mes = selMes.value;
+    nutricionState.registros = {};
+    nutricionCargarRegistros(sel);
+  };
+
+  // Registros — guardar fila
+  document.querySelectorAll('.nut-reg-guardar').forEach(btn => {
+    btn.onclick = async () => {
+      if (!sel || !url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+      const dia = btn.dataset.dia;
+      const mes = nutricionState.mes || (new Date().getFullYear()+String(new Date().getMonth()+1).padStart(2,'0'));
+      const g = (cls, d) => document.querySelector(`.${cls}[data-dia="${d}"]`)?.value||'';
+      const gs = (campo, d) => document.querySelector(`.nut-reg-sel[data-dia="${d}"][data-campo="${campo}"]`)?.value||'';
+      const des=gs('des',dia), alm=gs('alm',dia), mer=gs('mer',dia), cen=gs('cen',dia);
+      const sup=g('nut-reg-sup',dia), obs=g('nut-reg-obs',dia);
+      const usuario=getCurrentUser()||'';
+      btn.textContent='⏳';
+      try {
+        const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionRegistro',residente:sel,mes,dia,des,alm,mer,cen,sup,obs,usuario})}`);
+        const j = await r.json();
+        if (j.ok) {
+          nutricionState.registros[dia]={des,alm,mer,cen,sup,obs};
+          btn.textContent='✅'; setTimeout(()=>btn.textContent='💾',1500);
+        } else { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); if(typeof toast==='function') toast('❌ Error'); }
+      } catch(e) { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); }
+    };
+  });
+
+  // Notas — agregar
+  const btnNota = document.getElementById('nut-agregar-nota');
+  if (btnNota) btnNota.onclick = async () => {
+    if (!sel || !url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+    const txt = document.getElementById('nut-nota-txt')?.value?.trim()||'';
+    if (!txt) { if(typeof toast==='function') toast('Escribí algo antes de guardar'); return; }
+    const usuario=getCurrentUser()||'';
+    const fecha=new Date().toLocaleDateString('es-AR');
+    btnNota.textContent='⏳'; btnNota.disabled=true;
+    try {
+      const r = await fetch(`${url}?${new URLSearchParams({action:'addNutricionNota',residente:sel,texto:txt,usuario,fecha})}`);
+      const j = await r.json();
+      if (j.ok) {
+        if(!nutricionState.notas) nutricionState.notas=[];
+        nutricionState.notas.unshift({texto:txt,fecha,usuario});
+        if(typeof toast==='function') toast('✅ Nota guardada');
+        document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); return;
+      } else if(typeof toast==='function') toast('❌ Error al guardar');
+    } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
+    btnNota.textContent='💾 Guardar nota'; btnNota.disabled=false;
+  };
+}
+
+function nutricionSelRes(nombre) {
+  nutricionState.residente = nombre;
+  nutricionState.dieta = null;
+  nutricionState.pesos = null;
+  nutricionState.registros = {};
+  nutricionState.notas = null;
+  document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+}
+
+function nutricionTab(tab) {
+  nutricionState.tab = tab;
+  document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+}
+
+function nutricionGetSemanaISO(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return `${d.getUTCFullYear()}-S${String(Math.ceil((((d - yearStart) / 86400000) + 1) / 7)).padStart(2,'0')}`;
+}
+
+async function nutricionCargarTab(residente, tab) {
+  const url = getIndicUrl();
+  if (!url || !residente) return;
+  try {
+    if (tab === 'dieta' && nutricionState.dieta === null) {
+      const r = await fetch(`${url}?action=getNutricionDieta&residente=${encodeURIComponent(residente)}`);
+      const j = await r.json();
+      nutricionState.dieta = (j.ok && j.data) ? j.data : {};
+      document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+    } else if (tab === 'peso' && nutricionState.pesos === null) {
+      const r = await fetch(`${url}?action=getNutricionPesos&residente=${encodeURIComponent(residente)}`);
+      const j = await r.json();
+      nutricionState.pesos = (j.ok && Array.isArray(j.data)) ? j.data.slice().reverse() : [];
+      document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+    } else if (tab === 'registros' && Object.keys(nutricionState.registros).length === 0) {
+      await nutricionCargarRegistros(residente);
+    } else if (tab === 'notas' && nutricionState.notas === null) {
+      const r = await fetch(`${url}?action=getNutricionNotas&residente=${encodeURIComponent(residente)}`);
+      const j = await r.json();
+      nutricionState.notas = (j.ok && Array.isArray(j.data)) ? j.data : [];
+      document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+    }
+  } catch(e) { console.error('nutricionCargarTab', e); }
+}
+
+async function nutricionCargarRegistros(residente) {
+  const url = getIndicUrl();
+  if (!url || !residente) return;
+  const mes = nutricionState.mes || (new Date().getFullYear()+String(new Date().getMonth()+1).padStart(2,'0'));
+  try {
+    const r = await fetch(`${url}?action=getNutricionRegistros&residente=${encodeURIComponent(residente)}&mes=${mes}`);
+    const j = await r.json();
+    nutricionState.registros = {};
+    if (j.ok && Array.isArray(j.data)) j.data.forEach(row => { nutricionState.registros[row.dia]={des:row.des,alm:row.alm,mer:row.mer,cen:row.cen,sup:row.sup||'',obs:row.obs||''}; });
+    document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+  } catch(e) { console.error('nutricionCargarRegistros', e); }
+}
 
 // =====================================================
 // FAMILIARES — SECCIÓN IGUAL A RECETAS
