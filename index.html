@@ -775,8 +775,9 @@ const VT_USERS = [
   { nombre:'Mariela Serapio',    iniciales:'MS', rol:'Enfermero', av:'av-enf' },
   { nombre:'Agustina Tuma',      iniciales:'AT', rol:'Médico',    av:'av-med' },
   { nombre:'Martín Bellagamba',  iniciales:'MB', rol:'Dueño',     av:'av-own' },
-  { nombre:'Cecilia Abeleira',   iniciales:'CA', rol:'Dueño',     av:'av-own' },
-  { nombre:'Maximiliano Martin', iniciales:'MM', rol:'Admin',     av:'av-adm' },
+  { nombre:'Cecilia Abeleira',   iniciales:'CA', rol:'Dueño',        av:'av-own' },
+  { nombre:'Cecilia Abeleira',   iniciales:'CA', rol:'Nutricionista', av:'av-nut' },
+  { nombre:'Maximiliano Martin', iniciales:'MM', rol:'Admin',         av:'av-adm' },
   { nombre:'Paula Ovejero',     iniciales:'PO', rol:'Nutricionista', av:'av-nut' },
 ];
 
@@ -824,7 +825,7 @@ function renderLoginUsers() {
     if (!el) return;
     el.innerHTML = VT_USERS.filter(u => u.rol === rol).map(u => {
       const p = u.nombre.split(' ');
-      return `<button class="lug-btn" data-nombre="${u.nombre}" onclick="pinSelectUser(this)">
+      return `<button class="lug-btn" data-nombre="${u.nombre}" data-rol="${u.rol}" onclick="pinSelectUser(this)">
         <div class="lug-avatar ${u.av}">${u.iniciales}</div>
         <div class="lug-name">${p[0]}<br>${p.slice(1).join(' ')}</div>
       </button>`;
@@ -833,7 +834,11 @@ function renderLoginUsers() {
 }
 
 function pinSelectUser(btn) {
-  pinSelectedUser = VT_USERS.find(u => u.nombre === btn.dataset.nombre);
+  const bNombre = btn.dataset.nombre, bRol = btn.dataset.rol;
+  pinSelectedUser = bRol
+    ? VT_USERS.find(u => u.nombre === bNombre && u.rol === bRol)
+    : VT_USERS.find(u => u.nombre === bNombre);
+  if (!pinSelectedUser) pinSelectedUser = VT_USERS.find(u => u.nombre === bNombre);
   pinCurrent = '';
   updatePinDots();
   document.querySelectorAll('.lug-btn').forEach(b => b.classList.remove('sel'));
