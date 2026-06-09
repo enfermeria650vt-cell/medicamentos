@@ -4796,7 +4796,7 @@ window.addEventListener('focus', () => {
 // NUTRICIÓN
 // =====================================================
 
-let nutricionState = { residente: null, tab: 'dieta', mes: '', dieta: null, pesos: null, registros: {}, notas: null };
+let nutricionState = { residente: null, tab: 'dieta', mes: '', dieta: null, pesos: null, registros: {}, notas: null, menuSemana: '', menuData: null };
 
 function viewNutricion() {
   const ahora = new Date();
@@ -4812,8 +4812,8 @@ function viewNutricion() {
     return `<div class="nut-item${active}" onclick="nutricionSelRes('${jsAttr(n)}')" data-nut-res="${escapeHtml(n)}">${n === sel ? '🥗' : '👤'} ${escapeHtml(n)}</div>`;
   }).join('');
 
-  const tabs = ['dieta','peso','registros','notas'];
-  const tabLabels = { dieta:'🥙 Dieta', peso:'⚖️ Peso/Talla', registros:'📋 Registros', notas:'📝 Notas' };
+  const tabs = ['dieta','peso','registros','notas','menu'];
+  const tabLabels = { dieta:'🥙 Dieta', peso:'⚖️ Peso/Talla', registros:'📋 Registros', notas:'📝 Notas', menu:'📅 Menú' };
   const tabsHtml = tabs.map(t => `<div class="cs-subtab ${t===tab?'active':''}" onclick="nutricionTab('${t}')">${tabLabels[t]}</div>`).join('');
 
   let content = '<div style="padding:20px;color:#888;text-align:center">⏳ Cargando...</div>';
@@ -4835,6 +4835,10 @@ function viewNutricion() {
         <textarea id="nut-obs" rows="3" placeholder="Consistencia, temperatura, suplementos habituales...">${escapeHtml(d.obs||'')}</textarea>
         <label>🩺 Indicaciones de la nutricionista</label>
         <textarea id="nut-indicaciones" rows="4" placeholder="Plan nutricional, objetivos, indicaciones especiales...">${escapeHtml(d.indicaciones||'')}</textarea>
+        <label>📅 Menú Semanal</label>
+        <textarea id="nut-menu-semanal" rows="4" placeholder="Ej: Lunes — Pollo al horno con puré&#10;Martes — Sopa de verduras...">${escapeHtml(d.menuSemanal||'')}</textarea>
+        <label>📆 Menú Mensual</label>
+        <textarea id="nut-menu-mensual" rows="5" placeholder="Plan de alimentación para el mes...">${escapeHtml(d.menuMensual||'')}</textarea>
         <div style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <button class="btn primary" id="nut-guardar-dieta">💾 Guardar plan de dieta</button>
           ${d.updated ? `<span style="font-size:12px;color:#888">Guardado: ${escapeHtml(d.updated)}${d.updatedBy ? ' · '+escapeHtml(d.updatedBy) : ''}</span>` : ''}
@@ -4895,25 +4899,18 @@ function viewNutricion() {
     const mesN = parseInt(mes.substring(4,6));
     const diasEnMes = new Date(anio, mesN, 0).getDate();
     const diasSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-    const comidaOpts = `<option value="">—</option><option value="3">✅ Bien</option><option value="2">🟡 Mitad</option><option value="1">🔴 Poco</option><option value="0">❌ No comió</option>`;
-    const comidaSel = (campo, d) => {
-      const v = String((nutricionState.registros[d]||{})[campo] !== undefined ? (nutricionState.registros[d]||{})[campo] : '');
-      return `<select class="nut-reg-sel" data-dia="${d}" data-campo="${campo}" style="font-size:11px;padding:3px 2px;border:1px solid #ddd;border-radius:4px;width:100%">${comidaOpts.replace(`value="${v}"`,`value="${v}" selected`)}</select>`;
-    };
+    const supOpts = `<option value="">—</option><option value="Spesan">Spesan</option><option value="Fortiship">Fortiship</option><option value="Leche">Leche</option><option value="Otro">Otro</option>`;
     let filas = '';
     for (let d = 1; d <= diasEnMes; d++) {
       const fecha = new Date(anio, mesN-1, d);
       const dow = diasSemana[fecha.getDay()];
       const esFind = fecha.getDay() === 0 || fecha.getDay() === 6;
       const reg = nutricionState.registros[d] || {};
+      const supSelected = supOpts.replace(`value="${reg.sup||''}"`, `value="${reg.sup||''}" selected`);
       filas += `<tr class="${esFind?'ins-finde':''}">
-        <td style="padding:5px 6px;white-space:nowrap;font-size:12px"><span style="color:#888;font-size:10px">${dow}</span> <b>${d}</b></td>
-        <td style="padding:3px">${comidaSel('des', d)}</td>
-        <td style="padding:3px">${comidaSel('alm', d)}</td>
-        <td style="padding:3px">${comidaSel('mer', d)}</td>
-        <td style="padding:3px">${comidaSel('cen', d)}</td>
-        <td style="padding:3px"><input type="text" class="nut-reg-sup" data-dia="${d}" value="${escapeHtml(reg.sup||'')}" placeholder="—" style="font-size:11px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;width:100%"></td>
-        <td style="padding:3px"><input type="text" class="nut-reg-obs" data-dia="${d}" value="${escapeHtml(reg.obs||'')}" placeholder="Obs" style="font-size:11px;padding:3px 4px;border:1px solid #ddd;border-radius:4px;width:100%"></td>
+        <td style="padding:5px 8px;white-space:nowrap;font-size:12px"><span style="color:#888;font-size:10px">${dow}</span> <b>${d}</b></td>
+        <td style="padding:3px"><select class="nut-reg-sup-sel" data-dia="${d}" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;width:100%">${supSelected}</select></td>
+        <td style="padding:3px"><input type="text" class="nut-reg-obs" data-dia="${d}" value="${escapeHtml(reg.obs||'')}" placeholder="Obs" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;width:100%"></td>
         <td style="padding:3px"><button class="ins-btn-guardar btn-sm nut-reg-guardar" data-dia="${d}" title="Guardar">💾</button></td>
       </tr>`;
     }
@@ -4926,16 +4923,70 @@ function viewNutricion() {
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead><tr style="background:#F0F3F7">
-            <th style="padding:7px 6px;text-align:left;border-bottom:2px solid #ddd;white-space:nowrap">Día</th>
-            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">☕<br>Desayuno</th>
-            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">🍽️<br>Almuerzo</th>
-            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">🫖<br>Merienda</th>
-            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">🌙<br>Cena</th>
-            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">💊 Suplemento</th>
-            <th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center">Obs.</th>
+            <th style="padding:7px 8px;text-align:left;border-bottom:2px solid #ddd;white-space:nowrap">Día</th>
+            <th style="padding:7px 8px;border-bottom:2px solid #ddd;text-align:center">💊 Suplemento</th>
+            <th style="padding:7px 8px;border-bottom:2px solid #ddd;text-align:center">Observaciones</th>
             <th style="padding:7px 4px;border-bottom:2px solid #ddd"></th>
           </tr></thead>
           <tbody>${filas}</tbody>
+        </table>
+      </div>`;
+  }
+
+  if (tab === 'menu') {
+    // Calcular lunes de la semana actual o seleccionada
+    const getLunes = (ref) => {
+      const d = ref ? new Date(ref+'T00:00:00') : new Date();
+      const day = d.getDay() || 7;
+      d.setDate(d.getDate() - day + 1);
+      return d;
+    };
+    const semRef = nutricionState.menuSemana || '';
+    const lunes = getLunes(semRef);
+    const semKey = lunes.toISOString().slice(0,10);
+    if (!nutricionState.menuSemana) nutricionState.menuSemana = semKey;
+    const dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+    const diasFull = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    const fechasDia = diasFull.map((_, i) => {
+      const fd = new Date(lunes); fd.setDate(fd.getDate()+i);
+      return fd.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+    });
+    const secciones = [
+      { key:'alm', label:'ALMUERZO', color:'#E8F4FD', hColor:'#2E75B6' },
+      { key:'cen', label:'CENA',     color:'#F0EAF8', hColor:'#7B1060' }
+    ];
+    const filas = ['sopa','plato','postre'];
+    const filaLabels = { sopa:'Sopa', plato:'Plato principal', postre:'Postre' };
+    const md = nutricionState.menuData || {};
+    let tbodyHtml = '';
+    secciones.forEach(sec => {
+      tbodyHtml += `<tr><td colspan="8" style="background:${sec.hColor};color:#fff;font-weight:700;font-size:12px;padding:5px 10px;text-align:center;letter-spacing:.05em">${sec.label}</td></tr>`;
+      filas.forEach(fila => {
+        const cellKey = (d) => `${sec.key}_${fila}_${d}`;
+        let celdas = dias.map((d,i) => {
+          const val = (md[cellKey(d)]||'');
+          return `<td style="padding:3px;vertical-align:top"><textarea class="nut-menu-cell" data-key="${cellKey(d)}" rows="3" style="width:100%;font-size:11px;padding:4px 5px;border:1px solid #ddd;border-radius:4px;resize:vertical;font-family:inherit;box-sizing:border-box">${escapeHtml(val)}</textarea></td>`;
+        }).join('');
+        tbodyHtml += `<tr><td style="padding:5px 8px;font-size:12px;font-weight:600;white-space:nowrap;background:${sec.color};min-width:80px">${filaLabels[fila]}</td>${celdas}</tr>`;
+      });
+    });
+    const prevLun = new Date(lunes); prevLun.setDate(prevLun.getDate()-7);
+    const nextLun = new Date(lunes); nextLun.setDate(nextLun.getDate()+7);
+    const semLabel = `Semana del ${lunes.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})} al ${new Date(lunes.getTime()+6*86400000).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
+    content = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn secondary" id="nut-menu-prev" data-sem="${prevLun.toISOString().slice(0,10)}">◀ Semana anterior</button>
+        <strong style="font-size:13px">${semLabel}</strong>
+        <button class="btn secondary" id="nut-menu-next" data-sem="${nextLun.toISOString().slice(0,10)}">Semana siguiente ▶</button>
+        <button class="btn primary" id="nut-menu-guardar" style="margin-left:auto">💾 Guardar menú</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+          <thead><tr style="background:#F0F3F7">
+            <th style="padding:7px 8px;text-align:left;border-bottom:2px solid #ddd;width:85px">Comida</th>
+            ${diasFull.map((d,i)=>`<th style="padding:7px 4px;border-bottom:2px solid #ddd;text-align:center;font-size:11px">${d}<br><span style="font-weight:400;color:#888">${fechasDia[i]}</span></th>`).join('')}
+          </tr></thead>
+          <tbody>${tbodyHtml}</tbody>
         </table>
       </div>`;
   }
@@ -5001,13 +5052,15 @@ function attachNutricion() {
     const restricciones = document.getElementById('nut-restricciones')?.value||'';
     const obs = document.getElementById('nut-obs')?.value||'';
     const indicaciones = document.getElementById('nut-indicaciones')?.value||'';
+    const menuSemanal = document.getElementById('nut-menu-semanal')?.value||'';
+    const menuMensual = document.getElementById('nut-menu-mensual')?.value||'';
     const usuario = getCurrentUser()||'';
     btnGuardarDieta.textContent = '⏳ Guardando...'; btnGuardarDieta.disabled = true;
     try {
-      const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionDieta',residente:sel,tipo,restricciones,obs,indicaciones,usuario})}`);
+      const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionDieta',residente:sel,tipo,restricciones,obs,indicaciones,menuSemanal,menuMensual,usuario})}`);
       const j = await r.json();
       if (j.ok) {
-        nutricionState.dieta = {tipo,restricciones,obs,indicaciones,updated:new Date().toLocaleDateString('es-AR'),updatedBy:usuario};
+        nutricionState.dieta = {tipo,restricciones,obs,indicaciones,menuSemanal,menuMensual,updated:new Date().toLocaleDateString('es-AR'),updatedBy:usuario};
         if(typeof toast==='function') toast('✅ Dieta guardada');
         if(typeof logCambio==='function') logCambio('nutricion', `Dieta actualizada: ${sel}`);
       } else if(typeof toast==='function') toast('❌ Error al guardar');
@@ -5054,22 +5107,50 @@ function attachNutricion() {
       if (!sel || !url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
       const dia = btn.dataset.dia;
       const mes = nutricionState.mes || (new Date().getFullYear()+String(new Date().getMonth()+1).padStart(2,'0'));
-      const g = (cls, d) => document.querySelector(`.${cls}[data-dia="${d}"]`)?.value||'';
-      const gs = (campo, d) => document.querySelector(`.nut-reg-sel[data-dia="${d}"][data-campo="${campo}"]`)?.value||'';
-      const des=gs('des',dia), alm=gs('alm',dia), mer=gs('mer',dia), cen=gs('cen',dia);
-      const sup=g('nut-reg-sup',dia), obs=g('nut-reg-obs',dia);
+      const sup = document.querySelector(`.nut-reg-sup-sel[data-dia="${dia}"]`)?.value||'';
+      const obs = document.querySelector(`.nut-reg-obs[data-dia="${dia}"]`)?.value||'';
       const usuario=getCurrentUser()||'';
       btn.textContent='⏳';
       try {
-        const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionRegistro',residente:sel,mes,dia,des,alm,mer,cen,sup,obs,usuario})}`);
+        const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionRegistro',residente:sel,mes,dia,sup,obs,usuario})}`);
         const j = await r.json();
         if (j.ok) {
-          nutricionState.registros[dia]={des,alm,mer,cen,sup,obs};
+          nutricionState.registros[dia]={sup,obs};
           btn.textContent='✅'; setTimeout(()=>btn.textContent='💾',1500);
         } else { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); if(typeof toast==='function') toast('❌ Error'); }
       } catch(e) { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); }
     };
   });
+
+  // Menú — navegar semana
+  ['nut-menu-prev','nut-menu-next'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.onclick = () => {
+      nutricionState.menuSemana = btn.dataset.sem;
+      nutricionState.menuData = null;
+      document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+      if (url) nutricionCargarMenu();
+    };
+  });
+  // Menú — guardar
+  const btnMenuGuardar = document.getElementById('nut-menu-guardar');
+  if (btnMenuGuardar) btnMenuGuardar.onclick = async () => {
+    if (!url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+    const data = {};
+    document.querySelectorAll('.nut-menu-cell').forEach(ta => { data[ta.dataset.key] = ta.value; });
+    const semana = nutricionState.menuSemana;
+    const usuario = getCurrentUser()||'';
+    btnMenuGuardar.textContent = '⏳ Guardando...'; btnMenuGuardar.disabled = true;
+    try {
+      const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionMenu',semana,data:JSON.stringify(data),usuario})}`);
+      const j = await r.json();
+      if (j.ok) { nutricionState.menuData = data; if(typeof toast==='function') toast('✅ Menú guardado'); }
+      else if(typeof toast==='function') toast('❌ Error al guardar');
+    } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
+    btnMenuGuardar.textContent = '💾 Guardar menú'; btnMenuGuardar.disabled = false;
+  };
+  // Cargar menú si tab activo
+  if (tab === 'menu' && !nutricionState.menuData && url) nutricionCargarMenu();
 
   // Notas — agregar
   const btnNota = document.getElementById('nut-agregar-nota');
@@ -5149,9 +5230,21 @@ async function nutricionCargarRegistros(residente) {
     const r = await fetch(`${url}?action=getNutricionRegistros&residente=${encodeURIComponent(residente)}&mes=${mes}`);
     const j = await r.json();
     nutricionState.registros = {};
-    if (j.ok && Array.isArray(j.data)) j.data.forEach(row => { nutricionState.registros[row.dia]={des:row.des,alm:row.alm,mer:row.mer,cen:row.cen,sup:row.sup||'',obs:row.obs||''}; });
+    if (j.ok && Array.isArray(j.data)) j.data.forEach(row => { nutricionState.registros[row.dia]={sup:row.sup||'',obs:row.obs||''}; });
     document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
   } catch(e) { console.error('nutricionCargarRegistros', e); }
+}
+
+async function nutricionCargarMenu() {
+  const url = getIndicUrl();
+  if (!url) return;
+  const semana = nutricionState.menuSemana;
+  try {
+    const r = await fetch(`${url}?action=getNutricionMenu&semana=${encodeURIComponent(semana)}`);
+    const j = await r.json();
+    nutricionState.menuData = (j.ok && j.data) ? j.data : {};
+    document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
+  } catch(e) { console.error('nutricionCargarMenu', e); }
 }
 
 // =====================================================
