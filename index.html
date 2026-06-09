@@ -1042,7 +1042,7 @@ function loadHistorialCambios() {
   try { return JSON.parse(localStorage.getItem(HC_KEY)) || []; } catch(e) { return []; }
 }
 function saveHistorialCambios() {
-  if (state.historialCambios.length > 500) state.historialCambios = state.historialCambios.slice(-500);
+  if (state.historialCambios.length > 2000) state.historialCambios = state.historialCambios.slice(-2000);
   localStorage.setItem(HC_KEY, JSON.stringify(state.historialCambios));
 }
 function logCambio(tipo, descripcion, extra) {
@@ -2328,8 +2328,8 @@ function viewHistorialCambios() {
   const filtro = state.histFiltro || 'todos';
   const filtrados = filtro === 'todos' ? hist : hist.filter(h => h.tipo === filtro);
 
-  const iconos = { stock: '📊', ingreso: '📥', medicacion: '💊', sesion: '🔑', residente: '👤', nutricion: '🥗', comentario: '💬', signos: '🩺', familiar: '👪', receta: '📄', historia: '📋', historial: '📚' };
-  const colores = { stock: '#2E75B6', ingreso: '#27ae60', medicacion: '#8e44ad', sesion: '#e67e22', residente: '#16a085', nutricion: '#d35400', comentario: '#7f8c8d', signos: '#c0392b', familiar: '#2980b9', receta: '#6c3483', historia: '#2c3e50', historial: '#95a5a6' };
+  const iconos = { stock: '📊', ingreso: '📥', medicacion: '💊', sesion: '🔑', residente: '👤', nutricion: '🥗', comentario: '💬', signos: '🩺', familiar: '👪', receta: '📄', historia: '📋', historial: '📚', administracion: '✅' };
+  const colores = { stock: '#2E75B6', ingreso: '#27ae60', medicacion: '#8e44ad', sesion: '#e67e22', residente: '#16a085', nutricion: '#d35400', comentario: '#7f8c8d', signos: '#c0392b', familiar: '#2980b9', receta: '#6c3483', historia: '#2c3e50', historial: '#95a5a6', administracion: '#1abc9c' };
 
   return `
     <h2>📜 Historial de cambios</h2>
@@ -2892,6 +2892,12 @@ function toggleDosis(residente, medId, diaIdx, dosisIdx) {
     delete state.semanal[k + '_by'];
     delete state.semanal[k + '_at'];
   }
+  try {
+    const _r = state.residentes.find(x => x.nombre === residente);
+    const _m = _r && _r.meds.find(x => x.id === medId);
+    const _dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+    logCambio('administracion', (nuevo ? 'Administró: ' : 'Desmarcó: ') + (_m ? _m.med : medId) + ' (' + residente + ') - ' + (_dias[diaIdx]||''));
+  } catch(e) {}
   saveSem();
   render();
 }
