@@ -1925,6 +1925,7 @@ function agregarComentario(nombreResidente, texto) {
     fecha: new Date().toISOString()
   });
   if (r.comentarios.length > 200) r.comentarios = r.comentarios.slice(-200);
+  logCambio('comentario', 'Comentario agregado (' + nombreResidente + '): ' + texto.trim());
   saveDataCloud();
   toast('💬 Comentario agregado');
   render();
@@ -1942,6 +1943,7 @@ function eliminarComentario(nombreResidente, idx) {
   if (!r || !r.comentarios) return;
   if (!confirm('¿Eliminar este comentario?')) return;
   r.comentarios.splice(idx, 1);
+  logCambio('comentario', 'Comentario ELIMINADO (' + nombreResidente + ')');
   saveDataCloud();
   toast('Comentario eliminado');
   render();
@@ -2164,6 +2166,7 @@ function attachHistoriasCli() {
     const versiones = Array.isArray(prev.versiones) ? prev.versiones.slice() : [];
     versiones.push({ ...datos, guardadoEl: ahora, guardadoPor: usuario });
     state.historiasCli[sel] = { ...datos, ultimaActualizacion: ahora, usuario, versiones };
+    logCambio('historia', 'Historia clínica guardada (' + sel + ') v' + versiones.length);
     saveHistoriasCli();
     toast('✅ Historia clínica guardada (versión ' + versiones.length + ')', 'success');
     render();
@@ -2325,14 +2328,14 @@ function viewHistorialCambios() {
   const filtro = state.histFiltro || 'todos';
   const filtrados = filtro === 'todos' ? hist : hist.filter(h => h.tipo === filtro);
 
-  const iconos = { stock: '📊', ingreso: '📥', medicacion: '💊', sesion: '🔑' };
-  const colores = { stock: '#2E75B6', ingreso: '#27ae60', medicacion: '#8e44ad', sesion: '#e67e22' };
+  const iconos = { stock: '📊', ingreso: '📥', medicacion: '💊', sesion: '🔑', residente: '👤', nutricion: '🥗', comentario: '💬', signos: '🩺', familiar: '👪', receta: '📄', historia: '📋', historial: '📚' };
+  const colores = { stock: '#2E75B6', ingreso: '#27ae60', medicacion: '#8e44ad', sesion: '#e67e22', residente: '#16a085', nutricion: '#d35400', comentario: '#7f8c8d', signos: '#c0392b', familiar: '#2980b9', receta: '#6c3483', historia: '#2c3e50', historial: '#95a5a6' };
 
   return `
     <h2>📜 Historial de cambios</h2>
     <div class="subtitle">${hist.length} registros en total</div>
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
-      ${['todos','stock','ingreso','medicacion','sesion'].map(f => `
+      ${['todos', ...Array.from(new Set(hist.map(h=>h.tipo).filter(Boolean))).sort()].map(f => `
         <button class="btn ${filtro === f ? '' : 'secondary'}" onclick="state.histFiltro='${f}';render()">
           ${iconos[f] || '📋'} ${f.charAt(0).toUpperCase()+f.slice(1)} ${f==='todos' ? '('+hist.length+')' : '('+hist.filter(h=>h.tipo===f).length+')'}
         </button>`).join('')}
@@ -2760,6 +2763,7 @@ function eliminarHistorial(semanaLunes) {
   if (bloquearSiNoAdmin('eliminar historial')) return;
   if (!confirm('¿Eliminar definitivamente el archivo de la semana del ' + formatearLunes(semanaLunes) + '?\n\nEsta acción no se puede deshacer.')) return;
   state.historial = (state.historial || []).filter(h => h.semanaLunes !== semanaLunes);
+  logCambio('historial', 'Semana ELIMINADA del historial: ' + formatearLunes(semanaLunes));
   saveHist();
   state.historialSel = null;
   toast('Semana eliminada del historial');
@@ -2962,6 +2966,7 @@ function nuevoResidente() {
     return;
   }
   state.residentes.push({ nombre: nombreLimpio, meds: [] });
+  logCambio('residente', 'Residente agregado: (' + nombreLimpio + ')');
   saveData();
   toast('Residente agregado: ' + nombreLimpio);
   navigate('residente', nombreLimpio);
@@ -2978,6 +2983,7 @@ function eliminarResidente(nombre) {
     delete state.semanal[m.id + '_horario'];
   });
   state.residentes = state.residentes.filter(x => x.nombre !== nombre);
+  logCambio('residente', 'Residente ELIMINADO: (' + nombre + ')');
   csBorrarDatosCS(nombre);
   saveData(); saveSem(); saveCS();
   toast('Eliminado: ' + nombre);
@@ -2995,6 +3001,7 @@ function renombrarResidente(nombreActual) {
   }
   const r = state.residentes.find(x => x.nombre === nombreActual);
   r.nombre = nuevoLimpio;
+  logCambio('residente', 'Residente renombrado: ' + nombreActual + ' -> (' + nuevoLimpio + ')');
   csMigrarNombreCS(nombreActual, nuevoLimpio);
   saveData();
   saveCS();
@@ -3587,6 +3594,7 @@ function csNuevoResidente() {
     return;
   }
   state.residentes.push({ nombre: nombreLimpio, meds: [] });
+  logCambio('residente', 'Residente agregado: (' + nombreLimpio + ')');
   saveData();
   toast('Residente agregado: ' + nombreLimpio);
   render();
@@ -3603,6 +3611,7 @@ function csRenombrarResidente(nombreActual) {
   const r = state.residentes.find(x => x.nombre === nombreActual);
   if (!r) return;
   r.nombre = nuevoLimpio;
+  logCambio('residente', 'Residente renombrado: ' + nombreActual + ' -> (' + nuevoLimpio + ')');
   csMigrarNombreCS(nombreActual, nuevoLimpio);
   if (state.residenteSel === nombreActual) state.residenteSel = nuevoLimpio;
   saveData();
@@ -3623,6 +3632,7 @@ function csEliminarResidente(nombre) {
     delete state.semanal[m.id + '_horario'];
   });
   state.residentes = state.residentes.filter(x => x.nombre !== nombre);
+  logCambio('residente', 'Residente ELIMINADO: (' + nombre + ')');
   csBorrarDatosCS(nombre);
   saveData(); saveSem(); saveCS();
   toast('Eliminado: ' + nombre);
@@ -3823,6 +3833,7 @@ function csFinalizarTurno(turnoKey) {
     if (!confirm('¿Finalizar el turno ' + (nombres[turnoKey]||'') + ' del ' + csFmtFecha(f) + '?')) return;
   }
   dia.turnoFin[turnoKey] = { by: getCurrentUser() || 'anónimo', at: new Date().toISOString() };
+  logCambio('signos', 'Turno ' + (nombres[turnoKey]||'') + ' finalizado - ' + csFmtFecha(f));
   saveCS();
   toast('Turno ' + (nombres[turnoKey]||'') + ' finalizado');
   render();
@@ -5081,6 +5092,7 @@ function attachNutricion() {
       const r = await fetch(`${url}?${new URLSearchParams({action:'addNutricionPeso',residente:sel,fecha,semana,peso,talla,imc,usuario})}`);
       const j = await r.json();
       if (j.ok) {
+        if(typeof logCambio==='function') logCambio('nutricion', 'Peso/talla cargado (' + sel + '): ' + peso + 'kg ' + talla + 'cm');
         nutricionState.pesos = null;
         if(typeof toast==='function') toast('✅ Medición guardada');
         document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); return;
@@ -5114,6 +5126,7 @@ function attachNutricion() {
         const j = await r.json();
         if (j.ok) {
           nutricionState.registros[dia]={sup,obs};
+          if(typeof logCambio==='function') logCambio('nutricion', 'Registro día ' + dia + '/' + mes + ' (' + sel + ')');
           btn.textContent='✅'; setTimeout(()=>btn.textContent='💾',1500);
         } else { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); if(typeof toast==='function') toast('❌ Error'); }
       } catch(e) { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); }
@@ -5139,6 +5152,7 @@ function attachNutricion() {
           else errores++;
         } catch { errores++; }
       }));
+      if(!errores && typeof logCambio==='function') logCambio('nutricion', 'Registros semana guardados (' + sel + '): ' + dias.length + ' días');
       btn.textContent = errores ? '⚠️ Algunos errores' : '✅ Guardado';
       setTimeout(() => { btn.textContent = '💾 Guardar semana'; btn.disabled = false; }, 2000);
       if (!errores && typeof toast==='function') toast('✅ Semana guardada');
@@ -5159,6 +5173,7 @@ function attachNutricion() {
       const j = await r.json();
       if (j.ok) {
         if(!nutricionState.notas) nutricionState.notas=[];
+        if(typeof logCambio==='function') logCambio('nutricion', 'Nota agregada (' + sel + '): ' + txt);
         nutricionState.notas.unshift({texto:txt,fecha,usuario});
         if(typeof toast==='function') toast('✅ Nota guardada');
         document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); return;
@@ -5174,7 +5189,7 @@ async function nutBorrarPeso(residente, peso, talla){
   try{
     const r = await fetch(`${url}?${new URLSearchParams({action:'delNutricionPeso',residente,peso,talla})}`);
     const j = await r.json();
-    if(j.ok && j.data && j.data.deleted>0){ if(typeof toast==='function') toast('🗑️ Medición borrada'); nutricionState.pesos=null; document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); }
+    if(j.ok && j.data && j.data.deleted>0){ if(typeof toast==='function') toast('🗑️ Medición borrada'); if(typeof logCambio==='function') logCambio('nutricion','Peso/talla ELIMINADO ('+residente+')'); nutricionState.pesos=null; document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); }
     else if(typeof toast==='function') toast('❌ No se pudo borrar');
   }catch(e){ if(typeof toast==='function') toast('❌ '+e.message); }
 }
@@ -5184,7 +5199,7 @@ async function nutBorrarNota(residente, texto){
   try{
     const r = await fetch(`${url}?${new URLSearchParams({action:'delNutricionNota',residente,texto})}`);
     const j = await r.json();
-    if(j.ok && j.data && j.data.deleted>0){ if(typeof toast==='function') toast('🗑️ Nota borrada'); nutricionState.notas=null; document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); }
+    if(j.ok && j.data && j.data.deleted>0){ if(typeof toast==='function') toast('🗑️ Nota borrada'); if(typeof logCambio==='function') logCambio('nutricion','Nota ELIMINADA ('+residente+')'); nutricionState.notas=null; document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); }
     else if(typeof toast==='function') toast('❌ No se pudo borrar');
   }catch(e){ if(typeof toast==='function') toast('❌ '+e.message); }
 }
@@ -5828,6 +5843,7 @@ function guardarNuevoFamiliar() {
   if (!state.familiaresLista) state.familiaresLista = [];
   state.familiaresLista.push({ nombre, apellido });
   state.familiarSel = key;
+  logCambio('familiar', 'Familiar agregado: ' + nombre + ' ' + apellido);
   saveFamLista();
   cerrarModalNuevoFamiliar();
   render();
@@ -5838,6 +5854,7 @@ function eliminarFamiliar(key) {
   state.familiaresLista = (state.familiaresLista||[]).filter(f => famKey(f) !== key);
   delete state.recetasFamiliares[key];
   state.familiarSel = state.familiaresLista.length > 0 ? famKey(state.familiaresLista[0]) : null;
+  logCambio('familiar', 'Familiar ELIMINADO: ' + key);
   saveFamLista();
   saveFamRecetas();
   render();
@@ -5872,6 +5889,7 @@ function guardarNuevaRecetaFam(key) {
     notas: '',
     fechaReceta: document.getElementById('nrf-fecha').value
   });
+  logCambio('receta', 'Receta familiar agregada: ' + nombre + ' [' + key + ']');
   saveFamRecetas();
   render();
   toast('✅ Receta guardada');
@@ -5920,6 +5938,7 @@ function guardarEdicionRecetaFam(key, idx) {
   r.medicamentos = document.getElementById('erf-meds').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
   r.notas = document.getElementById('erf-notas').value.trim();
   r.fechaReceta = document.getElementById('erf-fecha').value;
+  logCambio('receta', 'Receta familiar editada: ' + nombre + ' [' + key + ']');
   saveFamRecetas();
   cerrarModalEditarRecetaFam();
   render();
@@ -5928,6 +5947,7 @@ function guardarEdicionRecetaFam(key, idx) {
 function eliminarRecetaFam(key, idx) {
   if (!confirm('¿Eliminar esta receta?')) return;
   state.recetasFamiliares[key].splice(idx, 1);
+  logCambio('receta', 'Receta familiar ELIMINADA [' + key + ']');
   saveFamRecetas();
   render();
 }
