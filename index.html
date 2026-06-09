@@ -4414,19 +4414,15 @@ function attachInsumos() {
   const mesEl = document.getElementById('ins-mes-sel');
   const btnCargar = document.getElementById('ins-btn-cargar');
 
-  if (resEl) resEl.onchange = () => { insumosState.residente = resEl.value; insumosState.datos = {}; render(); };
-  if (mesEl) mesEl.onchange = () => { insumosState.mes = mesEl.value; insumosState.datos = {}; render(); };
-
-  if (btnCargar) btnCargar.onclick = async () => {
+  async function autoCargarInsumos() {
     const res = resEl ? resEl.value : insumosState.residente;
     const mes = mesEl ? mesEl.value : insumosState.mes;
     if (!res || !mes) return;
     insumosState.residente = res;
     insumosState.mes = mes;
     const url = getIndicUrl();
-    if (!url) { alert('Configurá primero la URL de la nube (⚙️ Configurar nube).'); return; }
-    btnCargar.textContent = '⏳ Cargando...';
-    btnCargar.disabled = true;
+    if (!url) return;
+    if (btnCargar) { btnCargar.textContent = '⏳ Cargando...'; btnCargar.disabled = true; }
     try {
       const r = await fetch(`${url}?action=getInsumos&residente=${encodeURIComponent(res)}&mes=${mes}`);
       const j = await r.json();
@@ -4439,18 +4435,23 @@ function attachInsumos() {
         });
       }
     } catch(e) { console.error(e); }
-    btnCargar.textContent = '📥 Cargar datos';
-    btnCargar.disabled = false;
-    // Re-render sección
+    if (btnCargar) { btnCargar.textContent = '📥 Cargar datos'; btnCargar.disabled = false; }
     const main = document.getElementById('main');
     main.innerHTML = viewInsumos();
     attachInsumos();
-    // Mostrar tabla
     const tw = document.getElementById('ins-tabla-wrap');
     const contenido = document.getElementById('ins-contenido');
     if (tw) tw.style.display = 'block';
     if (contenido) contenido.style.display = 'none';
-  };
+  }
+
+  if (resEl) resEl.onchange = () => { insumosState.residente = resEl.value; insumosState.datos = {}; autoCargarInsumos(); };
+  if (mesEl) mesEl.onchange = () => { insumosState.mes = mesEl.value; insumosState.datos = {}; autoCargarInsumos(); };
+
+  if (btnCargar) btnCargar.onclick = autoCargarInsumos;
+
+  // Auto-cargar si ya hay residente y mes seleccionados
+  if (insumosState.residente && insumosState.mes) autoCargarInsumos();
 
   // Guardar fila
   document.querySelectorAll('.ins-btn-guardar').forEach(btn => {
