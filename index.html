@@ -4938,19 +4938,28 @@ function viewNutricion() {
       const diasSemana = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
       const supOpts = `<option value="">—</option><option value="Spesan">Spesan</option><option value="Fortiship">Fortiship</option><option value="Leche">Leche</option><option value="Otro">Otro</option>`;
       let filas = '';
+      let semNum = 0, semDias = [];
+      const guardarSemBtn = (n, dias) => `<tr><td colspan="4" style="padding:4px 2px;border-top:2px solid #dde3ec;text-align:right"><button class="btn secondary nut-reg-guardar-semana" data-semana="${n}" data-dias="${dias.join(',')}" style="font-size:11px;padding:3px 14px">💾 Guardar semana</button></td></tr>`;
       for (let d = 1; d <= diasEnMes; d++) {
         const fecha = new Date(anio, mesN-1, d);
-        const dow = diasSemana[fecha.getDay()];
-        const esFind = fecha.getDay() === 0 || fecha.getDay() === 6;
+        const dowNum = fecha.getDay();
+        const dow = diasSemana[dowNum];
+        const esFind = dowNum === 0 || dowNum === 6;
         const reg = nutricionState.registros[d] || {};
         const supSelected = supOpts.replace(`value="${reg.sup||''}"`, `value="${reg.sup||''}" selected`);
-        filas += `<tr class="${esFind?'ins-finde':''}">
+        if (dowNum === 1 || d === 1) {
+          if (semDias.length) filas += guardarSemBtn(semNum, semDias);
+          semNum++; semDias = [];
+        }
+        semDias.push(d);
+        filas += `<tr class="${esFind?'ins-finde':''}" data-semana="${semNum}">
           <td style="padding:5px 8px;white-space:nowrap;font-size:12px"><span style="color:#888;font-size:10px">${dow}</span> <b>${d}</b></td>
           <td style="padding:3px"><select class="nut-reg-sup-sel" data-dia="${d}" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;width:100%">${supSelected}</select></td>
           <td style="padding:3px"><input type="text" class="nut-reg-obs" data-dia="${d}" value="${escapeHtml(reg.obs||'')}" placeholder="Obs" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;width:100%"></td>
-          <td style="padding:3px"><button class="ins-btn-guardar btn-sm nut-reg-guardar" data-dia="${d}" title="Guardar">💾</button></td>
+          <td style="padding:3px"><button class="ins-btn-guardar btn-sm nut-reg-guardar" data-dia="${d}" title="Guardar día">💾</button></td>
         </tr>`;
       }
+      if (semDias.length) filas += guardarSemBtn(semNum, semDias);
       content = mesSelector + `
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -5097,6 +5106,31 @@ function attachNutricion() {
           btn.textContent='✅'; setTimeout(()=>btn.textContent='💾',1500);
         } else { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); if(typeof toast==='function') toast('❌ Error'); }
       } catch(e) { btn.textContent='❌'; setTimeout(()=>btn.textContent='💾',2000); }
+    };
+  });
+
+  // Registros — guardar semana
+  document.querySelectorAll('.nut-reg-guardar-semana').forEach(btn => {
+    btn.onclick = async () => {
+      if (!sel || !url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+      const dias = btn.dataset.dias.split(',');
+      const mes = nutricionState.mes || (new Date().getFullYear()+String(new Date().getMonth()+1).padStart(2,'0'));
+      const usuario = getCurrentUser()||'';
+      btn.textContent = '⏳ Guardando...'; btn.disabled = true;
+      let errores = 0;
+      await Promise.all(dias.map(async dia => {
+        const sup = document.querySelector(`.nut-reg-sup-sel[data-dia="${dia}"]`)?.value||'';
+        const obs = document.querySelector(`.nut-reg-obs[data-dia="${dia}"]`)?.value||'';
+        try {
+          const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionRegistro',residente:sel,mes,dia,sup,obs,usuario})}`);
+          const j = await r.json();
+          if (j.ok) nutricionState.registros[dia]={sup,obs};
+          else errores++;
+        } catch { errores++; }
+      }));
+      btn.textContent = errores ? '⚠️ Algunos errores' : '✅ Guardado';
+      setTimeout(() => { btn.textContent = '💾 Guardar semana'; btn.disabled = false; }, 2000);
+      if (!errores && typeof toast==='function') toast('✅ Semana guardada');
     };
   });
 
