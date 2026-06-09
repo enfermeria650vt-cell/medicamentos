@@ -5239,6 +5239,7 @@ let menuGeneralState = { mes: '', mesData: {} };
 
 function viewMenuGeneral() {
   const url = getIndicUrl();
+  const puedeFoto = ['Nutricionista','Dueño','Admin'].includes((getSession()||{}).rol);
   const now = new Date();
   if (!menuGeneralState.mes) {
     menuGeneralState.mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
@@ -5285,10 +5286,10 @@ function viewMenuGeneral() {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
         <strong style="font-size:13px;color:#555">📅 Semana ${weekLabel}</strong>
         <div style="display:flex;gap:6px;align-items:center">
-          <label class="btn secondary mg-foto-btn" data-sem="${monday}" style="font-size:12px;padding:5px 10px;cursor:pointer;margin:0">
+          ${puedeFoto ? `<label class="btn secondary mg-foto-btn" data-sem="${monday}" style="font-size:12px;padding:5px 10px;cursor:pointer;margin:0">
             📷 Cargar por foto
             <input type="file" accept="image/*" class="mg-foto-input" data-sem="${monday}" style="display:none">
-          </label>
+          </label>` : ''}
           <button class="btn secondary mg-semana-guardar" data-sem="${monday}" style="font-size:12px;padding:5px 10px">💾 Guardar semana</button>
         </div>
       </div>
@@ -5407,16 +5408,31 @@ Si un campo no existe o no es visible, usá valor "". No uses markdown, respond�
     contents: [{parts: [{text: prompt}, {inline_data: {mime_type: file.type||'image/jpeg', data: b64}}]}],
     generationConfig: {temperature: 0.1, maxOutputTokens: 2048}
   };
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-    {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}
-  );
-  const json = await r.json();
-  if (json.error) throw new Error(json.error.message);
-  const text = ((json.candidates||[])[0]?.content?.parts?.[0]?.text||'').trim();
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('Gemini no devolvió JSON válido');
-  return JSON.parse(match[0]);
+  // Modelos en orden: principal (mejor calidad) y respaldo liviano por si está saturado (503/429)
+  const intentosModelos = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash-lite'];
+  let ultimoError = '';
+  for (let i = 0; i < intentosModelos.length; i++) {
+    const modelo = intentosModelos[i];
+    let r;
+    try {
+      r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiKey}`,
+        {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}
+      );
+    } catch (e) { ultimoError = e.message; await new Promise(res => setTimeout(res, 1200)); continue; }
+    if (r.status === 503 || r.status === 429) { ultimoError = 'IA saturada (' + r.status + ')'; await new Promise(res => setTimeout(res, 1200)); continue; }
+    const json = await r.json();
+    if (json.error) {
+      ultimoError = json.error.message;
+      if (/overload|high demand|quota|UNAVAILABLE|503|429/i.test(ultimoError)) { await new Promise(res => setTimeout(res, 1200)); continue; }
+      throw new Error(ultimoError);
+    }
+    const text = ((json.candidates||[])[0]?.content?.parts?.[0]?.text||'').trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Gemini no devolvió JSON válido');
+    return JSON.parse(match[0]);
+  }
+  throw new Error('El servicio de IA está saturado en este momento. Esperá unos segundos y probá de nuevo.');
 }
 
 async function cargarMenuGeneral() {
