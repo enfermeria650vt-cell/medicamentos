@@ -1053,9 +1053,9 @@ function logCambio(tipo, descripcion, extra) {
   const fecha = ahora.toLocaleDateString('es-AR') + ' ' + ahora.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   state.historialCambios.push({ tipo, descripcion, usuario, fecha, ts: ahora.toISOString(), extra: extra || null });
   saveHistorialCambios();
-  // Enviar a Google Sheets en segundo plano (fire-and-forget)
+  // Enviar a Google Sheets en segundo plano (fire-and-forget) — la hoja HISTORIAL_CAMBIOS vive en el backend de Indicaciones
   try {
-    const url = getCloudUrl();
+    const url = (typeof getIndicUrl === 'function' ? getIndicUrl() : getCloudUrl());
     if (url && session) {
       // Extraer residente de la descripción (ej: "... (Nombre Apellido) ...")
       const matchRes = descripcion.match(/\(([^)]+)\)/);
