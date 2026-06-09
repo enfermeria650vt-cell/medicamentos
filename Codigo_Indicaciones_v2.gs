@@ -441,6 +441,32 @@ function doGet(e) {
           e.parameter.minAposito, e.parameter.minBombacha
         );
         break;
+
+      // NUTRICIÓN
+      case 'getNutricionDieta':
+        payload = apiGetNutricionDieta(e.parameter.residente);
+        break;
+      case 'setNutricionDieta':
+        payload = apiSetNutricionDieta(e.parameter.residente, e.parameter);
+        break;
+      case 'getNutricionPesos':
+        payload = apiGetNutricionPesos(e.parameter.residente);
+        break;
+      case 'addNutricionPeso':
+        payload = apiAddNutricionPeso(e.parameter.residente, e.parameter);
+        break;
+      case 'getNutricionRegistros':
+        payload = apiGetNutricionRegistros(e.parameter.residente, e.parameter.mes);
+        break;
+      case 'setNutricionRegistro':
+        payload = apiSetNutricionRegistro(e.parameter.residente, e.parameter.mes, e.parameter.dia, e.parameter);
+        break;
+      case 'getNutricionNotas':
+        payload = apiGetNutricionNotas(e.parameter.residente);
+        break;
+      case 'addNutricionNota':
+        payload = apiAddNutricionNota(e.parameter.residente, e.parameter.texto, e.parameter.usuario, e.parameter.fecha);
+        break;
       default: payload = { ok: true, action: 'noop' };
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, data: payload }))
@@ -753,4 +779,165 @@ function apiSetMinimos(residente, minPañal, minZalea, minAposito, minBombacha) 
   sheet.appendRow([residente, Number(minPañal)||0, Number(minZalea)||0, Number(minAposito)||0, Number(minBombacha)||0]);
   SpreadsheetApp.flush();
   return { ok: true, action: 'inserted' };
+}
+
+
+// =====================================================
+// API NUTRICIÓN
+// =====================================================
+
+var SHEET_NUT_DIETA     = 'NUTRICION_DIETA';
+var SHEET_NUT_PESO      = 'NUTRICION_PESO';
+var SHEET_NUT_REGISTROS = 'NUTRICION_REGISTROS';
+var SHEET_NUT_NOTAS     = 'NUTRICION_NOTAS';
+
+function ensureNutDietaSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_NUT_DIETA);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_NUT_DIETA);
+    sh.getRange(1,1,1,7).setValues([['Residente','TipoDieta','Restricciones','Observaciones','Indicaciones','Updated','UpdatedBy']]);
+    sh.getRange(1,1,1,7).setFontWeight('bold').setBackground('#4A148C').setFontColor('white');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function ensureNutPesoSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_NUT_PESO);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_NUT_PESO);
+    sh.getRange(1,1,1,7).setValues([['Residente','Fecha','Semana','Peso_kg','Talla_cm','IMC','Usuario']]);
+    sh.getRange(1,1,1,7).setFontWeight('bold').setBackground('#4A148C').setFontColor('white');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function ensureNutRegistrosSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_NUT_REGISTROS);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_NUT_REGISTROS);
+    sh.getRange(1,1,1,10).setValues([['Residente','Mes','Dia','Desayuno','Almuerzo','Merienda','Cena','Suplemento','Obs','Usuario']]);
+    sh.getRange(1,1,1,10).setFontWeight('bold').setBackground('#4A148C').setFontColor('white');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function ensureNutNotasSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_NUT_NOTAS);
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_NUT_NOTAS);
+    sh.getRange(1,1,1,4).setValues([['Residente','Fecha','Texto','Usuario']]);
+    sh.getRange(1,1,1,4).setFontWeight('bold').setBackground('#4A148C').setFontColor('white');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function apiGetNutricionDieta(residente) {
+  var sh = ensureNutDietaSheet_();
+  if (sh.getLastRow() < 2) return {};
+  var data = sh.getRange(2,1,sh.getLastRow()-1,7).getValues();
+  for (var i=0; i<data.length; i++) {
+    if (String(data[i][0]).toLowerCase() === String(residente).toLowerCase()) {
+      return { tipo:data[i][1], restricciones:data[i][2], obs:data[i][3], indicaciones:data[i][4], updated:data[i][5]?String(data[i][5]):'', updatedBy:data[i][6] };
+    }
+  }
+  return {};
+}
+
+function apiSetNutricionDieta(residente, p) {
+  var sh = ensureNutDietaSheet_();
+  var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+  var vals = [residente, p.tipo||'', p.restricciones||'', p.obs||'', p.indicaciones||'', fecha, p.usuario||''];
+  if (sh.getLastRow() >= 2) {
+    var data = sh.getRange(2,1,sh.getLastRow()-1,1).getValues();
+    for (var i=0; i<data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === String(residente).toLowerCase()) {
+        sh.getRange(i+2,1,1,7).setValues([vals]);
+        SpreadsheetApp.flush();
+        return { ok:true };
+      }
+    }
+  }
+  sh.appendRow(vals);
+  SpreadsheetApp.flush();
+  return { ok:true };
+}
+
+function apiGetNutricionPesos(residente) {
+  var sh = ensureNutPesoSheet_();
+  if (sh.getLastRow() < 2) return [];
+  var data = sh.getRange(2,1,sh.getLastRow()-1,7).getValues();
+  var result = [];
+  data.forEach(function(row) {
+    if (String(row[0]).toLowerCase() === String(residente).toLowerCase()) {
+      result.push({ residente:row[0], fecha:row[1] instanceof Date ? Utilities.formatDate(row[1],Session.getScriptTimeZone(),'yyyy-MM-dd') : String(row[1]), semana:row[2], peso:row[3], talla:row[4], imc:row[5], usuario:row[6] });
+    }
+  });
+  return result;
+}
+
+function apiAddNutricionPeso(residente, p) {
+  var sh = ensureNutPesoSheet_();
+  sh.appendRow([residente, p.fecha||'', p.semana||'', Number(p.peso)||0, Number(p.talla)||0, Number(p.imc)||0, p.usuario||'']);
+  SpreadsheetApp.flush();
+  return { ok:true };
+}
+
+function apiGetNutricionRegistros(residente, mes) {
+  var sh = ensureNutRegistrosSheet_();
+  if (sh.getLastRow() < 2) return [];
+  var data = sh.getRange(2,1,sh.getLastRow()-1,10).getValues();
+  var result = [];
+  data.forEach(function(row) {
+    if (String(row[0]).toLowerCase() === String(residente).toLowerCase() && String(row[1]) === String(mes)) {
+      result.push({ residente:row[0], mes:row[1], dia:Number(row[2]), des:row[3], alm:row[4], mer:row[5], cen:row[6], sup:row[7]||'', obs:row[8]||'', usuario:row[9]||'' });
+    }
+  });
+  return result;
+}
+
+function apiSetNutricionRegistro(residente, mes, dia, p) {
+  var sh = ensureNutRegistrosSheet_();
+  var diaNum = Number(dia);
+  var vals = [residente, String(mes), diaNum, p.des||'', p.alm||'', p.mer||'', p.cen||'', p.sup||'', p.obs||'', p.usuario||''];
+  if (sh.getLastRow() >= 2) {
+    var data = sh.getRange(2,1,sh.getLastRow()-1,3).getValues();
+    for (var i=0; i<data.length; i++) {
+      if (String(data[i][0]).toLowerCase() === String(residente).toLowerCase() && String(data[i][1]) === String(mes) && Number(data[i][2]) === diaNum) {
+        sh.getRange(i+2,1,1,10).setValues([vals]);
+        SpreadsheetApp.flush();
+        return { ok:true };
+      }
+    }
+  }
+  sh.appendRow(vals);
+  SpreadsheetApp.flush();
+  return { ok:true };
+}
+
+function apiGetNutricionNotas(residente) {
+  var sh = ensureNutNotasSheet_();
+  if (sh.getLastRow() < 2) return [];
+  var data = sh.getRange(2,1,sh.getLastRow()-1,4).getValues();
+  var result = [];
+  data.forEach(function(row) {
+    if (String(row[0]).toLowerCase() === String(residente).toLowerCase()) {
+      result.push({ residente:row[0], fecha:String(row[1]), texto:row[2], usuario:row[3] });
+    }
+  });
+  return result.reverse();
+}
+
+function apiAddNutricionNota(residente, texto, usuario, fecha) {
+  var sh = ensureNutNotasSheet_();
+  sh.appendRow([residente, fecha||Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd/MM/yyyy'), texto||'', usuario||'']);
+  SpreadsheetApp.flush();
+  return { ok:true };
 }
