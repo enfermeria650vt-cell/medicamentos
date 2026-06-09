@@ -4885,7 +4885,7 @@ function viewNutricion() {
   if (tab === 'peso' && nutricionState.pesos !== null) {
     const pesos = nutricionState.pesos || [];
     const rowsHtml = pesos.length === 0
-      ? `<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">Sin mediciones registradas</td></tr>`
+      ? `<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Sin mediciones registradas</td></tr>`
       : pesos.map(p => {
           const imc = p.imc;
           const imcColor = !imc ? '' : imc < 18.5 ? '#e67e22' : imc < 25 ? '#27ae60' : imc < 30 ? '#e67e22' : '#e74c3c';
@@ -4895,6 +4895,7 @@ function viewNutricion() {
             <td style="padding:7px 8px;text-align:right"><strong>${p.peso ? p.peso+' kg' : '—'}</strong></td>
             <td style="padding:7px 8px;text-align:right">${p.talla ? p.talla+' cm' : '—'}</td>
             <td style="padding:7px 8px;text-align:right">${p.imc ? `<strong style="color:${imcColor}">${p.imc}</strong>` : '—'}</td>
+            <td style="padding:7px 8px;text-align:center"><button onclick="nutBorrarPeso('${jsAttr(sel)}', ${p.peso||0}, ${p.talla||0})" title="Borrar" style="background:none;border:none;cursor:pointer;color:#e74c3c;font-size:14px;line-height:1">🗑️</button></td>
           </tr>`;
         }).join('');
     content = `
@@ -4918,6 +4919,7 @@ function viewNutricion() {
           <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd">Peso</th>
           <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd">Talla</th>
           <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd">IMC</th>
+          <th style="padding:8px;border-bottom:2px solid #ddd"></th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
@@ -4992,7 +4994,7 @@ function viewNutricion() {
       ? `<div style="color:#888;padding:20px;text-align:center">Sin notas registradas</div>`
       : notas.map(n => `
           <div style="border-left:3px solid #7B1060;padding:10px 14px;margin-bottom:8px;background:#FDE8F5;border-radius:4px">
-            <div style="font-size:11px;color:#888;margin-bottom:4px">${escapeHtml(n.fecha||'')}${n.usuario?' · '+escapeHtml(n.usuario):''}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:11px;color:#888">${escapeHtml(n.fecha||'')}${n.usuario?' · '+escapeHtml(n.usuario):''}</span><button onclick="nutBorrarNota('${jsAttr(sel)}','${jsAttr(n.texto||'')}')" title="Borrar nota" style="background:none;border:none;cursor:pointer;color:#e74c3c;font-size:13px;line-height:1">🗑️</button></div>
             <div style="font-size:13px;white-space:pre-wrap">${escapeHtml(n.texto||'')}</div>
           </div>`).join('');
     content = `
@@ -5166,6 +5168,26 @@ function attachNutricion() {
   };
 }
 
+async function nutBorrarPeso(residente, peso, talla){
+  if(!confirm("¿Borrar esta medición de peso?")) return;
+  const url = getIndicUrl(); if(!url){ if(typeof toast==='function') toast('Sin URL'); return; }
+  try{
+    const r = await fetch(`${url}?${new URLSearchParams({action:'delNutricionPeso',residente,peso,talla})}`);
+    const j = await r.json();
+    if(j.ok && j.data && j.data.deleted>0){ if(typeof toast==='function') toast('🗑️ Medición borrada'); nutricionState.pesos=null; document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); }
+    else if(typeof toast==='function') toast('❌ No se pudo borrar');
+  }catch(e){ if(typeof toast==='function') toast('❌ '+e.message); }
+}
+async function nutBorrarNota(residente, texto){
+  if(!confirm("¿Borrar esta nota?")) return;
+  const url = getIndicUrl(); if(!url){ if(typeof toast==='function') toast('Sin URL'); return; }
+  try{
+    const r = await fetch(`${url}?${new URLSearchParams({action:'delNutricionNota',residente,texto})}`);
+    const j = await r.json();
+    if(j.ok && j.data && j.data.deleted>0){ if(typeof toast==='function') toast('🗑️ Nota borrada'); nutricionState.notas=null; document.getElementById('main').innerHTML = viewNutricion(); attachNutricion(); }
+    else if(typeof toast==='function') toast('❌ No se pudo borrar');
+  }catch(e){ if(typeof toast==='function') toast('❌ '+e.message); }
+}
 function nutricionSelRes(nombre) {
   nutricionState.residente = nombre;
   nutricionState.dieta = null;
