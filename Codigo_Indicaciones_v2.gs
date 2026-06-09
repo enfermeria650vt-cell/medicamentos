@@ -467,6 +467,9 @@ function doGet(e) {
       case 'addNutricionNota':
         payload = apiAddNutricionNota(e.parameter.residente, e.parameter.texto, e.parameter.usuario, e.parameter.fecha);
         break;
+
+        case 'getNutricionMenu': payload = apiGetNutricionMenu(e.parameter.semana); break;
+        case 'setNutricionMenu': payload = apiSetNutricionMenu(e.parameter.semana, e.parameter.data, e.parameter.usuario); break;
       default: payload = { ok: true, action: 'noop' };
     }
     return ContentService.createTextOutput(JSON.stringify({ ok: true, data: payload }))
@@ -796,7 +799,7 @@ function ensureNutDietaSheet_() {
   var sh = ss.getSheetByName(SHEET_NUT_DIETA);
   if (!sh) {
     sh = ss.insertSheet(SHEET_NUT_DIETA);
-    sh.getRange(1,1,1,7).setValues([['Residente','TipoDieta','Restricciones','Observaciones','Indicaciones','Updated','UpdatedBy']]);
+    sh.getRange(1,1,1,7).setValues([['Residente','TipoDieta','Restricciones','Observaciones','Indicaciones','MenuSemanal','MenuMensual','Updated','UpdatedBy']]);
     sh.getRange(1,1,1,7).setFontWeight('bold').setBackground('#4A148C').setFontColor('white');
     sh.setFrozenRows(1);
   }
@@ -938,6 +941,45 @@ function apiGetNutricionNotas(residente) {
 function apiAddNutricionNota(residente, texto, usuario, fecha) {
   var sh = ensureNutNotasSheet_();
   sh.appendRow([residente, fecha||Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd/MM/yyyy'), texto||'', usuario||'']);
+  SpreadsheetApp.flush();
+  return { ok:true };
+}
+
+const SHEET_NUT_MENU = 'NUTRICION_MENU';
+
+function ensureNutMenuSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(SHEET_NUT_MENU);
+  if (!sh) { sh = ss.insertSheet(SHEET_NUT_MENU); sh.appendRow(['Semana','Data_JSON','Updated','UpdatedBy']); }
+  return sh;
+}
+
+function apiGetNutricionMenu(semana) {
+  if (!semana) return { ok:false, error:'semana requerida' };
+  const sh = ensureNutMenuSheet_();
+  const rows = sh.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(semana)) {
+      try { return { ok:true, data: JSON.parse(rows[i][1]||'{}') }; } 
+      catch(e) { return { ok:true, data:{} }; }
+    }
+  }
+  return { ok:true, data:{} };
+}
+
+function apiSetNutricionMenu(semana, dataJson, usuario) {
+  if (!semana || !dataJson) return { ok:false, error:'faltan datos' };
+  const sh = ensureNutMenuSheet_();
+  const rows = sh.getDataRange().getValues();
+  const updated = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(semana)) {
+      sh.getRange(i+1,1,1,4).setValues([[semana, dataJson, updated, usuario||'']]);
+      SpreadsheetApp.flush();
+      return { ok:true };
+    }
+  }
+  sh.appendRow([semana, dataJson, updated, usuario||'']);
   SpreadsheetApp.flush();
   return { ok:true };
 }
