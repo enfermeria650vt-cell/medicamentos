@@ -5406,7 +5406,7 @@ Para Cena: cen_sopa=Sopa, cen_plato=Plato principal, cen_postre=Postre.
 Si un campo no existe o no es visible, usá valor "". No uses markdown, respondé solo el JSON.`;
   const payload = {
     contents: [{parts: [{text: prompt}, {inline_data: {mime_type: file.type||'image/jpeg', data: b64}}]}],
-    generationConfig: {temperature: 0.1, maxOutputTokens: 2048}
+    generationConfig: {temperature: 0.1, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: {thinkingBudget: 0}}
   };
   // Modelos en orden: principal (mejor calidad) y respaldo liviano por si está saturado (503/429)
   const intentosModelos = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash-lite'];
