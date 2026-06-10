@@ -1,0 +1,67 @@
+name: Monitor Villa Teresa
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chequeo profundo de salud
+        env:
+          WA_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          WA_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+        run: |
+          node <<'NODE'
+          const SITE='https://enfermeria650vt-cell.github.io/medicamentos/index.html';
+          const MED='https://script.google.com/macros/s/AKfycbzNsNlspZ93MU9ReVk9pH8_gIAhzLS7vX4hyWX2uDcYSXIpSnVkp7ZQsGSl_zw_zI_d9Q/exec';
+          const IND='https://script.google.com/macros/s/AKfycbyOWqrts8vxY9L8Flne9QdecSF4ptt0lwW_H9bTnH4w8ZE_L4KAm7IqcKhtZbmj9dQhtA/exec';
+          const fails=[];
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function txt(u,opt){const r=await fetch(u,Object.assign({signal:AbortSignal.timeout(60000)},opt||{}));return {status:r.status,body:await r.text()};}
+          async function jr(u,opt){const t=await txt(u,opt);try{return {status:t.status,j:JSON.parse(t.body),len:t.body.length};}catch(e){return {status:t.status,j:null,len:t.body.length};}}
+          async function retry(fn,tries=3,wait=15000){let last;for(let i=0;i<tries;i++){try{const v=await fn();if(v!==null)return v;}catch(e){last=e;}await sleep(wait);}return null;}
+          (async()=>{
+            try{const a=await txt(SITE);if(!/Residencia Villa Teresa/.test(a.body)) fails.push('La app NO carga (pagina caida o version rota).');}
+            catch(e){fails.push('La app NO responde.');}
+            const pull=await retry(async()=>{const r=await jr(MED+'?action=pull&t='+Date.now());if(r.j&&r.j.ok&&r.len>50000)return r;return null;});
+            if(!pull){fails.push('El servidor de datos NO responde o vino vacio (nube caida).');}
+            else{
+              const d=pull.j.data||{};
+              const cnt=x=>Array.isArray(x)?x.length:(x&&typeof x==='object'?Object.keys(x).length:0);
+              if(cnt(d.residentes)<15) fails.push('Faltan residentes en la nube (solo '+cnt(d.residentes)+') - posible perdida de datos.');
+              if(cnt(d.semanal)===0) fails.push('No se ven las administraciones de medicacion (semanal vacio).');
+              const key=(d.geminiKey)||'';
+              if(!key) fails.push('Falta la clave Gemini en la nube - el menu por foto no va a andar.');
+              else{const g=await retry(async()=>{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+encodeURIComponent(key),{signal:AbortSignal.timeout(30000)});return r.status===200?true:(r.status>=500?null:r.status);});
+                if(g!==true && g!==null) fails.push('La clave Gemini esta vencida/invalida (status '+g+') - el menu por foto no anda.');}
+            }
+            const insOk=await retry(async()=>{
+              const set=await jr(IND+'?action=setInsumo&residente=__MONITOR_TEST__&mes=200001&dia=1&'+new URLSearchParams({['pa'+String.fromCharCode(241)+'al_m']:'7'}));
+              const get=await jr(IND+'?action=getInsumos&residente=__MONITOR_TEST__&mes=200001&_t='+Date.now());
+              const fila=(get.j&&get.j.data||[]).find(x=>Number(x.dia)===1);
+              const ok=!!(set.j&&set.j.ok&&set.j.data&&set.j.data.ok!==false&&fila&&Number(fila['pa'+String.fromCharCode(241)+'al_m'])===7);
+              await fetch(IND+'?action=setInsumo&residente=__MONITOR_TEST__&mes=200001&dia=1&'+new URLSearchParams({['pa'+String.fromCharCode(241)+'al_m']:'0'}));
+              return ok?true:null;
+            });
+            if(!insOk) fails.push('Guardar INSUMOS dice OK pero NO persiste - revisar backend Indicaciones.');
+            const nutOk=await retry(async()=>{
+              const texto='monitor_'+Date.now();
+              const add=await jr(IND+'?'+new URLSearchParams({action:'addNutricionNota',residente:'__MONITOR_TEST__',texto,usuario:'monitor',fecha:'2000-01-01'}));
+              const get=await jr(IND+'?'+new URLSearchParams({action:'getNutricionNotas',residente:'__MONITOR_TEST__'}));
+              const leyo=(get.j&&get.j.data||[]).some(n=>n.texto===texto);
+              await fetch(IND+'?'+new URLSearchParams({action:'delNutricionNota',residente:'__MONITOR_TEST__',texto}));
+              return (add.j&&add.j.ok&&leyo)?true:null;
+            });
+            if(!nutOk) fails.push('Guardar NUTRICION dice OK pero NO persiste - revisar backend Indicaciones.');
+            const ind=await retry(async()=>{const r=await jr(IND+'?action=getIndicaciones&t='+Date.now());return (r.j&&r.j.ok)?r:null;});
+            if(ind && (ind.j.data||[]).length===0) fails.push('No se ven las indicaciones medicas (lista vacia).');
+            if(fails.length){
+              const MSG='ALERTA Villa Teresa: '+fails.join(' | ');
+              const ph=process.env.WA_PHONE, ak=process.env.WA_APIKEY;
+              if(ph&&ak){try{await fetch('https://api.callmebot.com/whatsapp.php?'+new URLSearchParams({phone:ph,text:MSG,apikey:ak}));}catch(e){}}
+              console.log(MSG); process.exit(1);
+            }
+            console.log('OK - sistema sano (chequeo profundo)');
+          })();
+          NODE
