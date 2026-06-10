@@ -4500,6 +4500,7 @@ function attachInsumos() {
         });
       }
     } catch(e) { console.error(e); }
+    insumosState._cargadoKey = res + '|' + mes;
     if (btnCargar) { btnCargar.textContent = '📥 Cargar datos'; btnCargar.disabled = false; }
     const main = document.getElementById('main');
     main.innerHTML = viewInsumos();
@@ -4516,7 +4517,7 @@ function attachInsumos() {
   if (btnCargar) btnCargar.onclick = autoCargarInsumos;
 
   // Auto-cargar si ya hay residente y mes seleccionados
-  if (insumosState.residente && insumosState.mes) autoCargarInsumos();
+  if (insumosState.residente && insumosState.mes && insumosState._cargadoKey !== insumosState.residente + '|' + insumosState.mes) autoCargarInsumos();
 
   // Guardar fila
   document.querySelectorAll('.ins-btn-guardar').forEach(btn => {
