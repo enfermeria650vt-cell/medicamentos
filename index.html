@@ -4524,7 +4524,11 @@ function attachInsumos() {
   // El flag _renderInterno evita que el propio re-render de autoCargarInsumos dispare otra carga (bucle).
   const esRenderInterno = insumosState._renderInterno === true;
   insumosState._renderInterno = false;
-  if (insumosState.residente && insumosState.mes && !esRenderInterno) autoCargarInsumos();
+  // Usa la seleccion VISIBLE de los dropdowns (al abrir la app ya muestran residente y mes):
+  // asi la grilla carga sola al entrar, sin tener que tocar "Cargar datos".
+  const resVis = resEl ? resEl.value : insumosState.residente;
+  const mesVis = mesEl ? mesEl.value : insumosState.mes;
+  if (resVis && mesVis && !esRenderInterno) autoCargarInsumos();
 
   // Espejar lo tecleado al estado: si algo re-dibuja la vista (sync/render), NO se pierde lo cargado
   document.querySelectorAll('.ins-inp').forEach(inp => {
