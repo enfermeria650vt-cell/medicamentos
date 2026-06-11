@@ -2639,7 +2639,7 @@ function viewResidente() {
             </tr>
           </thead>
           <tbody>
-            ${r.meds.length === 0 ? `<tr><td colspan="${dias.length + (admin ? 3 : 2)}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.${admin ? ' Tocá <strong>➕ Agregar medicamento</strong>.' : ''}</td></tr>` : r.meds.slice().sort((a,b) => ordenHorario(a.id) - ordenHorario(b.id)).map(m => {
+            ${r.meds.length === 0 ? `<tr><td colspan="${dias.length + (admin ? 3 : 2)}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.${admin ? ' Tocá <strong>➕ Agregar medicamento</strong>.' : ''}</td></tr>` : r.meds.slice().sort((a,b) => ((parseFloat(a.consumo) > 0 ? 0 : 1) - (parseFloat(b.consumo) > 0 ? 0 : 1)) || (ordenHorario(a.id) - ordenHorario(b.id))).map(m => {
               const horario = state.semanal[m.id+'_horario'] || '';
               const e = estadoDosisHoy(m);
               const rowCls = e.tipo === 'atrasada' ? 'row-atrasada' : e.tipo === 'ahora' ? 'row-ahora' : e.tipo === 'al-dia' ? 'row-al-dia' : '';
@@ -2824,7 +2824,7 @@ function viewHistorialDetalle() {
               </tr>
             </thead>
             <tbody>
-              ${r.meds.slice().sort((a,b) => ordenHorarioStr(a.horario) - ordenHorarioStr(b.horario)).map(m => `
+              ${r.meds.slice().sort((a,b) => ((parseFloat(a.consumo) > 0 ? 0 : 1) - (parseFloat(b.consumo) > 0 ? 0 : 1)) || (ordenHorarioStr(a.horario) - ordenHorarioStr(b.horario))).map(m => `
                 <tr>
                   <td class="med-name">${escapeHtml(m.med)}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? '—'}/día</span></td>
                   <td class="horario-cell" style="font-family:Courier;font-size:12px">${escapeHtml(m.horario || '—')}</td>
