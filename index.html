@@ -4505,6 +4505,7 @@ function attachInsumos() {
     } catch(e) { console.error(e); }
     insumosState._cargadoKey = res + '|' + mes;
     if (btnCargar) { btnCargar.textContent = '📥 Cargar datos'; btnCargar.disabled = false; }
+    insumosState._renderInterno = true; // que attachInsumos no dispare otra carga (evita bucle)
     const main = document.getElementById('main');
     main.innerHTML = viewInsumos();
     attachInsumos();
@@ -4519,8 +4520,11 @@ function attachInsumos() {
 
   if (btnCargar) btnCargar.onclick = autoCargarInsumos;
 
-  // Auto-cargar si ya hay residente y mes seleccionados
-  if (insumosState.residente && insumosState.mes && insumosState._cargadoKey !== insumosState.residente + '|' + insumosState.mes) autoCargarInsumos();
+  // Auto-cargar al entrar a la vista: trae datos FRESCOS de la nube (otros dispositivos pueden haber cargado).
+  // El flag _renderInterno evita que el propio re-render de autoCargarInsumos dispare otra carga (bucle).
+  const esRenderInterno = insumosState._renderInterno === true;
+  insumosState._renderInterno = false;
+  if (insumosState.residente && insumosState.mes && !esRenderInterno) autoCargarInsumos();
 
   // Espejar lo tecleado al estado: si algo re-dibuja la vista (sync/render), NO se pierde lo cargado
   document.querySelectorAll('.ins-inp').forEach(inp => {
