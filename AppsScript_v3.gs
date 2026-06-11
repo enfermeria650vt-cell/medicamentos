@@ -122,7 +122,7 @@ function doGet(e) {
 
     if (action === "pull") return respJSON_(handlePull_(params));
     if (action === "ingresos") return respJSON_(handleIngresosLegacy_(params));
-    if (action === "ping") return respJSON_({ ok: true, ahora: new Date().toISOString(), version: "v2" });
+    if (action === "ping") return respJSON_({ ok: true, ahora: new Date().toISOString(), version: "v2", pushDelta: true });
 
     return respJSON_({ ok: false, error: "Acción GET no reconocida: " + action });
   } catch (err) {
@@ -144,6 +144,11 @@ function doPost(e) {
     // Nuevo: acción push
     if (params.action === "push") {
       return respJSON_(handlePush_(params));
+    }
+
+    // Push granular: aplica solo los casilleros cambiados (no pisa el resto)
+    if (params.action === "pushDelta") {
+      return respJSON_(handlePushDelta_(params));
     }
 
     return respJSON_({ ok: false, error: "POST sin acción válida" });
@@ -247,6 +252,75 @@ function handlePush_(params) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ============ PUSH DELTA: guardar solo casilleros puntuales ============
+// sets = [[path, valor], ...]   dels = [path, ...]   (path = array de claves anidadas)
+// Evita que un dispositivo con la planilla vieja pise lo que cargaron los demás.
+function handlePushDelta_(params) {
+  var key = String(params.key || "").trim();
+  var user = String(params.user || "anónimo");
+  var keysOK = ["semanal", "controlSignos"];
+  if (keysOK.indexOf(key) === -1) return { ok: false, error: "pushDelta solo acepta: " + keysOK.join(", ") };
+  var sets, dels;
+  try {
+    sets = JSON.parse(params.sets || "[]");
+    dels = JSON.parse(params.dels || "[]");
+  } catch (e) { return { ok: false, error: "sets/dels no son JSON válido: " + e }; }
+  if (!Array.isArray(sets) || !Array.isArray(dels)) return { ok: false, error: "sets/dels deben ser arrays" };
+  if (!sets.length && !dels.length) return { ok: false, error: "Delta vacío" };
+
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var hoja = ss.getSheetByName(TAB_STATE);
+  if (!hoja) return { ok: false, error: "Hoja " + TAB_STATE + " no existe" };
+
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) { return { ok: false, error: "Otro dispositivo está escribiendo, intentá de nuevo" }; }
+  try {
+    var ncol = Math.min(STATE_NCOLS, hoja.getMaxColumns());
+    var data = hoja.getRange(2, 1, Math.max(1, hoja.getLastRow() - 1), ncol).getValues();
+    var rowIdx = -1, obj = {};
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0] || "").trim() === key) {
+        rowIdx = i + 2;
+        try { obj = JSON.parse(reassembleValue_(data[i]) || "{}") || {}; } catch (e2) { obj = {}; }
+        break;
+      }
+    }
+    var ahora = new Date();
+    if (rowIdx === -1) {
+      hoja.appendRow([key, "", ahora.toISOString(), user]);
+      rowIdx = hoja.getLastRow();
+    }
+    for (var si = 0; si < sets.length; si++) aplicarPath_(obj, sets[si][0], sets[si][1], false);
+    for (var di = 0; di < dels.length; di++) aplicarPath_(obj, dels[di], null, true);
+    var value = JSON.stringify(obj);
+    var w = writeValueChunked_(hoja, rowIdx, value);
+    if (!w.ok) return { ok: false, error: w.error };
+    hoja.getRange(rowIdx, 3).setValue(ahora.toISOString());
+    hoja.getRange(rowIdx, 4).setValue(user);
+    var hojaLog = ss.getSheetByName(TAB_LOG);
+    if (hojaLog) hojaLog.appendRow([ahora, "PUSHDELTA", key, user, sets.length + " set / " + dels.length + " del"]);
+    return { ok: true, updatedAt: ahora.toISOString(), sets: sets.length, dels: dels.length, bytes: value.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function aplicarPath_(obj, path, valor, borrar) {
+  if (!path || !path.length) return;
+  var o = obj;
+  for (var i = 0; i < path.length - 1; i++) {
+    var p = String(path[i]);
+    if (typeof o[p] !== "object" || o[p] === null) {
+      if (borrar) return;
+      o[p] = {};
+    }
+    o = o[p];
+  }
+  var ult = String(path[path.length - 1]);
+  if (borrar) delete o[ult];
+  else o[ult] = valor;
 }
 
 // ============ INGRESOS LEGACY (compatibilidad con sync WhatsApp v1) ============

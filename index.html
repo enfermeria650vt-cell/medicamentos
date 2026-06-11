@@ -1707,6 +1707,8 @@ async function cloudPull(silencioso = false) {
       localStorage.setItem('vt_gemini_key', json.data.geminiKey);
       cambios++;
     }
+    // Cambios locales que todavia no subieron: re-aplicarlos para que no se borren de pantalla
+    try { aplicarDeltasLocales(); } catch(e) {}
     setLastPull(json.ahora);
     chequearFechaDispositivo(json.ahora);
     syncState.lastOk = new Date().toISOString();
@@ -1757,6 +1759,88 @@ async function cloudPush(key, valueObj, silencioso = true) {
     if (!silencioso) toast('❌ No se pudo guardar en la nube: ' + err.message, 'error');
     return { ok: false, error: err.message };
   }
+}
+
+// ===== PUSH GRANULAR (deltas): manda SOLO los casilleros que cambiaron =====
+// Evita que un dispositivo con la planilla vieja pise lo que cargaron los demás (perdida de tildes/signos).
+// Si falla la conexion, el cambio queda en cola local y se reintenta en el proximo sync.
+const DELTA_QUEUE_KEY = 'vt_delta_queue_v1';
+function leerColaDeltas() { try { return JSON.parse(localStorage.getItem(DELTA_QUEUE_KEY)) || []; } catch(e) { return []; } }
+function guardarColaDeltas(q) { try { localStorage.setItem(DELTA_QUEUE_KEY, JSON.stringify(q.slice(-300))); } catch(e) {} }
+
+async function cloudPushDelta(key, sets, dels) {
+  if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
+  const q = leerColaDeltas();
+  q.push({ key: key, sets: sets || [], dels: dels || [], ts: Date.now() });
+  guardarColaDeltas(q);
+  return flushColaDeltas();
+}
+
+let _flushDeltasCorriendo = false;
+async function flushColaDeltas() {
+  if (_flushDeltasCorriendo || !syncHabilitado()) return { ok: true };
+  _flushDeltasCorriendo = true;
+  let ultimo = { ok: true };
+  try {
+    let q = leerColaDeltas();
+    while (q.length) {
+      const it = q[0];
+      try {
+        const fd = new URLSearchParams();
+        fd.append('action', 'pushDelta');
+        fd.append('key', it.key);
+        fd.append('sets', JSON.stringify(it.sets));
+        fd.append('dels', JSON.stringify(it.dels));
+        fd.append('user', getCurrentUser() || 'anónimo');
+        const r = await fetch(getCloudUrl(), { method: 'POST', body: fd });
+        const j = await r.json();
+        if (!j.ok) {
+          // Backend viejo sin pushDelta: caer al push completo para no trabar la cola
+          if (/no válida|no reconocida|pushDelta solo/i.test(String(j.error||''))) {
+            q.shift(); guardarColaDeltas(q);
+            await cloudPush(it.key, it.key === 'semanal' ? state.semanal : state.controlSignos);
+            continue;
+          }
+          throw new Error(j.error || 'Respuesta no OK');
+        }
+        ultimo = j;
+        syncState.lastOk = new Date().toISOString(); syncState.lastError = null;
+        q.shift(); guardarColaDeltas(q);
+        q = leerColaDeltas();
+      } catch (err) {
+        // Sin conexion: queda en cola, se reintenta en el proximo sync de 30s o al volver online
+        syncState.lastError = String((err && err.message) || err);
+        ultimo = { ok: false, error: syncState.lastError, enCola: q.length };
+        break;
+      }
+    }
+  } finally {
+    _flushDeltasCorriendo = false;
+    try { actualizarBadgeSync(); } catch (e) {}
+  }
+  return ultimo;
+}
+
+// Cambios locales aun no subidos: re-aplicarlos sobre lo que baja de la nube (que no "desaparezcan" en pantalla)
+function aplicarDeltasLocales() {
+  const q = leerColaDeltas();
+  if (!q.length) return;
+  q.forEach(it => {
+    const raiz = it.key === 'semanal' ? state.semanal : (it.key === 'controlSignos' ? state.controlSignos : null);
+    if (!raiz) return;
+    (it.sets || []).forEach(par => _setPathLocal(raiz, par[0], par[1]));
+    (it.dels || []).forEach(pp => _delPathLocal(raiz, pp));
+  });
+  try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch(e) {}
+  try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch(e) {}
+}
+function _setPathLocal(o, path, val) {
+  for (let i = 0; i < path.length - 1; i++) { const pz = path[i]; if (typeof o[pz] !== 'object' || o[pz] === null) o[pz] = {}; o = o[pz]; }
+  o[path[path.length - 1]] = val;
+}
+function _delPathLocal(o, path) {
+  for (let i = 0; i < path.length - 1; i++) { const pz = path[i]; if (typeof o[pz] !== 'object' || o[pz] === null) return; o = o[pz]; }
+  delete o[path[path.length - 1]];
 }
 
 // Versiones "cloud-aware" de los save existentes
@@ -2897,9 +2981,15 @@ function toggleDosis(residente, medId, diaIdx, dosisIdx) {
     const _r = state.residentes.find(x => x.nombre === residente);
     const _m = _r && _r.meds.find(x => x.id === medId);
     const _dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-    logCambio('administracion', (nuevo ? 'Administró: ' : 'Desmarcó: ') + (_m ? _m.med : medId) + ' (' + residente + ') - ' + (_dias[diaIdx]||''));
+    logCambio('administracion', (nuevo ? 'Administró: ' : 'Desmarcó: ') + (_m ? _m.med : medId) + ' (' + residente + ') - ' + (_dias[diaIdx]||'') + ((dosisIdx||0) > 0 ? ' [toma ' + (dosisIdx+1) + ']' : ''));
   } catch(e) {}
-  saveSem();
+  // Guardar local + subir SOLO este casillero (no pisa los tildes de otros dispositivos)
+  try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch(e) {}
+  const _sets = [[[k], nuevo]];
+  const _dels = [];
+  if (nuevo) { _sets.push([[k + '_by'], state.semanal[k + '_by']], [[k + '_at'], state.semanal[k + '_at']]); }
+  else { _dels.push([k + '_by'], [k + '_at']); }
+  cloudPushDelta('semanal', _sets, _dels);
   render();
 }
 function setHorario(residente, medId, valor) {
@@ -2908,7 +2998,8 @@ function setHorario(residente, medId, valor) {
   // También guardar en el objeto del medicamento para que sincronice con la nube
   const r = state.residentes.find(x => x.nombre === residente);
   if (r) { const m = r.meds.find(x => x.id === medId); if (m) m.horario = valor; }
-  saveSem();
+  try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch(e) {}
+  cloudPushDelta('semanal', [[[medId+'_horario'], valor]], []);
   saveData(); // asegura que el horario quede en la nube
 }
 function limpiarSemana(residente) {
@@ -3526,7 +3617,10 @@ function csSet(fecha, seccion, res, campo, valor) {
     o = o[parts[i]];
   }
   o[parts[parts.length-1]] = valor;
-  saveCS();
+  // Guardar local + subir SOLO este casillero + dejar rastro en el historial (permite reconstruir)
+  try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch(e) {}
+  cloudPushDelta('controlSignos', [[[fecha, seccion, res].concat(parts), valor]], []);
+  try { logCambio('controlsignos', seccion + ' ' + campo + ' = ' + valor + ' (' + res + ') - ' + fecha); } catch(e) {}
 }
 function csSemanaDias(fecha) {
   const p = fecha.split('-').map(Number);
@@ -3841,7 +3935,8 @@ function csFinalizarTurno(turnoKey) {
   }
   dia.turnoFin[turnoKey] = { by: getCurrentUser() || 'anónimo', at: new Date().toISOString() };
   logCambio('signos', 'Turno ' + (nombres[turnoKey]||'') + ' finalizado - ' + csFmtFecha(f));
-  saveCS();
+  try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch(e) {}
+  cloudPushDelta('controlSignos', [[[f, 'turnoFin', turnoKey], dia.turnoFin[turnoKey]]], []);
   toast('Turno ' + (nombres[turnoKey]||'') + ' finalizado');
   render();
 }
@@ -4850,9 +4945,11 @@ setInterval(() => {
 // Auto-sync cada 30 segundos si está habilitado
 setInterval(() => {
   if (syncHabilitado() && syncAutoActivado() && !document.hidden) {
+    flushColaDeltas();
     cloudPull(true);
   }
 }, 30000);
+window.addEventListener('online', () => { try { flushColaDeltas(); } catch (e) {} });
 
 // Indicador de sincronización: refrescar el texto cada 10s y reaccionar a la conexión.
 setInterval(() => { try { actualizarBannerSync(); } catch (e) {} }, 10000);
