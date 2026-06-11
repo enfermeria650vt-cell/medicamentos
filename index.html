@@ -900,11 +900,22 @@ async function pinIngresar() {
   showApp({ rol: u.rol, nombre: u.nombre });
 }
 
+const SESSION_MAX_MS = 8 * 60 * 60 * 1000; // 8 horas: al vencer, vuelve a pedir PIN
 function getSession() {
-  try { return JSON.parse(sessionStorage.getItem('vt_user')); } catch(e) { return null; }
+  try {
+    const s = JSON.parse(sessionStorage.getItem('vt_user'));
+    if (!s) return null;
+    // Sesiones de formato viejo (sin rol/usuario) o vencidas: invalidar
+    if (!s.rol || !s.usuario || !s.ts || (Date.now() - s.ts) > SESSION_MAX_MS) {
+      sessionStorage.removeItem('vt_user');
+      return null;
+    }
+    return s;
+  } catch(e) { return null; }
 }
 
 function setSession(user) {
+  user.ts = Date.now();
   sessionStorage.setItem('vt_user', JSON.stringify(user));
   setTimeout(() => logCambio('sesion', `Inicio de sesión: ${user.nombre} (${user.rol})`), 2000);
 }
@@ -950,6 +961,12 @@ window.addEventListener('DOMContentLoaded', () => {
   renderLoginUsers();
   const session = getSession();
   if (session) showApp(session);
+
+  // Si la sesión venció (8 h) y la pestaña quedó abierta, volver al login
+  setInterval(() => {
+    const ls = document.getElementById('login-screen');
+    if (ls && ls.classList.contains('hidden') && !getSession()) location.reload();
+  }, 60000);
 
   const btnCerrar = document.getElementById('btn-cerrar-sesion');
   if (btnCerrar) {
@@ -1048,7 +1065,7 @@ function saveHistorialCambios() {
 function logCambio(tipo, descripcion, extra) {
   if (!state || !state.historialCambios) return;
   const session = typeof getSession === 'function' ? getSession() : null;
-  const usuario = session ? session.nombre + ' (' + session.usuario + ')' : 'Sistema';
+  const usuario = session ? session.nombre + ' (' + (session.rol || session.usuario) + ')' : 'Sistema';
   const ahora = new Date();
   const fecha = ahora.toLocaleDateString('es-AR') + ' ' + ahora.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   state.historialCambios.push({ tipo, descripcion, usuario, fecha, ts: ahora.toISOString(), extra: extra || null });
@@ -2237,7 +2254,7 @@ function attachHistoriasCli() {
     if (!sel) return;
     const ahora = new Date().toLocaleString('es-AR');
     const session = typeof getSession === 'function' ? getSession() : null;
-    const usuario = session ? session.nombre + ' (' + session.usuario + ')' : 'Sistema';
+    const usuario = session ? session.nombre + ' (' + (session.rol || session.usuario) + ')' : 'Sistema';
     const datos = {
       diagnostico: document.getElementById('hc-diagnostico').value.trim(),
       antecedentes: document.getElementById('hc-antecedentes').value.trim(),
@@ -2409,7 +2426,8 @@ function mostrarAlertaLoginSiHay() {
 
 
 function viewHistorialCambios() {
-  const hist = (state.historialCambios || []).slice().reverse();
+  if (!state.histCloud && !state.histCloudCargando) { state.histCloudCargando = true; setTimeout(cargarHistorialCloud, 50); }
+  const hist = Array.isArray(state.histCloud) ? state.histCloud : (state.historialCambios || []).slice().reverse();
   const filtro = state.histFiltro || 'todos';
   const filtrados = filtro === 'todos' ? hist : hist.filter(h => h.tipo === filtro);
 
@@ -2418,14 +2436,14 @@ function viewHistorialCambios() {
 
   return `
     <h2>📜 Historial de cambios</h2>
-    <div class="subtitle">${hist.length} registros en total</div>
+    <div class="subtitle">${hist.length} registros ${Array.isArray(state.histCloud) ? '— ☁️ todos los dispositivos y usuarios' : (state.histCloudCargando ? '— ⏳ cargando registros de la nube…' : '— 📱 solo este dispositivo (sin conexión a la nube)')} <button class="btn small secondary" onclick="state.histCloud=null;render()">🔄 Actualizar</button></div>
     <div class="toolbar" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
       ${['todos', ...Array.from(new Set(hist.map(h=>h.tipo).filter(Boolean))).sort()].map(f => `
         <button class="btn ${filtro === f ? '' : 'secondary'}" onclick="state.histFiltro='${f}';render()">
           ${iconos[f] || '📋'} ${f.charAt(0).toUpperCase()+f.slice(1)} ${f==='todos' ? '('+hist.length+')' : '('+hist.filter(h=>h.tipo===f).length+')'}
         </button>`).join('')}
       <span class="spacer"></span>
-      ${state.currentUser && state.currentUser.rol === 'admin' ? `<button class="btn secondary" onclick="if(confirm('¿Borrar todo el historial?')){state.historialCambios=[];saveHistorialCambios();render()}">🗑️ Limpiar historial</button>` : ''}
+      ${!Array.isArray(state.histCloud) && state.currentUser && state.currentUser.rol === 'admin' ? `<button class="btn secondary" onclick="if(confirm('¿Borrar todo el historial local?')){state.historialCambios=[];saveHistorialCambios();render()}">🗑️ Limpiar historial local</button>` : ''}
     </div>
     ${filtrados.length === 0 ? `
       <div class="card text-center" style="padding:48px">
@@ -2450,6 +2468,27 @@ function viewHistorialCambios() {
       </table>
     `}
   `;
+}
+
+async function cargarHistorialCloud() {
+  try {
+    const url = (typeof getIndicUrl === 'function') ? getIndicUrl() : null;
+    if (url) {
+      const r = await fetch(url + '?action=getHistorial&limit=500');
+      const j = await r.json();
+      const arr = (j && j.ok && Array.isArray(j.data)) ? j.data : null;
+      if (arr) {
+        state.histCloud = arr.map(h => ({
+          tipo: h.accion || 'otro',
+          descripcion: h.detalle || (h.residente ? '(' + h.residente + ')' : ''),
+          usuario: (h.usuario || '?') + (h.rol ? ' (' + h.rol + ')' : ''),
+          fecha: h.fecha || ''
+        }));
+      }
+    }
+  } catch(e) {}
+  state.histCloudCargando = false;
+  if (state.view === 'historial-cambios') render();
 }
 
 function viewStock() {
