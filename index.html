@@ -1713,7 +1713,8 @@ async function cloudPull(silencioso = false) {
     syncState.lastError = null;
     if (cambios > 0) {
       if (!silencioso) toast('✅ Trajimos ' + cambios + ' cambio' + (cambios>1?'s':'') + ' de la nube', 'success');
-      render();
+      // En Insumos NO re-dibujamos: esa vista no muestra datos de este pull y el render borraba la grilla ("el vacio")
+      if (state.view !== 'insumos') render();
     } else if (!silencioso) {
       toast('✓ Sin cambios nuevos');
     }
@@ -4357,6 +4358,8 @@ function viewInsumos() {
   totFila += '<td></td></tr>';
 
   const sub = insumosState.sub || 'usodiario';
+  // Si ya cargamos datos para este residente+mes, un re-render NO debe esconder la grilla ("el vacio")
+  const yaCargado = sub === 'usodiario' && !!resSel && !!mesSel && insumosState._cargadoKey === (resSel + '|' + mesSel);
 
   const stockHtml = sub === 'stock' ? `
   <div id="ins-stock-panel">
@@ -4422,10 +4425,10 @@ function viewInsumos() {
     <select class="ins-select" id="ins-mes-sel">${mesOpts.join('')}</select>
     <button class="btn btn-primary" id="ins-btn-cargar">📥 Cargar datos</button>
   </div>
-  <div id="ins-contenido">
+  <div id="ins-contenido"${yaCargado ? ' style="display:none"' : ''}>
     <div class="ins-loading">Seleccioná un residente y mes, luego hacé clic en <strong>Cargar datos</strong>.</div>
   </div>
-  <div id="ins-tabla-wrap" style="display:none">
+  <div id="ins-tabla-wrap" style="display:${yaCargado ? 'block' : 'none'}">
     <div class="ins-tabla-wrap">
       <table class="ins-tabla">
         <thead>
@@ -4518,6 +4521,15 @@ function attachInsumos() {
 
   // Auto-cargar si ya hay residente y mes seleccionados
   if (insumosState.residente && insumosState.mes && insumosState._cargadoKey !== insumosState.residente + '|' + insumosState.mes) autoCargarInsumos();
+
+  // Espejar lo tecleado al estado: si algo re-dibuja la vista (sync/render), NO se pierde lo cargado
+  document.querySelectorAll('.ins-inp').forEach(inp => {
+    inp.oninput = () => {
+      const d = inp.dataset.dia, campo = inp.dataset.campo;
+      if (!insumosState.datos[d]) insumosState.datos[d] = {};
+      insumosState.datos[d][campo] = inp.value;
+    };
+  });
 
   // Guardar fila
   document.querySelectorAll('.ins-btn-guardar').forEach(btn => {
