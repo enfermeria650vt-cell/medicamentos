@@ -3355,6 +3355,7 @@ function viewIndicaciones() {
     <h2>📋 Indicaciones médicas</h2>
     <div class="subtitle">Tocá un residente para ver su indicación completa. <a href="#" onclick="cambiarIndicUrl();return false;" style="color:var(--azul-2);text-decoration:none">⚙️ Cambiar dirección</a></div>
     <button class="btn small" style="margin:2px 0 12px;background:#1F4E78" onclick="resumenCambiosA4()">🖨 Resumen de cambios del pase (A4)</button>
+    <button class="btn small secondary" style="margin:2px 0 12px 6px" onclick="rcVerGuardados()">📚 Resúmenes guardados</button>
     <div class="indic-layout">
       <div class="indic-lista" id="indic-lista"><div class="indic-loading">Cargando residentes…</div></div>
       <div class="indic-panel" id="indic-panel">
@@ -3739,6 +3740,12 @@ async function resumenCambiosA4() {
     ? '<div class="sin-novedad"><strong>SIN NOVEDAD (' + sinNovedad.length + '):</strong> ' + sinNovedad.map(escapeHtml).join(' · ') + '</div>'
     : '';
 
+  const inner = cuerpo + sinNovHTML;
+  rcGuardarResumen(maxTs, inner);
+  rcAbrirVentana(fechaPase, inner, ahora);
+}
+
+function rcAbrirVentana(fechaPase, innerHTML, generado) {
   const win = window.open('', '_blank', 'width=820,height=1000');
   if (!win) { toast('El navegador bloqueó la ventana emergente. Permitila e intentá de nuevo.', 'error'); return; }
   win.document.write(`<!DOCTYPE html><html><head>
@@ -3768,15 +3775,92 @@ async function resumenCambiosA4() {
   <div class="head">
     <h1>RESIDENCIA VILLA TERESA</h1>
     <div class="sub">RESUMEN DE CAMBIOS DE INDICACIONES MÉDICAS — PASE DEL ${fechaPase}</div>
-    <div class="meta">Generado el ${ahora} · Solo se detallan las modificaciones respecto del pase anterior</div>
+    <div class="meta">Generado el ${generado} · Solo se detallan las modificaciones respecto del pase anterior</div>
   </div>
-  ${cuerpo}
-  ${sinNovHTML}
+  ${innerHTML}
   <div class="firma"><div>Médica/o</div><div>Enfermería / Responsable</div></div>
   <div class="pie">Documento informativo generado automáticamente por el sistema. Ante dudas, consultar la indicación completa de cada residente.</div>
   <script>window.onload = () => { window.print(); }<\/script>
   </body></html>`);
   win.document.close();
+}
+
+// ─── ARCHIVO SEMANAL DE RESÚMENES ────────────────────────────────────────────
+// Cada resumen generado se guarda en controlSignos._resumenes (sincroniza a la
+// nube con pushDelta) y se puede volver a ver/imprimir agrupado por semana.
+
+function rcSemanaLunes(d) {
+  const x = new Date(d.getTime());
+  const off = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - off);
+  return x;
+}
+
+function rcGuardarResumen(ts, innerHTML) {
+  try {
+    if (!state.controlSignos) state.controlSignos = {};
+    if (!state.controlSignos._resumenes) state.controlSignos._resumenes = {};
+    const f = new Date(ts);
+    const iso = f.getFullYear() + '-' + String(f.getMonth()+1).padStart(2,'0') + '-' + String(f.getDate()).padStart(2,'0');
+    const obj = {
+      fechaPase: rcFechaCorta(ts),
+      generado: new Date().toISOString(),
+      user: (typeof getCurrentUser === 'function' ? (getCurrentUser() || '') : ''),
+      html: innerHTML
+    };
+    state.controlSignos._resumenes[iso] = obj;
+    // Conservar solo los últimos 30 resúmenes
+    const claves = Object.keys(state.controlSignos._resumenes).sort();
+    const borrar = claves.slice(0, Math.max(0, claves.length - 30));
+    borrar.forEach(function(k){ delete state.controlSignos._resumenes[k]; });
+    try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch(e) {}
+    cloudPushDelta('controlSignos', [[['_resumenes', iso], obj]], borrar.map(function(k){ return ['_resumenes', k]; }));
+    toast('💾 Resumen guardado en 📚 Resúmenes guardados');
+  } catch(e) {}
+}
+
+function rcVerGuardados() {
+  const panel = document.getElementById('indic-panel');
+  if (!panel) return;
+  const res = (state.controlSignos && state.controlSignos._resumenes) || {};
+  const claves = Object.keys(res).sort().reverse();
+  if (!claves.length) {
+    panel.innerHTML = '<div class="indic-placeholder">Todavía no hay resúmenes guardados.<br>Generá uno con el botón 🖨 y queda archivado acá, agrupado por semana.</div>';
+    return;
+  }
+  const grupos = {};
+  claves.forEach(function(iso) {
+    const p = iso.split('-').map(Number);
+    const lun = rcSemanaLunes(new Date(p[0], p[1]-1, p[2]));
+    const dom = new Date(lun.getTime()); dom.setDate(lun.getDate() + 6);
+    const gk = lun.getFullYear() + '-' + String(lun.getMonth()+1).padStart(2,'0') + '-' + String(lun.getDate()).padStart(2,'0');
+    if (!grupos[gk]) grupos[gk] = { titulo: 'Semana del ' + rcFechaCorta(lun) + ' al ' + rcFechaCorta(dom), items: [] };
+    grupos[gk].items.push(iso);
+  });
+  let h = '<h3 style="font-size:15px;color:#1F4E78;margin:4px 0 12px">📚 Resúmenes de cambios guardados</h3>';
+  Object.keys(grupos).sort().reverse().forEach(function(gk, i) {
+    const g = grupos[gk];
+    h += '<details ' + (i === 0 ? 'open ' : '') + 'style="border:1px solid #dde2e7;border-radius:6px;margin-bottom:8px;background:#fafbfc">' +
+      '<summary style="cursor:pointer;padding:8px 12px;font-weight:bold;color:#1F4E78">📅 ' + g.titulo + ' (' + g.items.length + ')</summary>' +
+      g.items.map(function(iso) {
+        const r = res[iso];
+        let gen = '';
+        try { gen = new Date(r.generado).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }); } catch(e) {}
+        return '<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;border-top:1px solid #eef1f4;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:180px">Pase del <strong>' + escapeHtml(r.fechaPase || iso) + '</strong>' +
+          (gen ? ' <span style="color:#6c7a8a;font-size:12px">· guardado ' + gen + (r.user ? ' por ' + escapeHtml(r.user) : '') + '</span>' : '') + '</div>' +
+          '<button class="btn small" style="background:#1F4E78" onclick="rcReimprimir(\'' + iso + '\')">🖨 Imprimir</button></div>';
+      }).join('') + '</details>';
+  });
+  panel.innerHTML = h;
+}
+
+function rcReimprimir(iso) {
+  const r = state.controlSignos && state.controlSignos._resumenes && state.controlSignos._resumenes[iso];
+  if (!r) { toast('No se encontró ese resumen', 'error'); return; }
+  let gen = '';
+  try { gen = new Date(r.generado).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }); } catch(e) {}
+  rcAbrirVentana(r.fechaPase || iso, r.html, gen + (r.user ? ' (' + r.user + ')' : ''));
 }
 
 // Ordena la tabla de medicación de una indicación por la columna HORARIO.
@@ -3885,6 +3969,7 @@ function csResNameCell(nombre) {
 }
 function csMigrarNombreCS(viejo, nuevo) {
   for (const fecha in state.controlSignos) {
+    if (fecha.charAt(0) === '_') continue; // claves especiales (ej: _resumenes)
     const dia = state.controlSignos[fecha];
     for (const seccion in dia) {
       const s = dia[seccion];
@@ -3897,6 +3982,7 @@ function csMigrarNombreCS(viejo, nuevo) {
 }
 function csBorrarDatosCS(nombre) {
   for (const fecha in state.controlSignos) {
+    if (fecha.charAt(0) === '_') continue; // claves especiales (ej: _resumenes)
     const dia = state.controlSignos[fecha];
     for (const seccion in dia) {
       if (dia[seccion]) delete dia[seccion][nombre];
@@ -4068,7 +4154,7 @@ function csDiaTieneDatos(fecha) {
   return found;
 }
 function csHistorialView() {
-  const fechas = Object.keys(state.controlSignos).filter(csDiaTieneDatos).sort();
+  const fechas = Object.keys(state.controlSignos).filter(function(f){ return f.charAt(0) !== '_' && csDiaTieneDatos(f); }).sort();
   if (fechas.length === 0) {
     return '<div class="cs-hist-vacio">Todavía no hay planillas cargadas.<br>' +
            'A medida que cargues datos en Signos vitales, Hidratación o Catarsis, ' +
