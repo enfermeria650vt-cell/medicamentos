@@ -3354,6 +3354,7 @@ function viewIndicaciones() {
   return `
     <h2>📋 Indicaciones médicas</h2>
     <div class="subtitle">Tocá un residente para ver su indicación completa. <a href="#" onclick="cambiarIndicUrl();return false;" style="color:var(--azul-2);text-decoration:none">⚙️ Cambiar dirección</a></div>
+    <button class="btn small" style="margin:2px 0 12px;background:#1F4E78" onclick="resumenCambiosA4()">🖨 Resumen de cambios del pase (A4)</button>
     <div class="indic-layout">
       <div class="indic-lista" id="indic-lista"><div class="indic-loading">Cargando residentes…</div></div>
       <div class="indic-panel" id="indic-panel">
@@ -3598,6 +3599,183 @@ function resaltarCambiosDiff(colAnt, colAct) {
       mapAct[clave].classList.add('diff-added');
     }
   });
+}
+
+// ─── RESUMEN DE CAMBIOS DEL PASE (hoja A4 imprimible) ────────────────────────
+// Compara el pase anterior con la indicación actual de cada residente y arma
+// una hoja A4 con SOLO lo que la doctora modificó. El resto figura "Sin novedad".
+
+function rcFechaCorta(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '';
+  return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+}
+
+// Extrae de un HTML de indicación: medicamentos (con sus dosis/horarios),
+// texto de evolución y diagnóstico.
+function rcExtraerDatos(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html || '';
+  const meds = {};
+  const evol = [];
+  const tabla = div.querySelector('table');
+  if (tabla) {
+    Array.from(tabla.querySelectorAll('tr')).forEach(function(tr) {
+      const tds = Array.from(tr.querySelectorAll('td'));
+      if (!tds.length) return;
+      const limpiar = function(t) { return (t || '').replace(/\s+/g, ' ').trim(); };
+      const c0 = limpiar(tds[0].textContent);
+      if (!c0) return;
+      const resto = tds.slice(1).map(function(td){ return limpiar(td.textContent); }).filter(Boolean).join(' — ');
+      // Filas largas o que empiezan con "EVOLUCIÓN" son texto de evolución, no medicamentos
+      if (/^evoluci/i.test(c0) || c0.length > 80) {
+        evol.push(c0 + (resto ? ' ' + resto : ''));
+      } else {
+        const k = c0.toLowerCase();
+        if (!meds[k]) meds[k] = { nombre: c0, lineas: [] };
+        meds[k].lineas.push(resto || '(sin detalle)');
+      }
+    });
+  }
+  let diag = '';
+  const sinTablas = div.cloneNode(true);
+  Array.from(sinTablas.querySelectorAll('table')).forEach(function(t){ t.remove(); });
+  const m = (sinTablas.textContent || '').match(/Diagn[oó]stico\s*:\s*([^\n]{1,160})/i);
+  if (m) diag = m[1].replace(/\s+/g, ' ').trim();
+  return { meds: meds, evol: evol.join(' ').replace(/\s+/g, ' ').trim(), diag: diag };
+}
+
+// Devuelve los cambios entre htmlAnterior y html, o null si no detecta ninguno.
+function rcDiff(d) {
+  const ant = rcExtraerDatos(d.htmlAnterior);
+  const act = rcExtraerDatos(d.html);
+  const nuevos = [], suspendidos = [], cambiados = [];
+  Object.keys(act.meds).forEach(function(k) {
+    if (!ant.meds[k]) { nuevos.push(act.meds[k]); return; }
+    const a = ant.meds[k].lineas.slice().sort().join(' | ');
+    const b = act.meds[k].lineas.slice().sort().join(' | ');
+    if (a !== b) cambiados.push({ nombre: act.meds[k].nombre, antes: ant.meds[k].lineas, ahora: act.meds[k].lineas });
+  });
+  Object.keys(ant.meds).forEach(function(k) {
+    if (!act.meds[k]) suspendidos.push(ant.meds[k]);
+  });
+  const evolNueva = (act.evol && act.evol !== ant.evol) ? act.evol : '';
+  const diagNuevo = (act.diag && ant.diag && act.diag !== ant.diag) ? act.diag : '';
+  const hay = nuevos.length || suspendidos.length || cambiados.length || evolNueva || diagNuevo;
+  return hay ? { nuevos: nuevos, suspendidos: suspendidos, cambiados: cambiados, evolNueva: evolNueva, diagNuevo: diagNuevo } : null;
+}
+
+function rcBloqueHTML(b) {
+  let h = '<div class="res-bloque"><div class="res-nombre">👤 ' + escapeHtml(b.nombre) + '</div>';
+  if (b.error) return h + '<div class="res-item">⚠ No se pudo cargar el detalle. Verlo en el sistema.</div></div>';
+  if (!b.diff) {
+    return h + '<div class="res-item">✏ Modificado: ' + escapeHtml(b.modificado || 'actualizado') + ' — ver indicación completa en el sistema.</div></div>';
+  }
+  const d = b.diff;
+  d.nuevos.forEach(function(m) {
+    h += '<div class="res-item nuevo">➕ <strong>NUEVO: ' + escapeHtml(m.nombre) + '</strong> — ' + escapeHtml(m.lineas.join(' / ')) + '</div>';
+  });
+  d.cambiados.forEach(function(m) {
+    h += '<div class="res-item cambio">✏ <strong>' + escapeHtml(m.nombre) + ':</strong> antes: ' + escapeHtml(m.antes.join(' / ')) + ' <span class="flecha">→</span> ahora: <strong>' + escapeHtml(m.ahora.join(' / ')) + '</strong></div>';
+  });
+  d.suspendidos.forEach(function(m) {
+    h += '<div class="res-item susp">➖ <strong>SUSPENDIDO: ' + escapeHtml(m.nombre) + '</strong> (era ' + escapeHtml(m.lineas.join(' / ')) + ')</div>';
+  });
+  if (d.diagNuevo) h += '<div class="res-item">🩺 <strong>Diagnóstico:</strong> ' + escapeHtml(d.diagNuevo) + '</div>';
+  if (d.evolNueva) h += '<div class="res-item evol">📝 <strong>Evolución:</strong> ' + escapeHtml(d.evolNueva) + '</div>';
+  return h + '</div>';
+}
+
+async function resumenCambiosA4() {
+  if (!state.indicaciones || !state.indicaciones.length) { toast('Todavía no hay indicaciones cargadas', 'error'); return; }
+  // El "último pase" = la fecha de modificación más reciente entre todos los residentes
+  let maxTs = 0;
+  state.indicaciones.forEach(function(it) {
+    const t = it.fechaModif ? new Date(it.fechaModif).getTime() : 0;
+    if (t && t > maxTs) maxTs = t;
+  });
+  if (!maxTs) { toast('No hay modificaciones registradas todavía', 'error'); return; }
+  const fechaPase = rcFechaCorta(maxTs);
+  const delPase = state.indicaciones.filter(function(it){ return it.fechaModif && rcFechaCorta(it.fechaModif) === fechaPase; });
+  const sinNovedad = state.indicaciones.filter(function(it){ return !(it.fechaModif && rcFechaCorta(it.fechaModif) === fechaPase); })
+                                       .map(function(it){ return it.residente; });
+  toast('Generando resumen del pase del ' + fechaPase + '…');
+
+  // Traer el detalle de los residentes modificados (en tandas de 4 para no saturar)
+  const detalles = [];
+  for (let i = 0; i < delPase.length; i += 4) {
+    const tanda = delPase.slice(i, i + 4).map(async function(it) {
+      if (state.indicacionCache[it.fileId]) return state.indicacionCache[it.fileId];
+      try {
+        const r = await fetch(getIndicUrl() + '?action=getIndicacion&id=' + encodeURIComponent(it.fileId) + '&t=' + Date.now());
+        const j = await r.json();
+        if (j.ok) { state.indicacionCache[it.fileId] = j.data; return j.data; }
+      } catch (e) {}
+      return { residente: it.residente, error: true };
+    });
+    const res = await Promise.all(tanda);
+    res.forEach(function(d){ detalles.push(d); });
+  }
+
+  const bloques = [];
+  detalles.forEach(function(d) {
+    if (!d) return;
+    if (d.error) { bloques.push({ nombre: d.residente, error: true }); return; }
+    const diff = (d.htmlAnterior && d.htmlAnterior.trim()) ? rcDiff(d) : null;
+    if (diff) bloques.push({ nombre: d.residente, modificado: d.modificado || '', diff: diff });
+    else if (d.modificado) bloques.push({ nombre: d.residente, modificado: d.modificado, diff: null });
+    else sinNovedad.push(d.residente);
+  });
+  bloques.sort(function(a, b){ return (a.nombre || '').localeCompare(b.nombre || ''); });
+  sinNovedad.sort(function(a, b){ return (a || '').localeCompare(b || ''); });
+
+  const ahora = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const cuerpo = bloques.length
+    ? bloques.map(rcBloqueHTML).join('')
+    : '<div class="res-bloque"><div class="res-item">Sin novedades: ningún residente tuvo cambios en este pase.</div></div>';
+  const sinNovHTML = sinNovedad.length
+    ? '<div class="sin-novedad"><strong>SIN NOVEDAD (' + sinNovedad.length + '):</strong> ' + sinNovedad.map(escapeHtml).join(' · ') + '</div>'
+    : '';
+
+  const win = window.open('', '_blank', 'width=820,height=1000');
+  if (!win) { toast('El navegador bloqueó la ventana emergente. Permitila e intentá de nuevo.', 'error'); return; }
+  win.document.write(`<!DOCTYPE html><html><head>
+  <meta charset="utf-8">
+  <title>Resumen de cambios — pase del ${fechaPase}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #222; font-size: 12px; padding: 10px; }
+    .head { text-align: center; border-bottom: 3px solid #1F4E78; padding-bottom: 8px; margin-bottom: 14px; }
+    .head h1 { font-size: 17px; color: #1F4E78; letter-spacing: 0.5px; }
+    .head .sub { font-size: 13px; margin-top: 4px; font-weight: bold; }
+    .head .meta { font-size: 10px; color: #777; margin-top: 3px; }
+    .res-bloque { border: 1px solid #ccd5dd; border-left: 4px solid #1F4E78; border-radius: 4px; padding: 6px 10px; margin-bottom: 8px; page-break-inside: avoid; }
+    .res-nombre { font-weight: bold; color: #1F4E78; font-size: 13px; margin-bottom: 4px; }
+    .res-item { margin: 3px 0; line-height: 1.4; }
+    .res-item.nuevo { color: #1e7d32; }
+    .res-item.susp { color: #b02a2a; }
+    .res-item.cambio { color: #7a5200; }
+    .flecha { font-weight: bold; }
+    .sin-novedad { margin-top: 14px; border-top: 1px dashed #999; padding-top: 8px; font-size: 11px; color: #444; line-height: 1.6; page-break-inside: avoid; }
+    .firma { margin-top: 34px; display: flex; justify-content: space-between; font-size: 11px; page-break-inside: avoid; }
+    .firma div { width: 42%; border-top: 1px solid #555; padding-top: 5px; text-align: center; }
+    .pie { margin-top: 12px; font-size: 9px; color: #888; text-align: center; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style></head><body>
+  <div class="head">
+    <h1>RESIDENCIA VILLA TERESA</h1>
+    <div class="sub">RESUMEN DE CAMBIOS DE INDICACIONES MÉDICAS — PASE DEL ${fechaPase}</div>
+    <div class="meta">Generado el ${ahora} · Solo se detallan las modificaciones respecto del pase anterior</div>
+  </div>
+  ${cuerpo}
+  ${sinNovHTML}
+  <div class="firma"><div>Médica/o</div><div>Enfermería / Responsable</div></div>
+  <div class="pie">Documento informativo generado automáticamente por el sistema. Ante dudas, consultar la indicación completa de cada residente.</div>
+  <script>window.onload = () => { window.print(); }<\/script>
+  </body></html>`);
+  win.document.close();
 }
 
 // Ordena la tabla de medicación de una indicación por la columna HORARIO.
