@@ -3722,10 +3722,11 @@ async function resumenCambiosA4() {
   detalles.forEach(function(d) {
     if (!d) return;
     if (d.error) { bloques.push({ nombre: d.residente, error: true }); return; }
-    const diff = (d.htmlAnterior && d.htmlAnterior.trim()) ? rcDiff(d) : null;
+    const puedeComparar = !!(d.htmlAnterior && d.htmlAnterior.trim());
+    const diff = puedeComparar ? rcDiff(d) : null;
     if (diff) bloques.push({ nombre: d.residente, modificado: d.modificado || '', diff: diff });
-    else if (d.modificado) bloques.push({ nombre: d.residente, modificado: d.modificado, diff: null });
-    else sinNovedad.push(d.residente);
+    else if (!puedeComparar && d.modificado) bloques.push({ nombre: d.residente, modificado: d.modificado, diff: null });
+    else sinNovedad.push(d.residente); // contenido igual al pase anterior → sin novedad
   });
   bloques.sort(function(a, b){ return (a.nombre || '').localeCompare(b.nombre || ''); });
   sinNovedad.sort(function(a, b){ return (a || '').localeCompare(b || ''); });
