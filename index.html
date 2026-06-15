@@ -4089,20 +4089,35 @@ function csTablaHidro(f) {
   return `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function csAlertasCatarsis(dias) {
-  // Solo mira los días de la semana mostrada (hasta hoy inclusive)
-  // Un día tiene catarsis si CUALQUIER turno tiene 'Sí'
+// Devuelve la fecha (YYYY-MM-DD) del día anterior a la dada
+function csDiaPrevio(fecha) {
+  const p = fecha.split('-').map(Number);
+  const dt = new Date(p[0], p[1]-1, p[2]);
+  dt.setDate(dt.getDate() - 1);
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+
+function csAlertasCatarsis() {
+  // Cuenta los días SEGUIDOS sin catarsis de corrido, desde hoy hacia atrás.
+  // NO se reinicia al archivar/cambiar de semana: mira el historial completo
+  // hasta el primer día con datos cargados en el sistema.
+  // Un día tiene catarsis si CUALQUIER turno (M/T/N) tiene 'Sí'.
   const hoy = csHoy();
   const turnos = ['m','t','n'];
-  const diasHoy = dias.filter(d => d <= hoy);
-  if (diasHoy.length < 4) return '';
+  // Día más antiguo con datos: límite para no contar un pasado infinito
+  const fechas = Object.keys(state.controlSignos).filter(f => f.charAt(0) !== '_');
+  if (fechas.length === 0) return '';
+  const masAntigua = fechas.sort()[0];
+  if (masAntigua > hoy) return '';
   const alertas = [];
   state.residentes.forEach(r => {
     let diasSin = 0;
-    for (let i = diasHoy.length - 1; i >= 0; i--) {
-      const tuvoCatarsis = turnos.some(t => csGet(diasHoy[i], 'catarsis', r.nombre, t, 'hubo') === 'Sí');
+    let cursor = hoy;
+    while (cursor >= masAntigua) {
+      const tuvoCatarsis = turnos.some(t => csGet(cursor, 'catarsis', r.nombre, t, 'hubo') === 'Sí');
       if (tuvoCatarsis) break;
       diasSin++;
+      cursor = csDiaPrevio(cursor);
     }
     if (diasSin >= 4) alertas.push({ nombre: r.nombre, dias: diasSin });
   });
@@ -4111,7 +4126,7 @@ function csAlertasCatarsis(dias) {
     `<div class="cs-alerta-item">⚠️ <strong>${a.nombre}</strong> — ${a.dias} días sin catarsis → <span class="cs-alerta-motrax">DAR MOTRAX</span></div>`
   ).join('');
   return `<div class="cs-alertas-catarsis">
-    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días sin registro esta semana)</div>
+    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días seguidos sin catarsis)</div>
     ${items}
   </div>`;
 }
@@ -4139,7 +4154,7 @@ function csTablaCatarsis(f) {
     rows += `<tr>${tds}</tr>`;
   });
   const wk = `<div class="cs-semana">Semana del ${csFmtFecha(dias[0])} al ${csFmtFecha(dias[6])}</div>`;
-  return csAlertasCatarsis(dias) + wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+  return csAlertasCatarsis() + wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---- Historial: archivo por semana y día ----
