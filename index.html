@@ -1159,31 +1159,52 @@ const state = {
 };
 
 // ============ CÁLCULOS ============
-function calcDiasRestantes(med) {
+function hoyMidnight() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+// Cuántos días cubre el stock actual (stock / consumo). Es la DURACIÓN total, no lo que resta.
+function diasDeStock(med) {
   if (typeof med.stock !== 'number' || typeof med.consumo !== 'number' || med.consumo <= 0) return null;
   return Math.floor(med.stock / med.consumo);
+}
+// Fecha (Date) en que se agota: fecha de ingreso + duración del stock (o desde hoy si no hay ingreso).
+function fechaAgotamientoDate(med) {
+  const d = diasDeStock(med);
+  if (d === null) return null;
+  let base;
+  if (med.fechaIngreso) {
+    base = new Date(med.fechaIngreso + 'T00:00:00');
+    if (isNaN(base.getTime())) base = hoyMidnight();
+  } else {
+    base = hoyMidnight();
+  }
+  base.setDate(base.getDate() + d);
+  return base;
+}
+// Días que REALMENTE quedan: descuenta los días transcurridos desde el ingreso.
+// (Antes devolvía stock/consumo sin restar el tiempo pasado → un medicamento ya agotado mostraba OK.)
+function calcDiasRestantes(med) {
+  const d = diasDeStock(med);
+  if (d === null) return null;
+  if (!med.fechaIngreso) return d; // sin fecha de ingreso: contamos desde hoy
+  const agot = fechaAgotamientoDate(med);
+  if (!agot) return d;
+  const rest = Math.round((agot.getTime() - hoyMidnight().getTime()) / 86400000);
+  return rest < 0 ? 0 : rest;
 }
 function estadoMed(med) {
   const d = calcDiasRestantes(med);
   if (d === null) return { tipo: 'sos', label: 'S.O.S.', clase: 'sos' };
-  if (d === 0) return { tipo: 'sinstock', label: '⚫ SIN STOCK', clase: 'sinstock', dias: 0 };
+  if (d <= 0) return { tipo: 'sinstock', label: '⚫ SIN STOCK', clase: 'sinstock', dias: 0 };
   if (d <= 7) return { tipo: 'critico', label: '🔴 CRÍTICO', clase: 'critico', dias: d };
   if (d <= 14) return { tipo: 'atencion', label: '🟡 ATENCIÓN', clase: 'atencion', dias: d };
   return { tipo: 'ok', label: '🟢 OK', clase: 'ok', dias: d };
 }
 function fechaAgotamiento(med) {
-  const d = calcDiasRestantes(med);
-  if (d === null) return '—';
-  // Si hay fecha de ingreso, calcular desde esa fecha; sino, desde hoy
-  let base;
-  if (med.fechaIngreso) {
-    base = new Date(med.fechaIngreso + 'T00:00:00');
-    if (isNaN(base.getTime())) base = new Date();
-  } else {
-    base = new Date();
-  }
-  base.setDate(base.getDate() + d);
-  return base.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const agot = fechaAgotamientoDate(med);
+  if (!agot) return '—';
+  return agot.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
 }
 function todosMedicamentos() {
   const out = [];
