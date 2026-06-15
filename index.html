@@ -4750,7 +4750,7 @@ function viewInsumos() {
         const campo = `${c}_${tk}`;
         const v = datos[campo] !== undefined ? datos[campo] : '';
         const sep = ti === 0 ? ' ins-td-sep' : '';
-        return `<td class="${sep}"><input type="number" min="0" class="ins-inp" data-dia="${d}" data-campo="${campo}" value="${v}" placeholder="0"></td>`;
+        return `<td class="ins-t-${tk}${sep}"><input type="number" min="0" class="ins-inp" data-dia="${d}" data-campo="${campo}" value="${v}" placeholder="0"></td>`;
       }).join('');
     }).join('');
     filas += `<tr class="${esFind?'ins-finde':''}"><td class="ins-dia"><span class="ins-dow">${dow}</span> ${d}</td>${celdas}<td><button class="ins-btn-guardar btn-sm" data-dia="${d}">💾</button></td></tr>`;
@@ -4815,6 +4815,16 @@ function viewInsumos() {
 .ins-totales td { background:var(--azul-claro); padding:10px 8px; border-top:2px solid var(--azul-2); }
 .ins-inp { width:44px; padding:4px 3px; border:1px solid var(--gris-borde); border-radius:4px; font-size:12px; text-align:center; }
 .ins-inp:focus { border-color:var(--azul-2); outline:none; background:#EAF1FA; }
+/* Colores por turno */
+.ins-tabla th.ins-tht-m { background:#FFB300; color:#3e2723; }
+.ins-tabla th.ins-tht-t { background:#FB8C00; color:#ffffff; }
+.ins-tabla th.ins-tht-n { background:#5C6BC0; color:#ffffff; }
+.ins-tabla td.ins-t-m .ins-inp { background:#FFF3CD; }
+.ins-tabla td.ins-t-t .ins-inp { background:#FFE0B3; }
+.ins-tabla td.ins-t-n .ins-inp { background:#D7E3FA; }
+.ins-tabla td.ins-t-m .ins-inp:focus,
+.ins-tabla td.ins-t-t .ins-inp:focus,
+.ins-tabla td.ins-t-n .ins-inp:focus { background:#ffffff; }
 .btn-sm { padding:4px 10px; font-size:12px; background:var(--azul-2); color:white; border:none; border-radius:4px; cursor:pointer; }
 .btn-sm:hover { background:var(--azul-1); }
 .ins-toast { position:fixed; bottom:24px; right:24px; background:#1a7340; color:white; padding:10px 18px; border-radius:8px; font-size:13px; box-shadow:0 4px 12px rgba(0,0,0,.2); display:none; z-index:9999; }
@@ -4852,7 +4862,7 @@ function viewInsumos() {
             <th rowspan="2"></th>
           </tr>
           <tr>
-            ${INSUMOS_LABELS.map(()=>['Mañ','Tar','Noc'].map(t=>`<th class="ins-th-turno">${t}</th>`).join('') + '<th class="ins-th-turno" style="background:#2e6da4;color:#ffe082;font-weight:700">Prop</th>').join('')}
+            ${INSUMOS_LABELS.map(()=>[['m','Mañ'],['t','Tar'],['n','Noc']].map(([tk,t])=>`<th class="ins-th-turno ins-tht-${tk}">${t}</th>`).join('') + '<th class="ins-th-turno" style="background:#2e6da4;color:#ffe082;font-weight:700">Prop</th>').join('')}
           </tr>
         </thead>
         <tbody id="ins-tbody">${filas}</tbody>
