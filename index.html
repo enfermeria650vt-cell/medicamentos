@@ -1586,6 +1586,8 @@ const SYNC_URL_KEY = 'med_geri_sync_url';
 // URL del Web App de Apps Script preconfigurada (Maxi - mayo 2026)
 const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzNsNlspZ93MU9ReVk9pH8_gIAhzLS7vX4hyWX2uDcYSXIpSnVkp7ZQsGSl_zw_zI_d9Q/exec'; // URL preconfigurada — auto-conexión sin configuración manual
 function getCloudUrl() { return localStorage.getItem(SYNC_URL_KEY) || DEFAULT_SYNC_URL; }
+function getSyncToken() { return (localStorage.getItem('vt_sync_token') || '').trim(); }
+function syncTokenParam() { var t = getSyncToken(); return t ? ('&token=' + encodeURIComponent(t)) : ''; }
 function setCloudUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
 function getLastPull() { return localStorage.getItem(SYNC_LASTPULL_KEY) || ''; }
 function setLastPull(iso) { localStorage.setItem(SYNC_LASTPULL_KEY, iso); }
@@ -1630,7 +1632,7 @@ async function cloudPull(silencioso = false) {
   syncState.running = true;
   actualizarBadgeSync('🔄 Trayendo...');
   try {
-    const url = getCloudUrl() + '?action=pull&t=' + Date.now();
+    const url = getCloudUrl() + '?action=pull&t=' + Date.now() + syncTokenParam();
     const r = await fetch(url, { method: 'GET' });
     const json = await r.json();
     if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
@@ -1759,6 +1761,7 @@ async function cloudPush(key, valueObj, silencioso = true) {
     fd.append('action', 'push');
     fd.append('key', key);
     fd.append('value', JSON.stringify(valueObj));
+    fd.append('token', getSyncToken());
     fd.append('user', getCurrentUser() || 'anónimo');
     fd.append('lastSeenAt', getLastPull() || '');
     const r = await fetch(url, { method: 'POST', body: fd });
@@ -1821,6 +1824,7 @@ async function flushColaDeltas() {
         fd.append('key', it.key);
         fd.append('sets', JSON.stringify(it.sets));
         fd.append('dels', JSON.stringify(it.dels));
+        fd.append('token', getSyncToken());
         fd.append('user', getCurrentUser() || 'anónimo');
         const r = await fetch(getCloudUrl(), { method: 'POST', body: fd });
         const j = await r.json();
@@ -1931,6 +1935,12 @@ function actualizarBannerSync() {
     b.textContent = '🔴 SIN CONEXIÓN — estás viendo datos guardados (última actualización: ' + fmtHora(ultima) + '). Tocá para reintentar.';
     return;
   }
+  // 2) Falta/!coincide la clave de sync
+  if (syncState.lastError && /autoriz/i.test(syncState.lastError)) {
+    b.style.background = '#C0392B';
+    b.textContent = '🔴 Falta la CLAVE DE SYNC — cargala en ⚙️ Configurar nube para ver y guardar datos.';
+    return;
+  }
   // 2) Error en la última sincronización
   if (syncState.lastError) {
     b.style.background = '#C0392B';
@@ -1975,6 +1985,10 @@ function configurarSyncV2() {
         '<input type="password" id="sync2-gemini" value="' + escapeHtml(localStorage.getItem('vt_gemini_key')||'') + '" placeholder="AIza...">' +
         '<small style="color:#6c7a8a;font-size:11px">Obtenela gratis en <a href="https://aistudio.google.com/apikey" target="_blank" style="color:#2E75B6">aistudio.google.com</a></small>' +
       '</div>' +
+      '<div style="margin-bottom:12px">' +
+        '<label>🔐 Clave de sincronización <small style="font-weight:400;color:#888">(protege los datos; te la da el administrador)</small></label>' +
+        '<input type="password" id="sync2-token" value="' + escapeHtml(localStorage.getItem('vt_sync_token')||'') + '" placeholder="clave de sync">' +
+      '</div>' +
       '<div style="background:#FFF8E1;padding:10px;border-radius:6px;font-size:12px;color:#92400E;margin-bottom:12px">' +
         '⚠️ El Apps Script debe estar deployado con "Who has access: Anyone". Y la primera vez correr la función <b>inicializarHojas</b> desde el editor.' +
       '</div>' +
@@ -2002,6 +2016,8 @@ function configurarSyncV2() {
     } else {
       localStorage.removeItem('vt_gemini_key');
     }
+    const _tk = document.getElementById('sync2-token').value.trim();
+    if (_tk) { localStorage.setItem('vt_sync_token', _tk); } else { localStorage.removeItem('vt_sync_token'); }
     toast('Guardado. Probá hacer Pull para verificar.');
     actualizarBadgeSync();
     modalBg.remove();
@@ -5077,7 +5093,7 @@ render = function() {
   if (syncHabilitado()) {
     // Primer pull para ver qué hay en la nube
     try {
-      const url = getCloudUrl() + '?action=pull&t=' + Date.now();
+      const url = getCloudUrl() + '?action=pull&t=' + Date.now() + syncTokenParam();
       const r = await fetch(url);
       const j = await r.json();
       // Si la nube está vacía pero tengo datos locales → push
