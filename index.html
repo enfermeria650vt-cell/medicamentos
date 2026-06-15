@@ -1733,7 +1733,8 @@ async function cloudPull(silencioso = false) {
     if (cambios > 0) {
       if (!silencioso) toast('✅ Trajimos ' + cambios + ' cambio' + (cambios>1?'s':'') + ' de la nube', 'success');
       // En Insumos NO re-dibujamos: esa vista no muestra datos de este pull y el render borraba la grilla ("el vacio")
-      if (state.view !== 'insumos') render();
+      // Tampoco redibujamos si el usuario está cargando en un campo (le borraría lo que escribe).
+      if (state.view !== 'insumos' && !usuarioEditando()) render();
     } else if (!silencioso) {
       toast('✓ Sin cambios nuevos');
     }
@@ -1784,12 +1785,24 @@ async function cloudPush(key, valueObj, silencioso = true) {
 const DELTA_QUEUE_KEY = 'vt_delta_queue_v1';
 function leerColaDeltas() { try { return JSON.parse(localStorage.getItem(DELTA_QUEUE_KEY)) || []; } catch(e) { return []; } }
 function guardarColaDeltas(q) { try { localStorage.setItem(DELTA_QUEUE_KEY, JSON.stringify(q.slice(-300))); } catch(e) {} }
+// Cambios locales recientes (estén subidos o no): se re-aplican sobre CADA pull durante una
+// ventana de gracia, para que un pull "viejo" del servidor no revierta una marca/signo recién
+// cargado (la cola normal solo guarda lo que aún NO se subió; esto cubre la ventana posterior).
+const DELTA_GRACIA_MS = 120000; // 2 minutos
+let _deltasRecientes = [];
+function registrarDeltaReciente(key, sets, dels) {
+  if (key !== 'semanal' && key !== 'controlSignos') return;
+  _deltasRecientes.push({ key: key, sets: sets || [], dels: dels || [], ts: Date.now() });
+  const corte = Date.now() - DELTA_GRACIA_MS;
+  _deltasRecientes = _deltasRecientes.filter(d => d.ts > corte).slice(-500);
+}
 
 async function cloudPushDelta(key, sets, dels) {
   if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
   const q = leerColaDeltas();
   q.push({ key: key, sets: sets || [], dels: dels || [], ts: Date.now() });
   guardarColaDeltas(q);
+  registrarDeltaReciente(key, sets, dels);
   return flushColaDeltas();
 }
 
@@ -1840,9 +1853,13 @@ async function flushColaDeltas() {
 
 // Cambios locales aun no subidos: re-aplicarlos sobre lo que baja de la nube (que no "desaparezcan" en pantalla)
 function aplicarDeltasLocales() {
-  const q = leerColaDeltas();
-  if (!q.length) return;
-  q.forEach(it => {
+  const corte = Date.now() - DELTA_GRACIA_MS;
+  _deltasRecientes = _deltasRecientes.filter(d => d.ts > corte);
+  // Re-aplicar lo de la cola (aún sin subir) Y lo reciente ya subido dentro de la ventana de
+  // gracia: así un pull viejo del servidor no puede borrar de pantalla un cambio recién hecho.
+  const aplicar = leerColaDeltas().concat(_deltasRecientes);
+  if (!aplicar.length) return;
+  aplicar.forEach(it => {
     const raiz = it.key === 'semanal' ? state.semanal : (it.key === 'controlSignos' ? state.controlSignos : null);
     if (!raiz) return;
     (it.sets || []).forEach(par => _setPathLocal(raiz, par[0], par[1]));
@@ -2059,6 +2076,14 @@ function navigate(view, residente = null) {
 }
 
 // ============ RENDER PRINCIPAL ============
+// ¿El usuario está escribiendo/seleccionando en un campo? Si sí, un re-render automático
+// destruiría el input y le borraría lo que está cargando (marcas/signos/horarios).
+function usuarioEditando() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const t = el.tagName;
+  return t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA' || el.isContentEditable === true;
+}
 function render() {
   // Detectar cambio de semana antes de renderizar
   chequearCambioSemana();
@@ -5264,6 +5289,7 @@ function attachStockListeners(res) {
 
 // Auto-refresh cada 60 segundos para mantener las alertas frescas
 setInterval(() => {
+  if (usuarioEditando()) return; // no redibujar mientras alguien carga datos en un campo
   if (state.view === 'residente' || state.view === 'semanal' || state.view === 'dashboard') {
     render();
   } else {
