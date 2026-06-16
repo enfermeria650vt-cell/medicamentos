@@ -4292,6 +4292,18 @@ function csDiasDelMes(mes) {
   for (let i = 1; i <= n; i++) arr.push(mes + '-' + String(i).padStart(2,'0'));
   return arr;
 }
+// Color del casillero de catarsis: se deriva del TEXTO escrito para que el
+// color SIEMPRE coincida con lo que se ve (evita desfasajes con datos viejos).
+// 'si' = verde (hubo), 'no' = rojo (no hubo), 'vacio' = gris (sin cargar).
+function csClasifCatarsis(tipo, hubo) {
+  const raw = (tipo == null ? '' : String(tipo)).trim().toLowerCase();
+  const noMarks = ['no','n','-','–','x','0'];
+  if (raw !== '') return noMarks.indexOf(raw) !== -1 ? 'no' : 'si';
+  // Sin texto: respetar una marca explícita previa (datos legacy)
+  if (hubo === 'No') return 'no';
+  if (hubo === 'Sí') return 'si';
+  return 'vacio';
+}
 function csTablaCatarsis() {
   const mes = state.csMes || csMesActual();
   const dias = csDiasDelMes(mes);
@@ -4312,7 +4324,7 @@ function csTablaCatarsis() {
       turnos.forEach(tn => {
         const hubo = csGet(d, 'catarsis', r.nombre, tn[0], 'hubo');
         const tipo = csGet(d, 'catarsis', r.nombre, tn[0], 'tipo');
-        const est = hubo === 'Sí' ? 'si' : (hubo === 'No' ? 'no' : 'vacio');
+        const est = csClasifCatarsis(tipo, hubo);
         const title = tn[1] + ' ' + csFmtFecha(d);
         boxes += `<input class="cs-tipobox ${est}" data-cs-tipo="1" data-d="${d}" data-res="${escapeHtml(r.nombre)}" data-t="${tn[0]}" value="${escapeHtml(tipo)}" placeholder="${tn[1]}" maxlength="10" title="${escapeHtml(title)}">`;
       });
@@ -4479,14 +4491,10 @@ function attachListeners() {
       if (el.dataset && el.dataset.csTipo) {
         const d = el.dataset.d, res = el.dataset.res, t = el.dataset.t;
         const raw = el.value.trim();
-        const noMarks = ['no','n','-','–','x','0'];
-        let hubo;
-        if (raw === '') hubo = '';
-        else if (noMarks.indexOf(raw.toLowerCase()) !== -1) hubo = 'No';
-        else hubo = 'Sí';
+        const est = csClasifCatarsis(raw, '');
+        const hubo = est === 'si' ? 'Sí' : (est === 'no' ? 'No' : '');
         csSet(d, 'catarsis', res, t + '.tipo', raw);
         csSet(d, 'catarsis', res, t + '.hubo', hubo);
-        const est = hubo === 'Sí' ? 'si' : (hubo === 'No' ? 'no' : 'vacio');
         el.classList.remove('si','no','vacio');
         el.classList.add(est);
         return;
