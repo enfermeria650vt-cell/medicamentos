@@ -1113,8 +1113,25 @@ function saveSem() {
   const tieneHorarios = Object.keys(state.semanal).some(k => k.includes('_horario'));
   const tieneMarcas = Object.keys(state.semanal).some(k => /_(by|at|[0-6])/.test(k));
   if (typeof syncHabilitado === 'function' && syncHabilitado() && (tieneHorarios || tieneMarcas)) {
-    cloudPush('semanal', state.semanal);
+    cloudSemMerge();
   }
+}
+// Identifica claves de MARCA (tilde) de la planilla: medId_dia, medId_dia_toma y sus _by/_at.
+const _esClaveMarca = (k) => /_[0-6](_[0-9]+)?(_by|_at)?$/.test(k);
+// Sube la planilla semanal SIN pisar la nube: solo horarios/config como "merge".
+// Las tildes NO se re-suben acá: viajan por su propio delta en toggleDosis (a prueba de
+// pisadas). Así una subida desde un equipo atrasado no borra las tildes recién cargadas
+// por otros (causa raíz del error de "tildes que se borran").
+function cloudSemMerge() {
+  if (!(typeof syncHabilitado === 'function' && syncHabilitado())) return;
+  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k)).map(k => [[k], state.semanal[k]]);
+  if (sets.length) cloudPushDelta('semanal', sets, []);
+}
+// Borrado explícito de claves de la planilla en la nube (limpiar / cerrar semana).
+function cloudSemDel(keys) {
+  if (!(typeof syncHabilitado === 'function' && syncHabilitado())) return;
+  const dels = (keys || []).filter(Boolean).map(k => [k]);
+  if (dels.length) cloudPushDelta('semanal', [], dels);
 }
 const HC_KEY = 'vt_historial_cambios';
 function loadHistorialCambios() {
@@ -1460,9 +1477,11 @@ function archivarSemana(lunesISO, origen = 'manual') {
   saveHist();
 }
 function limpiarMarcasSemanaActual() {
+  const _borradas = [];
   Object.keys(state.semanal).forEach(k => {
-    if (/_[0-6](_[0-9]+)?(_by|_at)?$/.test(k)) delete state.semanal[k];
+    if (/_[0-6](_[0-9]+)?(_by|_at)?$/.test(k)) { _borradas.push(k); delete state.semanal[k]; }
   });
+  cloudSemDel(_borradas);
 }
 function cerrarSemanaManual() {
   if (bloquearSiNoAdmin('cerrar la semana')) return;
@@ -3183,17 +3202,20 @@ function limpiarSemana(residente) {
   if (bloquearSiNoAdmin('limpiar la semana')) return;
   if (!confirm(`¿Limpiar todas las marcas de la semana para ${residente}?`)) return;
   const r = state.residentes.find(x => x.nombre === residente);
+  const _borradas = [];
   r.meds.forEach(m => {
     const N = dosisDeMed(m.id).length;
     for (let i = 0; i < 7; i++) {
       for (let di = 0; di < N; di++) {
         const k = claveDosis(m.id, i, di);
+        _borradas.push(k, k + '_by', k + '_at');
         delete state.semanal[k];
         delete state.semanal[k + '_by'];
         delete state.semanal[k + '_at'];
       }
     }
   });
+  cloudSemDel(_borradas);
   saveSem();
   toast('Semana limpiada');
   render();
