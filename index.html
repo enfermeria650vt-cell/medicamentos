@@ -4917,6 +4917,7 @@ function viewEvolucion() {
       '<select class="ins-select" id="evol-res">'+resOpts+'</select>' +
       '<input type="date" class="ins-select" id="evol-fecha" value="'+csHoy()+'">' +
       '<button class="btn btn-primary" id="evol-gen">📝 Generar evolución</button>' +
+      '<button class="btn secondary" id="evol-gen-todas">📋 Generar TODAS (pase completo)</button>' +
     '</div>' +
     '<div id="evol-resultado"></div>' +
   '</div>';
@@ -4924,6 +4925,8 @@ function viewEvolucion() {
 function attachEvolucion() {
   const b = document.getElementById('evol-gen');
   if (b) b.onclick = evolGenerar;
+  const bt = document.getElementById('evol-gen-todas');
+  if (bt) bt.onclick = evolGenerarTodas;
 }
 async function evolGenerar() {
   const nombre = document.getElementById('evol-res').value;
@@ -4984,6 +4987,75 @@ function evolImprimirA4() {
     '<tr><td><b>Adherencia</b></td><td>'+esc(d.adherenciaTexto||'—')+'</td></tr>' +
     '</tbody></table><b style="display:block;margin-top:10px">Novedades</b><ul>'+nov+'</ul>' +
     '<div class="firma">Firma y sello médico</div>' +
+    '<scr'+'ipt>window.onload=function(){window.print()}<\/scr'+'ipt></body></html>');
+  win.document.close();
+}
+
+
+async function evolGenerarTodas() {
+  const fecha = (document.getElementById('evol-fecha') && document.getElementById('evol-fecha').value) || csHoy();
+  const cont = document.getElementById('evol-resultado');
+  const lista = state.residentes.slice();
+  if (!lista.length) { cont.innerHTML = '<div style="padding:20px">No hay residentes.</div>'; return; }
+  if (!confirm('Vas a generar la evolución de los ' + lista.length + ' residentes con IA. Puede tardar 1 a 2 minutos. ¿Seguir?')) return;
+  const resultados = [];
+  for (let i = 0; i < lista.length; i++) {
+    const nombre = lista[i].nombre;
+    cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nombre) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
+    let datos, texto = '';
+    try { datos = evolRecolectar(nombre, fecha); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
+    try { texto = await evolGenerarTexto(datos); } catch(e) { texto = '⚠️ No se pudo generar con IA (' + e.message + '). Probá de nuevo más tarde; los datos están abajo.'; }
+    resultados.push({ datos: datos, texto: texto });
+    await new Promise(s => setTimeout(s, 600));
+  }
+  window._evolTodas = { fecha: fecha, resultados: resultados };
+  cont.innerHTML = evolRenderTodas(resultados);
+}
+
+function evolRenderTodas(res) {
+  const bloques = res.map(x => {
+    const d = x.datos;
+    return '<div style="background:white;border:1px solid var(--gris-borde);border-radius:8px;padding:14px;margin-bottom:12px">' +
+      '<h3 style="margin:0 0 2px;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
+      '<div style="font-size:11px;color:#6c7a8a;margin-bottom:8px">Semana '+escapeHtml(d.semana||'')+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
+      '<div style="white-space:pre-wrap;line-height:1.5;font-size:13px">'+escapeHtml(x.texto)+'</div>' +
+    '</div>';
+  }).join('');
+  return '<div style="max-width:860px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+      '<b style="color:var(--azul-1)">Pase completo — '+res.length+' residentes</b>' +
+      '<button class="btn secondary small" onclick="evolImprimirTodasA4()">🖨 Imprimir TODO (A4)</button>' +
+    '</div>' +
+    '<div style="background:#FFF8E1;border:1px solid #ffe082;border-radius:6px;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px">⚠️ BORRADORES generados por IA. Deben ser revisados y firmados por el médico.</div>' +
+    bloques +
+  '</div>';
+}
+
+function evolImprimirTodasA4() {
+  const u = window._evolTodas; if (!u) return;
+  const esc = (s)=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const secciones = u.resultados.map((x, idx) => {
+    const d = x.datos;
+    const sigRows = Object.keys(d.signos||{}).map(k => { const s=d.signos[k]; return '<tr><td><b>'+k+'</b></td><td>'+(s?s.map(esc).join(' · '):'sin registro')+'</td></tr>'; }).join('');
+    const nov = (d.novedades&&d.novedades.length) ? d.novedades.map(n=>'<li>'+esc(n)+'</li>').join('') : '<li>sin novedades</li>';
+    const brk = idx>0 ? 'page-break-before:always;' : '';
+    return '<div style="'+brk+'padding-top:6px">' +
+      '<h1>'+esc(d.nombre)+'</h1>' +
+      '<div class="meta">Semana '+esc(d.semana||'')+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
+      '<div class="evol">'+esc(x.texto)+'</div>' +
+      '<table><tbody>'+sigRows+
+      '<tr><td><b>Catarsis</b></td><td>'+d.catarsis.conCatarsis+' día(s) con, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
+      '<tr><td><b>Hidratación</b></td><td>'+d.hidratacion.ingesta+' ingesta, '+d.hidratacion.egreso+' egreso</td></tr>' +
+      '<tr><td><b>Adherencia</b></td><td>'+esc(d.adherenciaTexto||'—')+'</td></tr>' +
+      '</tbody></table><b style="display:block;margin-top:8px">Novedades</b><ul>'+nov+'</ul>' +
+      '<div class="firma">Firma y sello médico</div>' +
+    '</div>';
+  }).join('');
+  const win = window.open('', '_blank');
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Pase completo</title>' +
+    '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:18px auto;color:#222;font-size:13px}h1{font-size:17px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 10px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:12px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:3px 7px}.firma{margin-top:36px;border-top:1px solid #333;width:260px;padding-top:4px;font-size:12px}@media print{body{margin:0}}</style></head><body>' +
+    '<div style="background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:10px">⚠️ BORRADORES generados por IA. Revisar y firmar por el médico.</div>' +
+    secciones +
     '<scr'+'ipt>window.onload=function(){window.print()}<\/scr'+'ipt></body></html>');
   win.document.close();
 }
