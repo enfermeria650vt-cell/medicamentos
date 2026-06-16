@@ -1381,6 +1381,8 @@ function resumenAlertasResidente(r) {
   });
   return { atrasadas, ahora, proximas, alDia, conHorario };
 }
+// Marca si ya sincronizamos con la nube en esta sesión (evita que un equipo desactualizado borre marcas).
+let _syncPullOk = false;
 // Detecta si cambió de semana respecto a la última guardada; si sí, archiva y limpia
 function chequearCambioSemana() {
   const lunesHoy = getLunesISO();
@@ -1391,6 +1393,10 @@ function chequearCambioSemana() {
     return false;
   }
   if (lunesGuardado !== lunesHoy) {
+    // PROTECCIÓN: no archivar/limpiar las marcas COMPARTIDAS hasta haber traído el estado real
+    // de la nube en esta sesión. Evita que un dispositivo con la semana vieja borre las marcas
+    // de la semana actual de todos los demás (causó pérdida de marcas el 15-jun).
+    if (syncHabilitado() && !_syncPullOk) return false;
     archivarSemana(lunesGuardado, 'auto');
     limpiarMarcasSemanaActual();
     state.semanal.semanaActualLunes = lunesHoy;
@@ -1784,6 +1790,7 @@ async function cloudPull(silencioso = false) {
     // Cambios locales que todavia no subieron: re-aplicarlos para que no se borren de pantalla
     try { aplicarDeltasLocales(); } catch(e) {}
     setLastPull(json.ahora);
+    _syncPullOk = true;
     chequearFechaDispositivo(json.ahora);
     syncState.lastOk = new Date().toISOString();
     syncState.lastError = null;
