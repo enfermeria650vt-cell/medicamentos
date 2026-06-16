@@ -5228,7 +5228,7 @@ function evolImprimirA4() {
   const nov = d.novedades.length ? d.novedades.map(n=>'<li>'+esc(n)+'</li>').join('') : '<li>sin novedades</li>';
   const win = window.open('', '_blank');
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Evolución '+esc(d.nombre)+'</title>' +
-    '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:24px auto;color:#222;font-size:13px}h1{font-size:18px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 14px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:16px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:4px 8px}.firma{margin-top:46px;border-top:1px solid #333;width:280px;padding-top:4px;font-size:12px}@media print{body{margin:0}}</style></head><body>' +
+    '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:24px auto;color:#222;font-size:13px}h1{font-size:18px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 14px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:16px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:4px 8px}.firma{margin-top:46px;border-top:1px solid #333;width:280px;padding-top:4px;font-size:12px}@page{size:A4 portrait;margin:2cm}@media print{body{margin:0;max-width:none}}</style></head><body>' +
     '<h1>Evolución semanal — '+esc(d.nombre)+'</h1>' +
     '<div class="meta">Período '+esc(d.semana)+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
     '<div class="draft">⚠️ BORRADOR generado por IA a partir de los datos cargados. Debe ser revisado y firmado por el médico.</div>' +
@@ -5310,7 +5310,7 @@ function evolImprimirTodasA4() {
   }).join('');
   const win = window.open('', '_blank');
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Pase completo</title>' +
-    '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:18px auto;color:#222;font-size:13px}h1{font-size:17px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 10px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:12px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:3px 7px}.firma{margin-top:36px;border-top:1px solid #333;width:260px;padding-top:4px;font-size:12px}@media print{body{margin:0}}</style></head><body>' +
+    '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:18px auto;color:#222;font-size:13px}h1{font-size:17px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 10px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:12px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:3px 7px}.firma{margin-top:36px;border-top:1px solid #333;width:260px;padding-top:4px;font-size:12px}@page{size:A4 portrait;margin:2cm}@media print{body{margin:0;max-width:none}}</style></head><body>' +
     '<div style="background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:10px">⚠️ BORRADORES generados por IA. Revisar y firmar por el médico.</div>' +
     secciones +
     '<scr'+'ipt>window.onload=function(){window.print()}<\/scr'+'ipt></body></html>');
