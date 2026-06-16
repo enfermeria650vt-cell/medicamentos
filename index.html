@@ -4920,8 +4920,12 @@ function evolRecolectar(nombre, desde, hasta) {
   };
 }
 
-async function _evolFetchJson(url) { try { const r = await fetch(url); return await r.json(); } catch(e) { return null; } }
-async function evolDatosExtra(nombre, desde, hasta, indicList) {
+async function _evolFetchJson(url, ms) {
+  const _c = new AbortController(); const _t = setTimeout(() => _c.abort(), ms || 10000);
+  try { const r = await fetch(url, { signal: _c.signal }); const j = await r.json(); clearTimeout(_t); return j; }
+  catch(e) { clearTimeout(_t); return null; }
+}
+async function evolDatosExtra(nombre, desde, hasta, indicList, liviano) {
   const url = (typeof getIndicUrl === 'function') ? getIndicUrl() : '';
   const extra = { peso:null, dieta:null, notasNutri:[], indicacion:null };
   if (!url) return extra;
@@ -4953,17 +4957,19 @@ async function evolDatosExtra(nombre, desde, hasta, indicList) {
     const _nn = _norm(nombre);
     const it = (indicList||[]).find(x => { const rr = _norm(x && x.residente); return rr && (rr === _nn || _nn.indexOf(rr) === 0 || rr.indexOf(_nn) === 0); });
     if (it) {
-      const ji = await _evolFetchJson(url+'?action=getIndicacion&id='+encodeURIComponent(it.fileId)+'&t='+Date.now());
       let contenido = '';
-      if (ji && ji.ok && ji.data) { try { contenido = JSON.stringify(ji.data).slice(0, 1800); } catch(e){} }
+      if (!liviano) {
+        const ji = await _evolFetchJson(url+'?action=getIndicacion&id='+encodeURIComponent(it.fileId)+'&t='+Date.now());
+        if (ji && ji.ok && ji.data) { try { contenido = JSON.stringify(ji.data).slice(0, 1800); } catch(e){} }
+      }
       extra.indicacion = { modificada: !!it.modificado, fechaModif: it.fechaModif||'', contenido: contenido };
     }
   } catch(e) {}
   return extra;
 }
-async function evolRecolectarCompleto(nombre, desde, hasta, indicList) {
+async function evolRecolectarCompleto(nombre, desde, hasta, indicList, liviano) {
   const d = evolRecolectar(nombre, desde, hasta);
-  try { const ex = await evolDatosExtra(nombre, desde, hasta, indicList); d.peso = ex.peso; d.dieta = ex.dieta; d.notasNutri = ex.notasNutri; d.indicacion = ex.indicacion; } catch(e) {}
+  try { const ex = await evolDatosExtra(nombre, desde, hasta, indicList, liviano); d.peso = ex.peso; d.dieta = ex.dieta; d.notasNutri = ex.notasNutri; d.indicacion = ex.indicacion; } catch(e) {}
   return d;
 }
 async function _evolIndicList() {
@@ -4990,7 +4996,7 @@ async function evolGenerarTexto(datos) {
   let ultimoError = '';
   for (let i=0;i<modelos.length;i++){
     let r;
-    try { r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+modelos[i]+':generateContent?key='+geminiKey, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+    try { const _gc = new AbortController(); const _gt = setTimeout(()=>_gc.abort(), 30000); r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+modelos[i]+':generateContent?key='+geminiKey, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:_gc.signal}); clearTimeout(_gt); }
     catch(e){ ultimoError=e.message; await new Promise(s=>setTimeout(s,1200)); continue; }
     if (r.status===503||r.status===429){ ultimoError='IA saturada ('+r.status+')'; await new Promise(s=>setTimeout(s,1200)); continue; }
     const json = await r.json();
@@ -5108,7 +5114,7 @@ async function evolGenerarTodas() {
     const nombre = lista[i].nombre;
     cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nombre) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
     let datos, texto = '';
-    try { datos = await evolRecolectarCompleto(nombre, desde, hasta, _il); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
+    try { datos = await evolRecolectarCompleto(nombre, desde, hasta, _il, true); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
     try { texto = await evolGenerarTexto(datos); } catch(e) { texto = '⚠️ No se pudo generar con IA (' + e.message + '). Probá de nuevo más tarde; los datos están abajo.'; }
     resultados.push({ datos: datos, texto: texto });
     await new Promise(s => setTimeout(s, 600));
