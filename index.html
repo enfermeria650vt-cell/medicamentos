@@ -5246,7 +5246,7 @@ function evolRenderResultado(d, texto) {
   '</div>';
 }
 /* ====== Descargar evolución como PDF (html2pdf.js desde cdnjs) ====== */
-var EVOL_PDF_CSS = 'body{font-family:Arial,sans-serif;margin:0;color:#222;font-size:13px}#pdfroot{width:170mm}h1{font-size:17px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 10px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:12px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:3px 7px}.firma{margin-top:36px;border-top:1px solid #333;width:260px;padding-top:4px;font-size:12px}';
+var EVOL_PDF_CSS = 'h1{font-size:17px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 10px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:12px;word-wrap:break-word;overflow-wrap:break-word}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:3px 7px;word-break:break-word}.firma{margin-top:36px;border-top:1px solid #333;width:260px;padding-top:4px;font-size:12px}';
 function evolNombreArchivo(nombre, periodo){
   var clean=function(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');};
   return 'Evolucion_'+clean(nombre)+(periodo?'_'+clean(periodo):'')+'.pdf';
@@ -5256,9 +5256,8 @@ function evolSeccionResidente(x, withBreak, withDraft){
   var d=x.datos, texto=x.texto;
   var sigRows=Object.keys(d.signos||{}).map(function(k){var s=d.signos[k];return '<tr><td><b>'+k+'</b></td><td>'+(s?s.map(esc).join(' · '):'sin registro')+'</td></tr>';}).join('');
   var nov=(d.novedades&&d.novedades.length)?d.novedades.map(function(n){return '<li>'+esc(n)+'</li>';}).join(''):'<li>sin novedades</li>';
-  var brk=withBreak?'page-break-before:always;':'';
   var draft=withDraft?'<div class="draft">⚠️ BORRADOR generado por IA a partir de los datos cargados. Debe ser revisado y firmado por el médico.</div>':'';
-  return '<div style="'+brk+'padding-top:6px">'+
+  return '<div style="padding-top:2px">'+
     '<h1>Evolución semanal — '+esc(d.nombre)+'</h1>'+
     '<div class="meta">Período '+esc(d.semana||'')+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>'+
     draft+
@@ -5271,34 +5270,64 @@ function evolSeccionResidente(x, withBreak, withDraft){
     '<div class="firma">Firma y sello médico</div>'+
   '</div>';
 }
-function evolPdfPopup(bodyHTML, filename, title){
-  var win=window.open('','_blank');
-  if(!win){alert('Permití las ventanas emergentes para descargar el PDF.');return;}
-  var opt='{margin:[20,20,20,20],filename:'+JSON.stringify(filename)+',image:{type:"jpeg",quality:0.98},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},pagebreak:{mode:["css","legacy"]}}';
-  var html='<!doctype html><html><head><meta charset="utf-8"><title>'+title+'</title><style>'+EVOL_PDF_CSS+'</style>'+
-    '<scr'+'ipt src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\/scr'+'ipt></head>'+
-    '<body><div id="pdfroot">'+bodyHTML+'</div>'+
-    '<div id="pdfmsg" style="position:fixed;top:6px;left:6px;font:13px Arial;background:#1a3c6e;color:#fff;padding:4px 8px;border-radius:4px;z-index:9">⏳ Generando PDF…</div>'+
-    '<scr'+'ipt>function go(){if(!window.html2pdf){return setTimeout(go,150);}var o='+opt+';html2pdf().set(o).from(document.getElementById("pdfroot")).save().then(function(){var m=document.getElementById("pdfmsg");if(m)m.innerHTML="✅ PDF descargado — ya podés cerrar esta pestaña.";setTimeout(function(){try{window.close();}catch(e){}},1500);}).catch(function(e){var m=document.getElementById("pdfmsg");if(m){m.style.background="#c62828";m.innerHTML="No se pudo generar el PDF. Probá Imprimir → Guardar como PDF.";}});}window.onload=go;<\/scr'+'ipt>'+
-    '</body></html>';
-  win.document.write(html);
-  win.document.close();
+// Carga jsPDF + html2canvas (cdnjs) una sola vez.
+function evolCargarPdfLibs(cb){
+  function add(test, src, next){ if(test()){ return next(); } var s=document.createElement('script'); s.src=src; s.onload=next; s.onerror=function(){ cb('No se pudo cargar el generador de PDF (¿sin internet?).'); }; document.head.appendChild(s); }
+  add(function(){return window.jspdf&&window.jspdf.jsPDF;}, 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', function(){
+    add(function(){return typeof window.html2canvas==='function';}, 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', function(){ cb(null); });
+  });
+}
+// Arma el PDF PÁGINA POR PÁGINA: cada sección con margen limpio de 2cm en los 4 lados.
+// (Evita el desfasaje de html2pdf que en PDFs largos comía el margen superior.)
+async function evolGenerarPdf(sections, filename){
+  var jsPDFc=window.jspdf.jsPDF;
+  var pdf=new jsPDFc({unit:'mm',format:'a4',orientation:'portrait'});
+  var M=20, pageW=210, pageH=297, cW=pageW-2*M, availH=pageH-2*M;
+  var css='*{box-sizing:border-box}.blk{font-family:Arial,sans-serif;color:#222;font-size:13px;width:'+cW+'mm;background:#fff}'+EVOL_PDF_CSS;
+  var first=true;
+  for(var s=0;s<sections.length;s++){
+    var holder=document.createElement('div');
+    holder.style.cssText='position:fixed;left:-10000px;top:0;';
+    holder.innerHTML='<style>'+css+'</style><div class="blk">'+sections[s]+'</div>';
+    document.body.appendChild(holder);
+    var canvas=await html2canvas(holder.querySelector('.blk'),{scale:2,useCORS:true,backgroundColor:'#ffffff'});
+    document.body.removeChild(holder);
+    var pxPerMm=canvas.width/cW;
+    var sliceHpx=Math.floor(availH*pxPerMm);
+    var y=0;
+    while(y<canvas.height){
+      var hpx=Math.min(sliceHpx, canvas.height-y);
+      var sc=document.createElement('canvas'); sc.width=canvas.width; sc.height=hpx;
+      sc.getContext('2d').drawImage(canvas,0,y,canvas.width,hpx,0,0,canvas.width,hpx);
+      if(!first) pdf.addPage(); first=false;
+      pdf.addImage(sc.toDataURL('image/jpeg',0.95),'JPEG',M,M,cW,hpx/pxPerMm);
+      y+=hpx;
+    }
+  }
+  pdf.save(filename);
+}
+function evolDescargarPdf(sections, filename){
+  var t=(typeof toast==='function')?toast:function(){};
+  t('⏳ Generando PDF…');
+  evolCargarPdfLibs(function(err){
+    if(err){ alert(err+' Probá Imprimir → Guardar como PDF.'); return; }
+    evolGenerarPdf(sections, filename).then(function(){ t('✅ PDF descargado','success'); }).catch(function(e){ alert('No se pudo generar el PDF: '+((e&&e.message)||e)+'. Probá Imprimir → Guardar como PDF.'); });
+  });
 }
 function evolDescargarA4(){
   var u=window._evolUltimo; if(!u) return;
-  var body=evolSeccionResidente({datos:u.datos,texto:u.texto}, false, true);
-  evolPdfPopup(body, evolNombreArchivo(u.datos.nombre, u.datos.semana), 'Evolución '+u.datos.nombre);
+  evolDescargarPdf([ evolSeccionResidente({datos:u.datos,texto:u.texto}, false, true) ], evolNombreArchivo(u.datos.nombre, u.datos.semana));
 }
 function evolDescargarTodasA4(){
   var u=window._evolTodas; if(!u) return;
-  var draft='<div class="draft">⚠️ BORRADORES generados por IA. Revisar y firmar por el médico.</div>';
-  var body=draft+u.resultados.map(function(x,i){return evolSeccionResidente(x, i>0, false);}).join('');
-  evolPdfPopup(body, 'Evolucion_TODOS_'+(u.desde||'')+'_'+(u.hasta||'')+'.pdf', 'Pase completo');
+  var banner='<div class="draft">⚠️ BORRADORES generados por IA. Revisar y firmar por el médico.</div>';
+  var sections=u.resultados.map(function(x,i){ return (i===0?banner:'')+evolSeccionResidente(x, false, false); });
+  evolDescargarPdf(sections, 'Evolucion_TODOS_'+(u.desde||'')+'_'+(u.hasta||'')+'.pdf');
 }
 function evolDescargarUnoDeTodas(idx){
   var u=window._evolTodas; if(!u||!u.resultados[idx]) return;
   var x=u.resultados[idx];
-  evolPdfPopup(evolSeccionResidente(x, false, true), evolNombreArchivo(x.datos.nombre, x.datos.semana), 'Evolución '+x.datos.nombre);
+  evolDescargarPdf([ evolSeccionResidente(x, false, true) ], evolNombreArchivo(x.datos.nombre, x.datos.semana));
 }
 function evolImprimirA4() {
   const u = window._evolUltimo; if (!u) return;
