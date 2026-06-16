@@ -4871,23 +4871,38 @@ function evolRecolectar(nombre, desde, hasta) {
     if (tuvoCat) catSi++; else if (regCat) catNo++;
   });
   const lunesActual = state.semanal && state.semanal.semanaActualLunes;
-  const diasSemActual = dias.filter(fx => _evolLunesDe(fx) === lunesActual);
-  const esSemanaActual = diasSemActual.length > 0;
   const r = state.residentes.find(x => x.nombre === nombre);
-  let esperadas = 0, dadas = 0;
-  if (esSemanaActual && r) r.meds.forEach(m => {
-    if (!_evolNorm(state.semanal[m.id+'_horario'])) return;
-    const N = dosisDeMed(m.id).length;
-    diasSemActual.forEach(fx => {
-      const di = _evolDiaIdx(fx);
-      for (let dosi=0; dosi<N; dosi++) { esperadas++; if (state.semanal[claveDosis(m.id, di, dosi)] === true) dadas++; }
-    });
+  const medsR = r ? r.meds : [];
+  let esperadas = 0, dadas = 0, diasSinArchivo = 0;
+  dias.forEach(fx => {
+    const lun = _evolLunesDe(fx);
+    const di = _evolDiaIdx(fx);
+    if (lun === lunesActual) {
+      medsR.forEach(m => {
+        if (!_evolNorm(state.semanal[m.id+'_horario'])) return;
+        esperadas++;
+        const N = dosisDeMed(m.id).length;
+        let todas = true;
+        for (let dosi=0; dosi<N; dosi++) { if (state.semanal[claveDosis(m.id, di, dosi)] !== true) { todas = false; break; } }
+        if (todas) dadas++;
+      });
+    } else {
+      const snap = (state.historial||[]).find(h => h.semanaLunes === lun);
+      if (!snap) { diasSinArchivo++; return; }
+      const sr = (snap.residentes||[]).find(x => x.nombre === nombre);
+      if (!sr) return;
+      (sr.meds||[]).forEach(m => {
+        if (!_evolNorm(m.horario)) return;
+        esperadas++;
+        if (m.marcas && m.marcas[di]) dadas++;
+      });
+    }
   });
   const adher = esperadas>0 ? Math.round(dadas/esperadas*100) : null;
+  const esSemanaActual = (dias.filter(fx => _evolLunesDe(fx) === lunesActual).length > 0);
   let adherenciaTexto;
-  if (!esSemanaActual) adherenciaTexto = 'No disponible para este período (las marcas solo existen para la semana en curso; se reinician al cerrar la semana)';
-  else if (esperadas === 0) adherenciaTexto = 'Sin horarios de medicación cargados';
-  else { adherenciaTexto = adher + '% (' + dadas + '/' + esperadas + ' dosis)'; if (diasSemActual.length < dias.length) adherenciaTexto += ' — cubre solo los días de la semana en curso dentro del período'; }
+  if (adher == null) adherenciaTexto = (diasSinArchivo > 0 ? 'Sin datos archivados de adherencia para este período' : 'Sin horarios de medicación cargados');
+  else { adherenciaTexto = adher + '% de med-días administrados (' + dadas + '/' + esperadas + ')'; if (diasSinArchivo > 0) adherenciaTexto += ' — ' + diasSinArchivo + ' día(s) sin archivo'; }
   let dx = '';
   try { if (state.recetas && state.recetas[nombre]) dx = _evolNorm(state.recetas[nombre].diagnostico); } catch(e){}
   const signos = {};
