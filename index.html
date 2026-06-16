@@ -4996,7 +4996,7 @@ function evolTextoFallback(d) {
   return P.join(' ');
 }
 async function evolGenerarTextoSeguro(d) {
-  if (_evolIASinCupo) return evolTextoFallback(d);
+  if (_evolIASinCupo) return '\ud83d\udccb RESUMEN AUTOM\u00c1TICO (sin IA \u2014 la IA alcanz\u00f3 su l\u00edmite por hoy):\n\n' + evolTextoFallback(d);
   try { const t = await evolGenerarTexto(d); if (t) return t; throw new Error('IA sin respuesta'); }
   catch(e) {
     if (/quota|RESOURCE_EXHAUSTED|429|l\u00edmite/i.test(String(e.message||''))) _evolIASinCupo = true;
