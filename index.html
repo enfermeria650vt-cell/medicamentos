@@ -4826,8 +4826,27 @@ function imprimirReceta(residente, idx) {
 // ============ EVOLUCIÓN SEMANAL POR RESIDENTE ============
 function _evolNorm(s){ return (s==null?'':String(s)).trim(); }
 
-function evolRecolectar(nombre, fechaRef) {
-  const dias = csSemanaDias(fechaRef);
+function _evolRangoDias(desde, hasta) {
+  const out = [];
+  let a = new Date(desde + 'T00:00:00'), b = new Date(hasta + 'T00:00:00');
+  if (isNaN(a.getTime()) || isNaN(b.getTime())) return out;
+  if (a > b) { const t = a; a = b; b = t; }
+  let cur = new Date(a), guard = 0;
+  while (cur <= b && guard < 400) {
+    out.push(cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0'));
+    cur.setDate(cur.getDate()+1); guard++;
+  }
+  return out;
+}
+function _evolLunesDe(fstr) {
+  const p = fstr.split('-').map(Number); const dt = new Date(p[0],p[1]-1,p[2]);
+  dt.setDate(dt.getDate() - ((dt.getDay()+6)%7));
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+}
+function _evolDiaIdx(fstr) { const p = fstr.split('-').map(Number); return (new Date(p[0],p[1]-1,p[2]).getDay()+6)%7; }
+function evolRecolectar(nombre, desde, hasta) {
+  const dias = _evolRangoDias(desde, hasta);
+  if (!dias.length) return { nombre: nombre, dx:'', semana:'(rango inválido)', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, adherencia:null, adherenciaTexto:'—', esSemanaActual:false, dosisDadas:0, dosisEsperadas:0, novedades:[] };
   const turnos = ['m','t','n'];
   const sigCampos = [['ta','T/A'],['fc','F/C'],['fr','F/R'],['temp','Tº'],['spo2','SPO2'],['hgt','HGT']];
   const sig = {}; sigCampos.forEach(c => sig[c[1]] = []);
@@ -4851,28 +4870,30 @@ function evolRecolectar(nombre, fechaRef) {
     });
     if (tuvoCat) catSi++; else if (regCat) catNo++;
   });
-  const esSemanaActual = !!(state.semanal && state.semanal.semanaActualLunes === dias[0]);
+  const lunesActual = state.semanal && state.semanal.semanaActualLunes;
+  const diasSemActual = dias.filter(fx => _evolLunesDe(fx) === lunesActual);
+  const esSemanaActual = diasSemActual.length > 0;
   const r = state.residentes.find(x => x.nombre === nombre);
   let esperadas = 0, dadas = 0;
   if (esSemanaActual && r) r.meds.forEach(m => {
     if (!_evolNorm(state.semanal[m.id+'_horario'])) return;
     const N = dosisDeMed(m.id).length;
-    for (let i=0;i<7;i++) for (let di=0; di<N; di++) {
-      esperadas++;
-      if (state.semanal[claveDosis(m.id, i, di)] === true) dadas++;
-    }
+    diasSemActual.forEach(fx => {
+      const di = _evolDiaIdx(fx);
+      for (let dosi=0; dosi<N; dosi++) { esperadas++; if (state.semanal[claveDosis(m.id, di, dosi)] === true) dadas++; }
+    });
   });
   const adher = esperadas>0 ? Math.round(dadas/esperadas*100) : null;
   let adherenciaTexto;
-  if (!esSemanaActual) adherenciaTexto = 'No disponible para semanas pasadas (los tildes se reinician al cerrar la semana)';
+  if (!esSemanaActual) adherenciaTexto = 'No disponible para este período (las marcas solo existen para la semana en curso; se reinician al cerrar la semana)';
   else if (esperadas === 0) adherenciaTexto = 'Sin horarios de medicación cargados';
-  else adherenciaTexto = adher + '% (' + dadas + '/' + esperadas + ' dosis)';
+  else { adherenciaTexto = adher + '% (' + dadas + '/' + esperadas + ' dosis)'; if (diasSemActual.length < dias.length) adherenciaTexto += ' — cubre solo los días de la semana en curso dentro del período'; }
   let dx = '';
   try { if (state.recetas && state.recetas[nombre]) dx = _evolNorm(state.recetas[nombre].diagnostico); } catch(e){}
   const signos = {};
   sigCampos.forEach(c => { const v = sig[c[1]]; signos[c[1]] = v.length ? v : null; });
   return {
-    nombre, dx, semana: csFmtFecha(dias[0]) + ' al ' + csFmtFecha(dias[6]),
+    nombre, dx, semana: csFmtFecha(dias[0]) + ' al ' + csFmtFecha(dias[dias.length-1]),
     signos, catarsis: { conCatarsis: catSi, sinCatarsis: catNo },
     hidratacion: { ingesta: ingN, egreso: egrN },
     adherencia: adher, adherenciaTexto: adherenciaTexto, esSemanaActual: esSemanaActual, dosisDadas: dadas, dosisEsperadas: esperadas,
@@ -4915,7 +4936,10 @@ function viewEvolucion() {
     '<p style="color:#6c7a8a;font-size:13px;margin-bottom:16px">Resume la semana del residente (signos, catarsis, hidratación, adherencia y novedades) y arma un borrador redactado para que el médico revise y firme.</p>' +
     '<div class="ins-header" style="gap:10px;flex-wrap:wrap;margin-bottom:16px">' +
       '<select class="ins-select" id="evol-res">'+resOpts+'</select>' +
-      '<input type="date" class="ins-select" id="evol-fecha" value="'+csHoy()+'">' +
+      '<label style="font-size:12px;color:#6c7a8a;align-self:center">Desde</label>' +
+      '<input type="date" class="ins-select" id="evol-desde" value="'+csSemanaDias(csHoy())[0]+'">' +
+      '<label style="font-size:12px;color:#6c7a8a;align-self:center">Hasta</label>' +
+      '<input type="date" class="ins-select" id="evol-hasta" value="'+csHoy()+'">' +
       '<button class="btn btn-primary" id="evol-gen">📝 Generar evolución</button>' +
       '<button class="btn secondary" id="evol-gen-todas">📋 Generar TODAS (pase completo)</button>' +
     '</div>' +
@@ -4930,11 +4954,13 @@ function attachEvolucion() {
 }
 async function evolGenerar() {
   const nombre = document.getElementById('evol-res').value;
-  const fecha = document.getElementById('evol-fecha').value || csHoy();
+  const desde = document.getElementById('evol-desde').value;
+  const hasta = document.getElementById('evol-hasta').value || csHoy();
+  if (!desde || !hasta) { alert('Elegí las fechas Desde y Hasta'); return; }
   const cont = document.getElementById('evol-resultado');
-  cont.innerHTML = '<div style="padding:20px;color:#6c7a8a">⏳ Juntando los datos de la semana y redactando el borrador…</div>';
+  cont.innerHTML = '<div style="padding:20px;color:#6c7a8a">⏳ Juntando los datos del período y redactando el borrador…</div>';
   try {
-    const datos = evolRecolectar(nombre, fecha);
+    const datos = evolRecolectar(nombre, desde, hasta);
     let texto = '';
     try { texto = await evolGenerarTexto(datos); }
     catch(e) { texto = '⚠️ No se pudo generar el texto con IA (' + e.message + '). Abajo tenés igual los datos de la semana.'; }
@@ -4955,7 +4981,7 @@ function evolRenderResultado(d, texto) {
       '<h3 style="margin:0;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
       '<button class="btn secondary small" onclick="evolImprimirA4()">🖨 Imprimir hoja A4</button>' +
     '</div>' +
-    '<div style="font-size:12px;color:#6c7a8a;margin:2px 0 14px">Semana '+escapeHtml(d.semana)+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
+    '<div style="font-size:12px;color:#6c7a8a;margin:2px 0 14px">Período '+escapeHtml(d.semana)+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
     '<div style="background:#FFF8E1;border:1px solid #ffe082;border-radius:6px;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px">⚠️ BORRADOR generado por IA a partir de los datos. Debe ser revisado y firmado por el médico.</div>' +
     '<div style="white-space:pre-wrap;line-height:1.5;font-size:14px;margin-bottom:16px">'+escapeHtml(texto)+'</div>' +
     '<div style="font-size:13px"><b>Datos de la semana</b>' +
@@ -4978,7 +5004,7 @@ function evolImprimirA4() {
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Evolución '+esc(d.nombre)+'</title>' +
     '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:24px auto;color:#222;font-size:13px}h1{font-size:18px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 14px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:16px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:4px 8px}.firma{margin-top:46px;border-top:1px solid #333;width:280px;padding-top:4px;font-size:12px}@media print{body{margin:0}}</style></head><body>' +
     '<h1>Evolución semanal — '+esc(d.nombre)+'</h1>' +
-    '<div class="meta">Semana '+esc(d.semana)+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
+    '<div class="meta">Período '+esc(d.semana)+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
     '<div class="draft">⚠️ BORRADOR generado por IA a partir de los datos cargados. Debe ser revisado y firmado por el médico.</div>' +
     '<div class="evol">'+esc(texto)+'</div>' +
     '<b>Datos de la semana</b><table><tbody>'+sigRows+
@@ -4993,7 +5019,9 @@ function evolImprimirA4() {
 
 
 async function evolGenerarTodas() {
-  const fecha = (document.getElementById('evol-fecha') && document.getElementById('evol-fecha').value) || csHoy();
+  const desde = document.getElementById('evol-desde') && document.getElementById('evol-desde').value;
+  const hasta = (document.getElementById('evol-hasta') && document.getElementById('evol-hasta').value) || csHoy();
+  if (!desde || !hasta) { alert('Elegí las fechas Desde y Hasta'); return; }
   const cont = document.getElementById('evol-resultado');
   const lista = state.residentes.slice();
   if (!lista.length) { cont.innerHTML = '<div style="padding:20px">No hay residentes.</div>'; return; }
@@ -5003,7 +5031,7 @@ async function evolGenerarTodas() {
     const nombre = lista[i].nombre;
     cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nombre) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
     let datos, texto = '';
-    try { datos = evolRecolectar(nombre, fecha); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
+    try { datos = evolRecolectar(nombre, desde, hasta); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
     try { texto = await evolGenerarTexto(datos); } catch(e) { texto = '⚠️ No se pudo generar con IA (' + e.message + '). Probá de nuevo más tarde; los datos están abajo.'; }
     resultados.push({ datos: datos, texto: texto });
     await new Promise(s => setTimeout(s, 600));
@@ -5017,7 +5045,7 @@ function evolRenderTodas(res) {
     const d = x.datos;
     return '<div style="background:white;border:1px solid var(--gris-borde);border-radius:8px;padding:14px;margin-bottom:12px">' +
       '<h3 style="margin:0 0 2px;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
-      '<div style="font-size:11px;color:#6c7a8a;margin-bottom:8px">Semana '+escapeHtml(d.semana||'')+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
+      '<div style="font-size:11px;color:#6c7a8a;margin-bottom:8px">Período '+escapeHtml(d.semana||'')+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
       '<div style="white-space:pre-wrap;line-height:1.5;font-size:13px">'+escapeHtml(x.texto)+'</div>' +
     '</div>';
   }).join('');
@@ -5041,7 +5069,7 @@ function evolImprimirTodasA4() {
     const brk = idx>0 ? 'page-break-before:always;' : '';
     return '<div style="'+brk+'padding-top:6px">' +
       '<h1>'+esc(d.nombre)+'</h1>' +
-      '<div class="meta">Semana '+esc(d.semana||'')+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
+      '<div class="meta">Período '+esc(d.semana||'')+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
       '<div class="evol">'+esc(x.texto)+'</div>' +
       '<table><tbody>'+sigRows+
       '<tr><td><b>Catarsis</b></td><td>'+d.catarsis.conCatarsis+' día(s) con, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
