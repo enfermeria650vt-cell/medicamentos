@@ -2175,6 +2175,8 @@ function render() {
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === state.view && !state.residenteSel);
   });
+  var _evNav = document.querySelector('.nav-item[data-view="evolucion"]');
+  if (_evNav) _evNav.style.display = _evolSoloMaxi() ? '' : 'none';
   const tot = totales();
   document.getElementById('badge-alertas').textContent = tot.cri + tot.sin;
   document.getElementById('badge-alertas').style.display = (tot.cri + tot.sin) > 0 ? 'inline-block' : 'none';
@@ -2211,7 +2213,7 @@ function render() {
   }
   else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
   else if (state.view === 'insumos') { main.innerHTML = viewInsumos(); attachInsumos(); return; }
-  else if (state.view === 'evolucion') { main.innerHTML = viewEvolucion(); attachEvolucion(); return; }
+  else if (state.view === 'evolucion') { if (_evolSoloMaxi()) { main.innerHTML = viewEvolucion(); attachEvolucion(); } else { main.innerHTML = '<div style=\"padding:40px;color:#6c7a8a;font-size:15px\">📈 La <b>Evolución semanal</b> es una función exclusiva del administrador.</div>'; } return; }
   else if (state.view === 'nutricion') { main.innerHTML = viewNutricion(); attachNutricion(); return; }
   else if (state.view === 'menugeneral') { main.innerHTML = viewMenuGeneral(); attachMenuGeneral(); return; }
   else if (state.view === 'recetas') { main.innerHTML = viewRecetas(); attachRecetas(); return; }
@@ -5032,6 +5034,7 @@ async function evolGenerarTexto(datos) {
   throw new Error(ultimoError || 'La IA no devolvió texto. Probá de nuevo.');
 }
 
+function _evolSoloMaxi() { return String(getCurrentUser()||'').trim() === 'Maximiliano Martin'; }
 function viewEvolucion() {
   const resOpts = state.residentes.map(r => '<option value="'+escapeHtml(r.nombre)+'">'+escapeHtml(r.nombre)+'</option>').join('');
   return '<div style="padding:24px">' +
@@ -5056,6 +5059,7 @@ function attachEvolucion() {
   if (bt) bt.onclick = evolGenerarTodas;
 }
 async function evolGenerar() {
+  if (!_evolSoloMaxi()) { alert('Solo el administrador puede generar la evolución.'); return; }
   const nombre = document.getElementById('evol-res').value;
   const desde = document.getElementById('evol-desde').value;
   const hasta = document.getElementById('evol-hasta').value || csHoy();
@@ -5125,6 +5129,7 @@ function evolImprimirA4() {
 
 
 async function evolGenerarTodas() {
+  if (!_evolSoloMaxi()) { alert('Solo el administrador puede generar la evolución.'); return; }
   const desde = document.getElementById('evol-desde') && document.getElementById('evol-desde').value;
   const hasta = (document.getElementById('evol-hasta') && document.getElementById('evol-hasta').value) || csHoy();
   if (!desde || !hasta) { alert('Elegí las fechas Desde y Hasta'); return; }
