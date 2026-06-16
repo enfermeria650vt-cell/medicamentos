@@ -776,6 +776,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-section">Indicaciones</div>
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
     <div class="nav-item" data-view="insumos">🧴 <span>Insumos</span></div>
+    <div class="nav-item" data-view="evolucion">📈 <span>Evolución semanal</span></div>
     <div class="nav-item" data-view="nutricion">🥗 <span>Nutrición</span></div>
     <div class="nav-item nav-subitem" data-view="menugeneral">📅 <span>Menú</span></div>
     <div class="nav-item" data-view="recetas">📝 <span>Recetas</span></div>
@@ -2210,6 +2211,7 @@ function render() {
   }
   else if (state.view === 'controlsignos') main.innerHTML = viewControlSignos();
   else if (state.view === 'insumos') { main.innerHTML = viewInsumos(); attachInsumos(); return; }
+  else if (state.view === 'evolucion') { main.innerHTML = viewEvolucion(); attachEvolucion(); return; }
   else if (state.view === 'nutricion') { main.innerHTML = viewNutricion(); attachNutricion(); return; }
   else if (state.view === 'menugeneral') { main.innerHTML = viewMenuGeneral(); attachMenuGeneral(); return; }
   else if (state.view === 'recetas') { main.innerHTML = viewRecetas(); attachRecetas(); return; }
@@ -4819,6 +4821,167 @@ function imprimirReceta(residente, idx) {
   win.document.close();
 }
 
+
+
+// ============ EVOLUCIÓN SEMANAL POR RESIDENTE ============
+function _evolNorm(s){ return (s==null?'':String(s)).trim(); }
+
+function evolRecolectar(nombre, fechaRef) {
+  const dias = csSemanaDias(fechaRef);
+  const turnos = ['m','t','n'];
+  const sigCampos = [['ta','T/A'],['fc','F/C'],['fr','F/R'],['temp','Tº'],['spo2','SPO2'],['hgt','HGT']];
+  const sig = {}; sigCampos.forEach(c => sig[c[1]] = []);
+  const novedades = [];
+  let catSi = 0, catNo = 0;
+  let ingN = 0, egrN = 0;
+  dias.forEach(d => {
+    let tuvoCat = false, regCat = false;
+    turnos.forEach(t => {
+      sigCampos.forEach(c => {
+        const v = _evolNorm(csGet(d,'signos',nombre,t,c[0]));
+        if (v) sig[c[1]].push(v);
+      });
+      const nov = _evolNorm(csGet(d,'novedades',nombre,t));
+      if (nov && !/^s\s*\/?\s*n$/i.test(nov)) novedades.push(d.slice(8)+'/'+d.slice(5,7)+': '+nov);
+      const cat = _evolNorm(csGet(d,'catarsis',nombre,t,'hubo'));
+      if (cat) regCat = true;
+      if (cat === 'Sí') tuvoCat = true;
+      if (_evolNorm(csGet(d,'hidro',nombre,t,'ing'))) ingN++;
+      if (_evolNorm(csGet(d,'hidro',nombre,t,'egr'))) egrN++;
+    });
+    if (tuvoCat) catSi++; else if (regCat) catNo++;
+  });
+  const r = state.residentes.find(x => x.nombre === nombre);
+  let esperadas = 0, dadas = 0;
+  if (r) r.meds.forEach(m => {
+    if (!_evolNorm(state.semanal[m.id+'_horario'])) return;
+    const N = dosisDeMed(m.id).length;
+    for (let i=0;i<7;i++) for (let di=0; di<N; di++) {
+      esperadas++;
+      if (state.semanal[claveDosis(m.id, i, di)] === true) dadas++;
+    }
+  });
+  const adher = esperadas>0 ? Math.round(dadas/esperadas*100) : null;
+  let dx = '';
+  try { if (state.recetas && state.recetas[nombre]) dx = _evolNorm(state.recetas[nombre].diagnostico); } catch(e){}
+  const signos = {};
+  sigCampos.forEach(c => { const v = sig[c[1]]; signos[c[1]] = v.length ? v : null; });
+  return {
+    nombre, dx, semana: csFmtFecha(dias[0]) + ' al ' + csFmtFecha(dias[6]),
+    signos, catarsis: { conCatarsis: catSi, sinCatarsis: catNo },
+    hidratacion: { ingesta: ingN, egreso: egrN },
+    adherencia: adher, dosisDadas: dadas, dosisEsperadas: esperadas,
+    novedades
+  };
+}
+
+async function evolGenerarTexto(datos) {
+  const geminiKey = localStorage.getItem('vt_gemini_key') || '';
+  if (!geminiKey) throw new Error('Configurá la clave Gemini API en ⚙️ Configurar nube');
+  const prompt = 'Sos un asistente clínico de un geriátrico argentino. Con los DATOS de la semana de un residente, escribí una EVOLUCIÓN SEMANAL breve y profesional en español (4 a 8 oraciones), tono clínico claro.\n' +
+    'REGLAS ESTRICTAS:\n' +
+    '- Usá SOLO los datos provistos. NO inventes valores, diagnósticos ni síntomas.\n' +
+    '- Si un dato falta, decí "sin registro" o no lo menciones.\n' +
+    '- Señalá tendencias (estable, mejoría, deterioro) solo si los datos lo respaldan.\n' +
+    '- Mencioná signos vitales (rangos/estabilidad), catarsis, hidratación, adherencia a la medicación y novedades relevantes.\n' +
+    '- NO des indicaciones ni cambies tratamientos. Es un BORRADOR para que el médico revise y firme.\n' +
+    '- Devolvé SOLO el texto de la evolución, sin títulos ni markdown.\n\n' +
+    'DATOS (JSON):\n' + JSON.stringify(datos);
+  const payload = { contents:[{parts:[{text:prompt}]}], generationConfig:{temperature:0.2, maxOutputTokens:1024, thinkingConfig:{thinkingBudget:0}} };
+  const modelos = ['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-2.5-flash-lite'];
+  let ultimoError = '';
+  for (let i=0;i<modelos.length;i++){
+    let r;
+    try { r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+modelos[i]+':generateContent?key='+geminiKey, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); }
+    catch(e){ ultimoError=e.message; await new Promise(s=>setTimeout(s,1200)); continue; }
+    if (r.status===503||r.status===429){ ultimoError='IA saturada ('+r.status+')'; await new Promise(s=>setTimeout(s,1200)); continue; }
+    const json = await r.json();
+    if (json.error){ ultimoError=json.error.message; if(/overload|high demand|quota|UNAVAILABLE|503|429/i.test(ultimoError)){await new Promise(s=>setTimeout(s,1200));continue;} throw new Error(ultimoError); }
+    const text = ((json.candidates||[])[0] && (json.candidates||[])[0].content && (json.candidates||[])[0].content.parts && (json.candidates||[])[0].content.parts[0] ? (json.candidates||[])[0].content.parts[0].text : '').trim();
+    if (text) return text;
+  }
+  throw new Error(ultimoError || 'La IA no devolvió texto. Probá de nuevo.');
+}
+
+function viewEvolucion() {
+  const resOpts = state.residentes.map(r => '<option value="'+escapeHtml(r.nombre)+'">'+escapeHtml(r.nombre)+'</option>').join('');
+  return '<div style="padding:24px">' +
+    '<h2 style="color:var(--azul-1)">📈 Evolución semanal</h2>' +
+    '<p style="color:#6c7a8a;font-size:13px;margin-bottom:16px">Resume la semana del residente (signos, catarsis, hidratación, adherencia y novedades) y arma un borrador redactado para que el médico revise y firme.</p>' +
+    '<div class="ins-header" style="gap:10px;flex-wrap:wrap;margin-bottom:16px">' +
+      '<select class="ins-select" id="evol-res">'+resOpts+'</select>' +
+      '<input type="date" class="ins-select" id="evol-fecha" value="'+csHoy()+'">' +
+      '<button class="btn btn-primary" id="evol-gen">📝 Generar evolución</button>' +
+    '</div>' +
+    '<div id="evol-resultado"></div>' +
+  '</div>';
+}
+function attachEvolucion() {
+  const b = document.getElementById('evol-gen');
+  if (b) b.onclick = evolGenerar;
+}
+async function evolGenerar() {
+  const nombre = document.getElementById('evol-res').value;
+  const fecha = document.getElementById('evol-fecha').value || csHoy();
+  const cont = document.getElementById('evol-resultado');
+  cont.innerHTML = '<div style="padding:20px;color:#6c7a8a">⏳ Juntando los datos de la semana y redactando el borrador…</div>';
+  try {
+    const datos = evolRecolectar(nombre, fecha);
+    let texto = '';
+    try { texto = await evolGenerarTexto(datos); }
+    catch(e) { texto = '⚠️ No se pudo generar el texto con IA (' + e.message + '). Abajo tenés igual los datos de la semana.'; }
+    window._evolUltimo = { datos: datos, texto: texto };
+    cont.innerHTML = evolRenderResultado(datos, texto);
+  } catch(e) {
+    cont.innerHTML = '<div style="padding:20px;color:#c62828">Error: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+function evolRenderResultado(d, texto) {
+  const sigRows = Object.keys(d.signos).map(k => {
+    const s = d.signos[k];
+    return '<tr><td style="font-weight:600">'+k+'</td><td>'+(s ? s.map(escapeHtml).join(' · ') : '<span style="color:#aaa">sin registro</span>')+'</td></tr>';
+  }).join('');
+  const nov = d.novedades.length ? d.novedades.map(n=>'<li>'+escapeHtml(n)+'</li>').join('') : '<li style="color:#aaa">sin novedades</li>';
+  return '<div style="background:white;border:1px solid var(--gris-borde);border-radius:8px;padding:18px;max-width:820px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h3 style="margin:0;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
+      '<button class="btn secondary small" onclick="evolImprimirA4()">🖨 Imprimir hoja A4</button>' +
+    '</div>' +
+    '<div style="font-size:12px;color:#6c7a8a;margin:2px 0 14px">Semana '+escapeHtml(d.semana)+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
+    '<div style="background:#FFF8E1;border:1px solid #ffe082;border-radius:6px;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px">⚠️ BORRADOR generado por IA a partir de los datos. Debe ser revisado y firmado por el médico.</div>' +
+    '<div style="white-space:pre-wrap;line-height:1.5;font-size:14px;margin-bottom:16px">'+escapeHtml(texto)+'</div>' +
+    '<div style="font-size:13px"><b>Datos de la semana</b>' +
+      '<table class="tabla" style="margin-top:6px"><tbody>'+sigRows+
+        '<tr><td style="font-weight:600">Catarsis</td><td>'+d.catarsis.conCatarsis+' día(s) con catarsis, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
+        '<tr><td style="font-weight:600">Hidratación</td><td>'+d.hidratacion.ingesta+' registro(s) de ingesta, '+d.hidratacion.egreso+' de egreso</td></tr>' +
+        '<tr><td style="font-weight:600">Adherencia medicación</td><td>'+(d.adherencia==null?'sin horarios cargados':(d.adherencia+'% ('+d.dosisDadas+'/'+d.dosisEsperadas+' dosis)'))+'</td></tr>' +
+      '</tbody></table>' +
+      '<b style="display:block;margin-top:10px">Novedades</b><ul style="margin:4px 0 0">'+nov+'</ul>' +
+    '</div>' +
+  '</div>';
+}
+function evolImprimirA4() {
+  const u = window._evolUltimo; if (!u) return;
+  const d = u.datos, texto = u.texto;
+  const esc = (s)=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const sigRows = Object.keys(d.signos).map(k => { const s=d.signos[k]; return '<tr><td><b>'+k+'</b></td><td>'+(s?s.map(esc).join(' · '):'sin registro')+'</td></tr>'; }).join('');
+  const nov = d.novedades.length ? d.novedades.map(n=>'<li>'+esc(n)+'</li>').join('') : '<li>sin novedades</li>';
+  const win = window.open('', '_blank');
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Evolución '+esc(d.nombre)+'</title>' +
+    '<style>body{font-family:Arial,sans-serif;max-width:780px;margin:24px auto;color:#222;font-size:13px}h1{font-size:18px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 14px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:16px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:4px 8px}.firma{margin-top:46px;border-top:1px solid #333;width:280px;padding-top:4px;font-size:12px}@media print{body{margin:0}}</style></head><body>' +
+    '<h1>Evolución semanal — '+esc(d.nombre)+'</h1>' +
+    '<div class="meta">Semana '+esc(d.semana)+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>' +
+    '<div class="draft">⚠️ BORRADOR generado por IA a partir de los datos cargados. Debe ser revisado y firmado por el médico.</div>' +
+    '<div class="evol">'+esc(texto)+'</div>' +
+    '<b>Datos de la semana</b><table><tbody>'+sigRows+
+    '<tr><td><b>Catarsis</b></td><td>'+d.catarsis.conCatarsis+' día(s) con, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
+    '<tr><td><b>Hidratación</b></td><td>'+d.hidratacion.ingesta+' ingesta, '+d.hidratacion.egreso+' egreso</td></tr>' +
+    '<tr><td><b>Adherencia</b></td><td>'+(d.adherencia==null?'sin horarios':(d.adherencia+'% ('+d.dosisDadas+'/'+d.dosisEsperadas+')'))+'</td></tr>' +
+    '</tbody></table><b style="display:block;margin-top:10px">Novedades</b><ul>'+nov+'</ul>' +
+    '<div class="firma">Firma y sello médico</div>' +
+    '<scr'+'ipt>window.onload=function(){window.print()}<\/scr'+'ipt></body></html>');
+  win.document.close();
+}
 
 function viewInsumos() {
   const ahora = new Date();
