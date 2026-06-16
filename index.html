@@ -626,6 +626,12 @@ input:focus, select:focus, textarea:focus {
 .cs-catbox.si { background:#27AE60; }
 .cs-catbox.no { background:#E74C3C; }
 .cs-catbox.tienetipo::after { content:''; position:absolute; top:1px; right:1px; width:5px; height:5px; border-radius:50%; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.25); }
+.cs-tipobox { width:44px; height:24px; border:1px solid #a0a0a0; border-radius:3px; text-align:center; font-size:11px; font-weight:700; padding:0 1px; box-sizing:border-box; font-family:inherit; }
+.cs-tipobox::placeholder { color:#9aa3ad; font-weight:400; }
+.cs-tipobox.vacio { background:#E0E0E0; color:#444; }
+.cs-tipobox.si { background:#27AE60; color:#fff; }
+.cs-tipobox.no { background:#E74C3C; color:#fff; }
+.cs-tipobox:focus { outline:2px solid var(--azul-2); outline-offset:-1px; }
 /* Motrax en alertas */
 .cs-motrax-btn { background:#1565C0; color:#fff; border:none; border-radius:5px; padding:4px 10px; cursor:pointer; font-size:12px; font-weight:600; margin-left:6px; }
 .cs-motrax-done { background:#27AE60; color:#fff; border-radius:5px; padding:2px 4px 2px 9px; font-size:12px; font-weight:600; margin-left:6px; display:inline-flex; align-items:center; gap:4px; }
@@ -4307,9 +4313,8 @@ function csTablaCatarsis() {
         const hubo = csGet(d, 'catarsis', r.nombre, tn[0], 'hubo');
         const tipo = csGet(d, 'catarsis', r.nombre, tn[0], 'tipo');
         const est = hubo === 'Sí' ? 'si' : (hubo === 'No' ? 'no' : 'vacio');
-        const tt = tipo ? ' tienetipo' : '';
-        const title = tn[1] + ' ' + csFmtFecha(d) + (tipo ? (' — ' + tipo) : '');
-        boxes += `<div class="cs-catbox ${est}${tt}" data-cs-catbox="1" data-d="${d}" data-res="${escapeHtml(r.nombre)}" data-t="${tn[0]}" title="${escapeHtml(title)}">${tn[1]}</div>`;
+        const title = tn[1] + ' ' + csFmtFecha(d);
+        boxes += `<input class="cs-tipobox ${est}" data-cs-tipo="1" data-d="${d}" data-res="${escapeHtml(r.nombre)}" data-t="${tn[0]}" value="${escapeHtml(tipo)}" placeholder="${tn[1]}" maxlength="10" title="${escapeHtml(title)}">`;
       });
       tds += `<td class="cs-daycell"><div class="cs-turnos-box">${boxes}</div></td>`;
     });
@@ -4325,7 +4330,7 @@ function csTablaCatarsis() {
         <span class="cs-leg"><i style="background:#27AE60"></i>Hubo</span>
         <span class="cs-leg"><i style="background:#E74C3C"></i>No hubo</span>
         <span class="cs-leg"><i style="background:#E0E0E0"></i>Sin cargar</span>
-        <span style="color:#888">· tocá un casillero para cambiarlo · doble clic = anotar tipo</span>
+        <span style="color:#888">· escribí la consistencia (ej. ++++5) · para "no hubo" escribí No o –</span>
       </span>
     </div>`;
   return csAlertasCatarsis() + bar + `<table class="cs-tabla mensual"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
@@ -4471,6 +4476,21 @@ function attachListeners() {
   if (csCont) {
     csCont.onchange = (e) => {
       const el = e.target;
+      if (el.dataset && el.dataset.csTipo) {
+        const d = el.dataset.d, res = el.dataset.res, t = el.dataset.t;
+        const raw = el.value.trim();
+        const noMarks = ['no','n','-','–','x','0'];
+        let hubo;
+        if (raw === '') hubo = '';
+        else if (noMarks.indexOf(raw.toLowerCase()) !== -1) hubo = 'No';
+        else hubo = 'Sí';
+        csSet(d, 'catarsis', res, t + '.tipo', raw);
+        csSet(d, 'catarsis', res, t + '.hubo', hubo);
+        const est = hubo === 'Sí' ? 'si' : (hubo === 'No' ? 'no' : 'vacio');
+        el.classList.remove('si','no','vacio');
+        el.classList.add(est);
+        return;
+      }
       if (!el.dataset || !el.dataset.csSeccion) return;
       csSet(el.dataset.csFecha, el.dataset.csSeccion, el.dataset.csRes,
             el.dataset.csCampo, el.value);
@@ -4482,16 +4502,6 @@ function attachListeners() {
     csCont.onclick = (e) => {
       const mesBtn = e.target.closest('[data-cs-mes]');
       if (mesBtn) { state.csMes = mesBtn.dataset.csMes; render(); return; }
-      const box = e.target.closest('[data-cs-catbox]');
-      if (box) {
-        const d = box.dataset.d, res = box.dataset.res, t = box.dataset.t;
-        const cur = csGet(d, 'catarsis', res, t, 'hubo');
-        const next = cur === '' ? 'Sí' : (cur === 'Sí' ? 'No' : '');
-        csSet(d, 'catarsis', res, t + '.hubo', next);
-        box.classList.remove('si','no','vacio');
-        box.classList.add(next === 'Sí' ? 'si' : (next === 'No' ? 'no' : 'vacio'));
-        return;
-      }
       const mtx = e.target.closest('[data-cs-motrax]');
       if (mtx) {
         const res = mtx.dataset.csMotrax;
@@ -4524,19 +4534,7 @@ function attachListeners() {
       if (b.dataset.csAction === 'rename') csRenombrarResidente(res);
       else if (b.dataset.csAction === 'delete') csEliminarResidente(res);
     };
-    csCont.ondblclick = (e) => {
-      const box = e.target.closest('[data-cs-catbox]');
-      if (!box) return;
-      const d = box.dataset.d, res = box.dataset.res, t = box.dataset.t;
-      const cur = csGet(d, 'catarsis', res, t, 'tipo');
-      const v = prompt('Tipo / consistencia para este turno (ej: ++++4).\nDejá vacío para borrar:', cur || '');
-      if (v === null) return;
-      const val = v.trim();
-      csSet(d, 'catarsis', res, t + '.tipo', val);
-      if (val) box.classList.add('tienetipo'); else box.classList.remove('tienetipo');
-      const base = (t === 'm' ? 'M' : t === 't' ? 'T' : 'N') + ' ' + csFmtFecha(d);
-      box.title = base + (val ? (' — ' + val) : '');
-    };
+
   }
   const search = document.getElementById('search-stock');
   if (search) {
