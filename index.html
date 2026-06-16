@@ -609,6 +609,27 @@ input:focus, select:focus, textarea:focus {
 .cs-alerta-item { padding: 4px 0; font-size: 14px; color: #333; border-bottom: 1px solid #FFD9A0; }
 .cs-alerta-item:last-child { border-bottom: none; }
 .cs-alerta-motrax { background: #C00000; color: white; border-radius: 4px; padding: 1px 7px; font-weight: bold; font-size: 13px; }
+/* Catarsis mensual: casilleros de color por turno */
+.cs-mes-bar { display:flex; align-items:center; gap:10px; margin:6px 0 12px; flex-wrap:wrap; }
+.cs-mes-tit { font-weight:700; font-size:15px; min-width:140px; text-align:center; color:var(--azul-1); }
+.cs-mes-nav { background:var(--azul-1); color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:14px; }
+.cs-mes-leyenda { font-size:12px; color:#555; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.cs-leg { display:inline-flex; align-items:center; gap:4px; }
+.cs-leg i { width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid #b0b0b0; }
+.cs-tabla.mensual th, .cs-tabla.mensual td { padding:2px 3px; }
+.cs-tabla.mensual .cs-dayh { font-size:11px; line-height:1.1; min-width:60px; }
+.cs-tabla.mensual .cs-finde { background:#5a3d7a !important; }
+.cs-daycell { padding:2px !important; }
+.cs-turnos-box { display:flex; gap:2px; justify-content:center; }
+.cs-catbox { width:18px; height:24px; border-radius:3px; border:1px solid #a0a0a0; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; user-select:none; position:relative; }
+.cs-catbox.vacio { background:#E0E0E0; color:#999; }
+.cs-catbox.si { background:#27AE60; }
+.cs-catbox.no { background:#E74C3C; }
+.cs-catbox.tienetipo::after { content:''; position:absolute; top:1px; right:1px; width:5px; height:5px; border-radius:50%; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.25); }
+/* Motrax en alertas */
+.cs-motrax-btn { background:#1565C0; color:#fff; border:none; border-radius:5px; padding:4px 10px; cursor:pointer; font-size:12px; font-weight:600; margin-left:6px; }
+.cs-motrax-done { background:#27AE60; color:#fff; border-radius:5px; padding:2px 4px 2px 9px; font-size:12px; font-weight:600; margin-left:6px; display:inline-flex; align-items:center; gap:4px; }
+.cs-motrax-del { background:transparent; border:none; color:#fff; cursor:pointer; font-size:13px; line-height:1; padding:0 4px; }
 .cs-resrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .cs-resnombre { overflow: hidden; text-overflow: ellipsis; }
 .cs-resacc { display: flex; gap: 1px; flex-shrink: 0; }
@@ -4233,39 +4254,81 @@ function csAlertasCatarsis() {
     if (diasSin >= 4) alertas.push({ nombre: r.nombre, dias: diasSin });
   });
   if (alertas.length === 0) return '';
-  const items = alertas.map(a =>
-    `<div class="cs-alerta-item">⚠️ <strong>${a.nombre}</strong> — ${a.dias} días sin catarsis → <span class="cs-alerta-motrax">DAR MOTRAX</span></div>`
-  ).join('');
+  const items = alertas.map(a => {
+    const by = csGet(hoy, 'catarsis', a.nombre, 'motrax', 'by');
+    const at = csGet(hoy, 'catarsis', a.nombre, 'motrax', 'at');
+    let motraxHtml;
+    if (by) {
+      let cuando = '';
+      try { cuando = new Date(at).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e) {}
+      motraxHtml = `<span class="cs-motrax-done">💊 Motrax dado por ${escapeHtml(by)} · ${cuando}<button class="cs-motrax-del" data-cs-motrax-del="${escapeHtml(a.nombre)}" title="Borrar registro">✕</button></span>`;
+    } else {
+      motraxHtml = `<span class="cs-alerta-motrax">DAR MOTRAX</span><button class="cs-motrax-btn" data-cs-motrax="${escapeHtml(a.nombre)}">💊 Registrar Motrax dado</button>`;
+    }
+    return `<div class="cs-alerta-item">⚠️ <strong>${escapeHtml(a.nombre)}</strong> — ${a.dias} días sin catarsis → ${motraxHtml}</div>`;
+  }).join('');
   return `<div class="cs-alertas-catarsis">
     <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días seguidos sin catarsis)</div>
     ${items}
   </div>`;
 }
 
-function csTablaCatarsis(f) {
-  const dias = csSemanaDias(f);
-  const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+function csMesActual() { return csHoy().slice(0,7); }
+function csMesShift(mes, delta) {
+  const p = mes.split('-').map(Number);
+  const dt = new Date(p[0], p[1]-1+delta, 1);
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+}
+function csDiasDelMes(mes) {
+  const p = mes.split('-').map(Number);
+  const n = new Date(p[0], p[1], 0).getDate();
+  const arr = [];
+  for (let i = 1; i <= n; i++) arr.push(mes + '-' + String(i).padStart(2,'0'));
+  return arr;
+}
+function csTablaCatarsis() {
+  const mes = state.csMes || csMesActual();
+  const dias = csDiasDelMes(mes);
+  const letras = ['D','L','M','M','J','V','S'];
   const turnos = [['m','M'],['t','T'],['n','N']];
-  // 3 turnos × 2 cols (Catarsis + Tipo) = 6 cols por día
   let h1 = '<th class="cs-resname">Residente</th>';
-  dias.forEach((d,i) => h1 += `<th colspan="6">${nom[i]} ${d.slice(8)}/${d.slice(5,7)}</th>`);
-  let h2 = '<th class="cs-resname"></th>';
-  dias.forEach(() => turnos.forEach(tn => h2 += `<th>${tn[1]}<br><small>Cat.</small></th><th>${tn[1]}<br><small>Tipo</small></th>`));
+  dias.forEach(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const dow = dt.getDay();
+    const fin = (dow === 0 || dow === 6) ? ' cs-finde' : '';
+    h1 += `<th class="cs-dayh${fin}">${letras[dow]}<br>${d.slice(8)}</th>`;
+  });
   let rows = '';
   state.residentes.forEach(r => {
     let tds = csResNameCell(r.nombre);
     dias.forEach(d => {
+      let boxes = '';
       turnos.forEach(tn => {
         const hubo = csGet(d, 'catarsis', r.nombre, tn[0], 'hubo');
-        const sinReg = hubo === '' ? ' class="cs-cat-vacio"' : '';
-        tds += `<td${sinReg}>${csSelect('catarsis', d, r.nombre, tn[0]+'.hubo', hubo, ['','Sí','No'])}</td>`;
-        tds += `<td>${csInput('catarsis', d, r.nombre, tn[0]+'.tipo', csGet(d,'catarsis',r.nombre,tn[0],'tipo'), true)}</td>`;
+        const tipo = csGet(d, 'catarsis', r.nombre, tn[0], 'tipo');
+        const est = hubo === 'Sí' ? 'si' : (hubo === 'No' ? 'no' : 'vacio');
+        const tt = tipo ? ' tienetipo' : '';
+        const title = tn[1] + ' ' + csFmtFecha(d) + (tipo ? (' — ' + tipo) : '');
+        boxes += `<div class="cs-catbox ${est}${tt}" data-cs-catbox="1" data-d="${d}" data-res="${escapeHtml(r.nombre)}" data-t="${tn[0]}" title="${escapeHtml(title)}">${tn[1]}</div>`;
       });
+      tds += `<td class="cs-daycell"><div class="cs-turnos-box">${boxes}</div></td>`;
     });
     rows += `<tr>${tds}</tr>`;
   });
-  const wk = `<div class="cs-semana">Semana del ${csFmtFecha(dias[0])} al ${csFmtFecha(dias[6])}</div>`;
-  return csAlertasCatarsis() + wk + `<table class="cs-tabla"><thead><tr>${h1}</tr><tr class="turnos">${h2}</tr></thead><tbody>${rows}</tbody></table>`;
+  const mesNom = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const my = mes.split('-').map(Number);
+  const bar = `<div class="cs-mes-bar">
+      <button class="cs-mes-nav" type="button" data-cs-mes="${csMesShift(mes,-1)}">◀ Mes anterior</button>
+      <span class="cs-mes-tit">${mesNom[my[1]-1]} ${my[0]}</span>
+      <button class="cs-mes-nav" type="button" data-cs-mes="${csMesShift(mes,1)}">Mes siguiente ▶</button>
+      <span class="cs-mes-leyenda">
+        <span class="cs-leg"><i style="background:#27AE60"></i>Hubo</span>
+        <span class="cs-leg"><i style="background:#E74C3C"></i>No hubo</span>
+        <span class="cs-leg"><i style="background:#E0E0E0"></i>Sin cargar</span>
+        <span style="color:#888">· tocá un casillero para cambiarlo · doble clic = anotar tipo</span>
+      </span>
+    </div>`;
+  return csAlertasCatarsis() + bar + `<table class="cs-tabla mensual"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---- Historial: archivo por semana y día ----
@@ -4391,7 +4454,7 @@ function viewControlSignos() {
     <div class="cs-subtabs">
       <div class="cs-subtab ${sub==='signos'?'active':''}" onclick="csVerSubtab('signos')">Signos vitales</div>
       <div class="cs-subtab ${sub==='hidro'?'active':''}" onclick="csVerSubtab('hidro')">Hidratación y baño</div>
-      <div class="cs-subtab ${sub==='catarsis'?'active':''}" onclick="csVerSubtab('catarsis')">Catarsis semanal</div>
+      <div class="cs-subtab ${sub==='catarsis'?'active':''}" onclick="csVerSubtab('catarsis')">Catarsis mensual</div>
       <div class="cs-subtab ${sub==='historial'?'active':''}" onclick="csVerSubtab('historial')">📁 Historial</div>
     </div>
     <div class="cs-tabla-wrap" id="cs-tabla-cont">${cont}</div>
@@ -4417,15 +4480,62 @@ function attachListeners() {
       }
     };
     csCont.onclick = (e) => {
+      const mesBtn = e.target.closest('[data-cs-mes]');
+      if (mesBtn) { state.csMes = mesBtn.dataset.csMes; render(); return; }
+      const box = e.target.closest('[data-cs-catbox]');
+      if (box) {
+        const d = box.dataset.d, res = box.dataset.res, t = box.dataset.t;
+        const cur = csGet(d, 'catarsis', res, t, 'hubo');
+        const next = cur === '' ? 'Sí' : (cur === 'Sí' ? 'No' : '');
+        csSet(d, 'catarsis', res, t + '.hubo', next);
+        box.classList.remove('si','no','vacio');
+        box.classList.add(next === 'Sí' ? 'si' : (next === 'No' ? 'no' : 'vacio'));
+        return;
+      }
+      const mtx = e.target.closest('[data-cs-motrax]');
+      if (mtx) {
+        const res = mtx.dataset.csMotrax;
+        const hoy = csHoy();
+        const user = (typeof getCurrentUser === 'function' && getCurrentUser()) || 'anónimo';
+        csSet(hoy, 'catarsis', res, 'motrax.by', user);
+        csSet(hoy, 'catarsis', res, 'motrax.at', new Date().toISOString());
+        try { logCambio('catarsis', 'MOTRAX administrado a ' + res + ' por ' + user); } catch(err) {}
+        if (typeof toast === 'function') toast('💊 Motrax registrado para ' + res);
+        render();
+        return;
+      }
+      const mtxDel = e.target.closest('[data-cs-motrax-del]');
+      if (mtxDel) {
+        const res = mtxDel.dataset.csMotraxDel;
+        if (!confirm('¿Borrar el registro de Motrax de ' + res + '?')) return;
+        const hoy = csHoy();
+        csSet(hoy, 'catarsis', res, 'motrax.by', '');
+        csSet(hoy, 'catarsis', res, 'motrax.at', '');
+        render();
+        return;
+      }
       const irDia = e.target.closest('[data-cs-ir-dia]');
       if (irDia) { state.csFecha = irDia.dataset.csIrDia; state.csSubtab = 'signos'; render(); return; }
       const irSem = e.target.closest('[data-cs-ir-semana]');
-      if (irSem) { state.csFecha = irSem.dataset.csIrSemana; state.csSubtab = 'catarsis'; render(); return; }
+      if (irSem) { state.csFecha = irSem.dataset.csIrSemana; state.csMes = irSem.dataset.csIrSemana.slice(0,7); state.csSubtab = 'catarsis'; render(); return; }
       const b = e.target.closest('[data-cs-action]');
       if (!b) return;
       const res = b.dataset.csRes;
       if (b.dataset.csAction === 'rename') csRenombrarResidente(res);
       else if (b.dataset.csAction === 'delete') csEliminarResidente(res);
+    };
+    csCont.ondblclick = (e) => {
+      const box = e.target.closest('[data-cs-catbox]');
+      if (!box) return;
+      const d = box.dataset.d, res = box.dataset.res, t = box.dataset.t;
+      const cur = csGet(d, 'catarsis', res, t, 'tipo');
+      const v = prompt('Tipo / consistencia para este turno (ej: ++++4).\nDejá vacío para borrar:', cur || '');
+      if (v === null) return;
+      const val = v.trim();
+      csSet(d, 'catarsis', res, t + '.tipo', val);
+      if (val) box.classList.add('tienetipo'); else box.classList.remove('tienetipo');
+      const base = (t === 'm' ? 'M' : t === 't' ? 'T' : 'N') + ' ' + csFmtFecha(d);
+      box.title = base + (val ? (' — ' + val) : '');
     };
   }
   const search = document.getElementById('search-stock');
