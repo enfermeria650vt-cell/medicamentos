@@ -4949,7 +4949,9 @@ async function evolDatosExtra(nombre, desde, hasta, indicList) {
     extra.notasNutri = jn.data.filter(n => n && (!n.fecha || (n.fecha >= desde && n.fecha <= hasta))).slice(-6).map(n => (n.fecha?(n.fecha+': '):'')+(n.texto||n.nota||''));
   }
   try {
-    const it = (indicList||[]).find(x => x && x.residente === nombre);
+    const _norm = (z) => String(z||'').toUpperCase().replace(/\s+/g,' ').trim();
+    const _nn = _norm(nombre);
+    const it = (indicList||[]).find(x => { const rr = _norm(x && x.residente); return rr && (rr === _nn || _nn.indexOf(rr) === 0 || rr.indexOf(_nn) === 0); });
     if (it) {
       const ji = await _evolFetchJson(url+'?action=getIndicacion&id='+encodeURIComponent(it.fileId)+'&t='+Date.now());
       let contenido = '';
