@@ -4851,9 +4851,10 @@ function evolRecolectar(nombre, fechaRef) {
     });
     if (tuvoCat) catSi++; else if (regCat) catNo++;
   });
+  const esSemanaActual = !!(state.semanal && state.semanal.semanaActualLunes === dias[0]);
   const r = state.residentes.find(x => x.nombre === nombre);
   let esperadas = 0, dadas = 0;
-  if (r) r.meds.forEach(m => {
+  if (esSemanaActual && r) r.meds.forEach(m => {
     if (!_evolNorm(state.semanal[m.id+'_horario'])) return;
     const N = dosisDeMed(m.id).length;
     for (let i=0;i<7;i++) for (let di=0; di<N; di++) {
@@ -4862,6 +4863,10 @@ function evolRecolectar(nombre, fechaRef) {
     }
   });
   const adher = esperadas>0 ? Math.round(dadas/esperadas*100) : null;
+  let adherenciaTexto;
+  if (!esSemanaActual) adherenciaTexto = 'No disponible para semanas pasadas (los tildes se reinician al cerrar la semana)';
+  else if (esperadas === 0) adherenciaTexto = 'Sin horarios de medicación cargados';
+  else adherenciaTexto = adher + '% (' + dadas + '/' + esperadas + ' dosis)';
   let dx = '';
   try { if (state.recetas && state.recetas[nombre]) dx = _evolNorm(state.recetas[nombre].diagnostico); } catch(e){}
   const signos = {};
@@ -4870,7 +4875,7 @@ function evolRecolectar(nombre, fechaRef) {
     nombre, dx, semana: csFmtFecha(dias[0]) + ' al ' + csFmtFecha(dias[6]),
     signos, catarsis: { conCatarsis: catSi, sinCatarsis: catNo },
     hidratacion: { ingesta: ingN, egreso: egrN },
-    adherencia: adher, dosisDadas: dadas, dosisEsperadas: esperadas,
+    adherencia: adher, adherenciaTexto: adherenciaTexto, esSemanaActual: esSemanaActual, dosisDadas: dadas, dosisEsperadas: esperadas,
     novedades
   };
 }
@@ -4954,7 +4959,7 @@ function evolRenderResultado(d, texto) {
       '<table class="tabla" style="margin-top:6px"><tbody>'+sigRows+
         '<tr><td style="font-weight:600">Catarsis</td><td>'+d.catarsis.conCatarsis+' día(s) con catarsis, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
         '<tr><td style="font-weight:600">Hidratación</td><td>'+d.hidratacion.ingesta+' registro(s) de ingesta, '+d.hidratacion.egreso+' de egreso</td></tr>' +
-        '<tr><td style="font-weight:600">Adherencia medicación</td><td>'+(d.adherencia==null?'sin horarios cargados':(d.adherencia+'% ('+d.dosisDadas+'/'+d.dosisEsperadas+' dosis)'))+'</td></tr>' +
+        '<tr><td style="font-weight:600">Adherencia medicación</td><td>'+escapeHtml(d.adherenciaTexto||'—')+'</td></tr>' +
       '</tbody></table>' +
       '<b style="display:block;margin-top:10px">Novedades</b><ul style="margin:4px 0 0">'+nov+'</ul>' +
     '</div>' +
@@ -4976,7 +4981,7 @@ function evolImprimirA4() {
     '<b>Datos de la semana</b><table><tbody>'+sigRows+
     '<tr><td><b>Catarsis</b></td><td>'+d.catarsis.conCatarsis+' día(s) con, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
     '<tr><td><b>Hidratación</b></td><td>'+d.hidratacion.ingesta+' ingesta, '+d.hidratacion.egreso+' egreso</td></tr>' +
-    '<tr><td><b>Adherencia</b></td><td>'+(d.adherencia==null?'sin horarios':(d.adherencia+'% ('+d.dosisDadas+'/'+d.dosisEsperadas+')'))+'</td></tr>' +
+    '<tr><td><b>Adherencia</b></td><td>'+esc(d.adherenciaTexto||'—')+'</td></tr>' +
     '</tbody></table><b style="display:block;margin-top:10px">Novedades</b><ul>'+nov+'</ul>' +
     '<div class="firma">Firma y sello médico</div>' +
     '<scr'+'ipt>window.onload=function(){window.print()}<\/scr'+'ipt></body></html>');
