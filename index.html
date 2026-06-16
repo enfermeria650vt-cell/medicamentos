@@ -5143,9 +5143,9 @@ async function evolGenerarTextoSeguro(d) {
     return '\ud83d\udccb RESUMEN AUTOM\u00c1TICO (sin IA' + (_evolIASinCupo ? ' \u2014 la IA alcanz\u00f3 su l\u00edmite por hoy' : '') + '):\n\n' + evolTextoFallback(d);
   }
 }
+const EVOL_PROXY_URL = 'https://script.google.com/macros/s/AKfycbyeYXLVev4m1DxftIE7BOh8e1HDdCJ0s2aPHhhvjwfwV7VlPV9sa9EorB7tpAxb5Wi2uw/exec';
+const EVOL_PROXY_TOK = 'vtia_WPmay78quhi10MOr';
 async function evolGenerarTexto(datos) {
-  const geminiKey = localStorage.getItem('vt_gemini_key') || '';
-  if (!geminiKey) throw new Error('Configurá la clave Gemini API en ⚙️ Configurar nube');
   const prompt = 'Sos un asistente clínico de un geriátrico argentino. Con los DATOS del período de un residente, escribí una EVOLUCIÓN clínica clara y profesional en español (6 a 12 oraciones).\n' +
     'REGLAS ESTRICTAS:\n' +
     '- Usá SOLO los datos provistos. NO inventes valores, diagnósticos ni síntomas.\n' +
@@ -5156,20 +5156,22 @@ async function evolGenerarTexto(datos) {
     '- NO des indicaciones ni cambies tratamientos. Es un BORRADOR para que el médico revise y firme.\n' +
     '- Devolvé SOLO el texto de la evolución, sin títulos ni markdown.\n\n' +
     'DATOS (JSON):\n' + JSON.stringify(datos);
-  const payload = { contents:[{parts:[{text:prompt}]}], generationConfig:{temperature:0.2, maxOutputTokens:1024, thinkingConfig:{thinkingBudget:0}} };
-  const modelos = ['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-2.5-flash-lite'];
-  let ultimoError = '';
-  for (let i=0;i<modelos.length;i++){
-    let r;
-    try { const _gc = new AbortController(); const _gt = setTimeout(()=>_gc.abort(), 30000); r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+modelos[i]+':generateContent?key='+geminiKey, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:_gc.signal}); clearTimeout(_gt); }
-    catch(e){ ultimoError=e.message; await new Promise(s=>setTimeout(s,1200)); continue; }
-    if (r.status===503||r.status===429){ ultimoError='IA saturada ('+r.status+')'; await new Promise(s=>setTimeout(s,1200)); continue; }
-    const json = await r.json();
-    if (json.error){ ultimoError=json.error.message; if(/overload|high demand|quota|UNAVAILABLE|503|429/i.test(ultimoError)){await new Promise(s=>setTimeout(s,1200));continue;} throw new Error(ultimoError); }
-    const text = ((json.candidates||[])[0] && (json.candidates||[])[0].content && (json.candidates||[])[0].content.parts && (json.candidates||[])[0].content.parts[0] ? (json.candidates||[])[0].content.parts[0].text : '').trim();
-    if (text) return text;
-  }
-  throw new Error(ultimoError || 'La IA no devolvió texto. Probá de nuevo.');
+  const b = new URLSearchParams();
+  b.append('tok', EVOL_PROXY_TOK);
+  b.append('prompt', prompt);
+  b.append('model', 'claude-sonnet-4-6');
+  b.append('max_tokens', '1024');
+  b.append('temperature', '0.2');
+  const _gc = new AbortController();
+  const _gt = setTimeout(() => _gc.abort(), 45000);
+  let r;
+  try { r = await fetch(EVOL_PROXY_URL, { method: 'POST', body: b, signal: _gc.signal }); }
+  finally { clearTimeout(_gt); }
+  const json = await r.json();
+  if (!json.ok) throw new Error(json.error || 'El proxy de IA no respondió');
+  const text = (json.text || '').trim();
+  if (!text) throw new Error('La IA no devolvió texto. Probá de nuevo.');
+  return text;
 }
 
 function _evolSoloMaxi() { return String(getCurrentUser()||'').trim() === 'Maximiliano Martin'; }
