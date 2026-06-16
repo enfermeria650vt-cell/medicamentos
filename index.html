@@ -5203,6 +5203,7 @@ function evolRenderResultado(d, texto) {
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
       '<h3 style="margin:0;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
       '<button class="btn secondary small" onclick="evolImprimirA4()">🖨 Imprimir hoja A4</button>' +
+      '<button class="btn secondary small" onclick="evolDescargarA4()">⬇ Descargar PDF</button>' +
     '</div>' +
     '<div style="font-size:12px;color:#6c7a8a;margin:2px 0 14px">Período '+escapeHtml(d.semana)+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
     '<div style="background:#FFF8E1;border:1px solid #ffe082;border-radius:6px;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px">⚠️ BORRADOR generado por IA a partir de los datos. Debe ser revisado y firmado por el médico.</div>' +
@@ -5219,6 +5220,61 @@ function evolRenderResultado(d, texto) {
       '<b style="display:block;margin-top:10px">Novedades</b><ul style="margin:4px 0 0">'+nov+'</ul>' +
     '</div>' +
   '</div>';
+}
+/* ====== Descargar evolución como PDF (html2pdf.js desde cdnjs) ====== */
+var EVOL_PDF_CSS = 'body{font-family:Arial,sans-serif;margin:0;color:#222;font-size:13px}#pdfroot{width:170mm}h1{font-size:17px;color:#1a3c6e;margin:0}.meta{color:#666;font-size:12px;margin:2px 0 10px}.draft{background:#FFF8E1;border:1px solid #ffe082;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px}.evol{white-space:pre-wrap;line-height:1.5;margin-bottom:12px}table{border-collapse:collapse;width:100%}td{border:1px solid #ccc;padding:3px 7px}.firma{margin-top:36px;border-top:1px solid #333;width:260px;padding-top:4px;font-size:12px}';
+function evolNombreArchivo(nombre, periodo){
+  var clean=function(s){return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');};
+  return 'Evolucion_'+clean(nombre)+(periodo?'_'+clean(periodo):'')+'.pdf';
+}
+function evolSeccionResidente(x, withBreak, withDraft){
+  var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;');};
+  var d=x.datos, texto=x.texto;
+  var sigRows=Object.keys(d.signos||{}).map(function(k){var s=d.signos[k];return '<tr><td><b>'+k+'</b></td><td>'+(s?s.map(esc).join(' · '):'sin registro')+'</td></tr>';}).join('');
+  var nov=(d.novedades&&d.novedades.length)?d.novedades.map(function(n){return '<li>'+esc(n)+'</li>';}).join(''):'<li>sin novedades</li>';
+  var brk=withBreak?'page-break-before:always;':'';
+  var draft=withDraft?'<div class="draft">⚠️ BORRADOR generado por IA a partir de los datos cargados. Debe ser revisado y firmado por el médico.</div>':'';
+  return '<div style="'+brk+'padding-top:6px">'+
+    '<h1>Evolución semanal — '+esc(d.nombre)+'</h1>'+
+    '<div class="meta">Período '+esc(d.semana||'')+(d.dx?' · Dx: '+esc(d.dx):'')+' · Residencia Villa Teresa</div>'+
+    draft+
+    '<div class="evol">'+esc(texto)+'</div>'+
+    '<b>Datos de la semana</b><table><tbody>'+sigRows+
+    '<tr><td><b>Catarsis</b></td><td>'+((d.catarsis&&d.catarsis.conCatarsis)||0)+' día(s) con, '+((d.catarsis&&d.catarsis.sinCatarsis)||0)+' sin</td></tr>'+
+    '<tr><td><b>Hidratación</b></td><td>'+((d.hidratacion&&d.hidratacion.ingesta)||0)+' ingesta, '+((d.hidratacion&&d.hidratacion.egreso)||0)+' egreso</td></tr>'+
+    '<tr><td><b>Adherencia</b></td><td>'+esc(d.adherenciaTexto||'—')+'</td></tr>'+
+    '</tbody></table><b style="display:block;margin-top:8px">Novedades</b><ul>'+nov+'</ul>'+
+    '<div class="firma">Firma y sello médico</div>'+
+  '</div>';
+}
+function evolPdfPopup(bodyHTML, filename, title){
+  var win=window.open('','_blank');
+  if(!win){alert('Permití las ventanas emergentes para descargar el PDF.');return;}
+  var opt='{margin:[20,20,20,20],filename:'+JSON.stringify(filename)+',image:{type:"jpeg",quality:0.98},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},pagebreak:{mode:["css","legacy"]}}';
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>'+title+'</title><style>'+EVOL_PDF_CSS+'</style>'+
+    '<scr'+'ipt src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\/scr'+'ipt></head>'+
+    '<body><div id="pdfroot">'+bodyHTML+'</div>'+
+    '<div id="pdfmsg" style="position:fixed;top:6px;left:6px;font:13px Arial;background:#1a3c6e;color:#fff;padding:4px 8px;border-radius:4px;z-index:9">⏳ Generando PDF…</div>'+
+    '<scr'+'ipt>function go(){if(!window.html2pdf){return setTimeout(go,150);}var o='+opt+';html2pdf().set(o).from(document.getElementById("pdfroot")).save().then(function(){var m=document.getElementById("pdfmsg");if(m)m.innerHTML="✅ PDF descargado — ya podés cerrar esta pestaña.";setTimeout(function(){try{window.close();}catch(e){}},1500);}).catch(function(e){var m=document.getElementById("pdfmsg");if(m){m.style.background="#c62828";m.innerHTML="No se pudo generar el PDF. Probá Imprimir → Guardar como PDF.";}});}window.onload=go;<\/scr'+'ipt>'+
+    '</body></html>';
+  win.document.write(html);
+  win.document.close();
+}
+function evolDescargarA4(){
+  var u=window._evolUltimo; if(!u) return;
+  var body=evolSeccionResidente({datos:u.datos,texto:u.texto}, false, true);
+  evolPdfPopup(body, evolNombreArchivo(u.datos.nombre, u.datos.semana), 'Evolución '+u.datos.nombre);
+}
+function evolDescargarTodasA4(){
+  var u=window._evolTodas; if(!u) return;
+  var draft='<div class="draft">⚠️ BORRADORES generados por IA. Revisar y firmar por el médico.</div>';
+  var body=draft+u.resultados.map(function(x,i){return evolSeccionResidente(x, i>0, false);}).join('');
+  evolPdfPopup(body, 'Evolucion_TODOS_'+(u.desde||'')+'_'+(u.hasta||'')+'.pdf', 'Pase completo');
+}
+function evolDescargarUnoDeTodas(idx){
+  var u=window._evolTodas; if(!u||!u.resultados[idx]) return;
+  var x=u.resultados[idx];
+  evolPdfPopup(evolSeccionResidente(x, false, true), evolNombreArchivo(x.datos.nombre, x.datos.semana), 'Evolución '+x.datos.nombre);
 }
 function evolImprimirA4() {
   const u = window._evolUltimo; if (!u) return;
@@ -5270,18 +5326,20 @@ async function evolGenerarTodas() {
 }
 
 function evolRenderTodas(res) {
-  const bloques = res.map(x => {
+  const bloques = res.map((x, i) => {
     const d = x.datos;
     return '<div style="background:white;border:1px solid var(--gris-borde);border-radius:8px;padding:14px;margin-bottom:12px">' +
       '<h3 style="margin:0 0 2px;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
       '<div style="font-size:11px;color:#6c7a8a;margin-bottom:8px">Período '+escapeHtml(d.semana||'')+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
       '<div style="white-space:pre-wrap;line-height:1.5;font-size:13px">'+escapeHtml(x.texto)+'</div>' +
+      '<div style="margin-top:8px;text-align:right"><button class="btn secondary small" onclick="evolDescargarUnoDeTodas('+i+')">⬇ Descargar PDF</button></div>' +
     '</div>';
   }).join('');
   return '<div style="max-width:860px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
       '<b style="color:var(--azul-1)">Pase completo — '+res.length+' residentes</b>' +
       '<button class="btn secondary small" onclick="evolImprimirTodasA4()">🖨 Imprimir TODO (A4)</button>' +
+      '<button class="btn secondary small" onclick="evolDescargarTodasA4()">⬇ Descargar PDF (todos)</button>' +
     '</div>' +
     '<div style="background:#FFF8E1;border:1px solid #ffe082;border-radius:6px;padding:6px 10px;font-size:11px;color:#92400E;margin-bottom:12px">⚠️ BORRADORES generados por IA. Deben ser revisados y firmados por el médico.</div>' +
     bloques +
