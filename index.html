@@ -4978,6 +4978,31 @@ async function _evolIndicList() {
   return l;
 }
 
+let _evolIASinCupo = false;
+function evolTextoFallback(d) {
+  const P = [];
+  P.push('Evolución de ' + (d.nombre||'') + ' (' + (d.semana||'') + ').');
+  if (d.dx) P.push('Diagnóstico: ' + d.dx + '.');
+  const sig = [];
+  Object.keys(d.signos||{}).forEach(k => { const v = d.signos[k]; if (v && v.length) sig.push(k + ' ' + v.join(' / ')); });
+  P.push(sig.length ? ('Signos vitales registrados: ' + sig.join('; ') + '.') : 'Sin registro de signos vitales en el período.');
+  P.push('Catarsis: ' + ((d.catarsis&&d.catarsis.conCatarsis)||0) + ' día(s) con deposición y ' + ((d.catarsis&&d.catarsis.sinCatarsis)||0) + ' sin' + (d.catarsisTipos&&d.catarsisTipos.length?(' (tipos: '+d.catarsisTipos.join(', ')+')'):'') + '.');
+  P.push('Diuresis con diurético: ' + (d.diuresis||0) + ' registro(s). Baño: ' + ((d.bano&&d.bano.general)||0) + ' general, ' + ((d.bano&&d.bano.parcial)||0) + ' parcial.');
+  P.push('Hidratación: ' + ((d.hidratacion&&d.hidratacion.ingesta)||0) + ' registro(s) de ingesta y ' + ((d.hidratacion&&d.hidratacion.egreso)||0) + ' de egreso.');
+  P.push('Adherencia a la medicación: ' + (d.adherenciaTexto||'—') + '.');
+  if (d.peso) P.push('Peso: último registro ' + d.peso.ultimo + (d.peso.imc?(' (IMC '+d.peso.imc+')'):'') + ', tendencia ' + d.peso.tendencia + '.');
+  if (d.indicacion) P.push('Indicación médica vinculada' + (d.indicacion.modificada?(', modificada recientemente'+(d.indicacion.fechaModif?(' el '+d.indicacion.fechaModif):'')):', sin cambios recientes en el período') + '.');
+  if (d.novedades && d.novedades.length) P.push('Novedades de enfermería: ' + d.novedades.join('; ') + '.');
+  return P.join(' ');
+}
+async function evolGenerarTextoSeguro(d) {
+  if (_evolIASinCupo) return evolTextoFallback(d);
+  try { const t = await evolGenerarTexto(d); if (t) return t; throw new Error('IA sin respuesta'); }
+  catch(e) {
+    if (/quota|RESOURCE_EXHAUSTED|429|l\u00edmite/i.test(String(e.message||''))) _evolIASinCupo = true;
+    return '\ud83d\udccb RESUMEN AUTOM\u00c1TICO (sin IA' + (_evolIASinCupo ? ' \u2014 la IA alcanz\u00f3 su l\u00edmite por hoy' : '') + '):\n\n' + evolTextoFallback(d);
+  }
+}
 async function evolGenerarTexto(datos) {
   const geminiKey = localStorage.getItem('vt_gemini_key') || '';
   if (!geminiKey) throw new Error('Configurá la clave Gemini API en ⚙️ Configurar nube');
@@ -5038,11 +5063,10 @@ async function evolGenerar() {
   const cont = document.getElementById('evol-resultado');
   cont.innerHTML = '<div style="padding:20px;color:#6c7a8a">⏳ Juntando los datos del período y redactando el borrador…</div>';
   try {
+    _evolIASinCupo = false;
     const _il = await _evolIndicList();
     const datos = await evolRecolectarCompleto(nombre, desde, hasta, _il);
-    let texto = '';
-    try { texto = await evolGenerarTexto(datos); }
-    catch(e) { texto = '⚠️ No se pudo generar el texto con IA (' + e.message + '). Abajo tenés igual los datos de la semana.'; }
+    const texto = await evolGenerarTextoSeguro(datos);
     window._evolUltimo = { datos: datos, texto: texto };
     cont.innerHTML = evolRenderResultado(datos, texto);
   } catch(e) {
@@ -5108,6 +5132,7 @@ async function evolGenerarTodas() {
   const lista = state.residentes.slice();
   if (!lista.length) { cont.innerHTML = '<div style="padding:20px">No hay residentes.</div>'; return; }
   if (!confirm('Vas a generar la evolución de los ' + lista.length + ' residentes con IA. Puede tardar 1 a 2 minutos. ¿Seguir?')) return;
+  _evolIASinCupo = false;
   const _il = await _evolIndicList();
   const resultados = [];
   for (let i = 0; i < lista.length; i++) {
@@ -5115,12 +5140,12 @@ async function evolGenerarTodas() {
     cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nombre) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
     let datos, texto = '';
     try { datos = await evolRecolectarCompleto(nombre, desde, hasta, _il, true); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
-    try { texto = await evolGenerarTexto(datos); } catch(e) { texto = '⚠️ No se pudo generar con IA (' + e.message + '). Probá de nuevo más tarde; los datos están abajo.'; }
+    texto = await evolGenerarTextoSeguro(datos);
     resultados.push({ datos: datos, texto: texto });
-    await new Promise(s => setTimeout(s, 600));
+    await new Promise(s => setTimeout(s, _evolIASinCupo ? 250 : 1200));
   }
-  window._evolTodas = { fecha: fecha, resultados: resultados };
-  cont.innerHTML = evolRenderTodas(resultados);
+  window._evolTodas = { desde: desde, hasta: hasta, resultados: resultados };
+  try { cont.innerHTML = evolRenderTodas(resultados); } catch(e) { cont.innerHTML = '<div style=\"padding:20px;color:#c62828\">Se generaron los datos pero hubo un problema al mostrarlos: ' + escapeHtml(e.message) + '</div>'; }
 }
 
 function evolRenderTodas(res) {
