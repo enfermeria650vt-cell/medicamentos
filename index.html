@@ -4852,7 +4852,8 @@ function evolRecolectar(nombre, desde, hasta) {
   const sig = {}; sigCampos.forEach(c => sig[c[1]] = []);
   const novedades = [];
   let catSi = 0, catNo = 0;
-  let ingN = 0, egrN = 0;
+  let ingN = 0, egrN = 0, diuN = 0, banoGral = 0, banoParc = 0;
+  const catTipos = [];
   dias.forEach(d => {
     let tuvoCat = false, regCat = false;
     turnos.forEach(t => {
@@ -4867,6 +4868,9 @@ function evolRecolectar(nombre, desde, hasta) {
       if (cat === 'Sí') tuvoCat = true;
       if (_evolNorm(csGet(d,'hidro',nombre,t,'ing'))) ingN++;
       if (_evolNorm(csGet(d,'hidro',nombre,t,'egr'))) egrN++;
+      if (_evolNorm(csGet(d,'hidro',nombre,t,'diu')) === 'Sí') diuN++;
+      const ctp = _evolNorm(csGet(d,'catarsis',nombre,t,'tipo')); if (ctp) catTipos.push(ctp);
+      const ban = _evolNorm(csGet(d,'bano',nombre,t)); if (ban === 'General') banoGral++; else if (ban === 'Parcial') banoParc++;
     });
     if (tuvoCat) catSi++; else if (regCat) catNo++;
   });
@@ -4910,21 +4914,72 @@ function evolRecolectar(nombre, desde, hasta) {
   return {
     nombre, dx, semana: csFmtFecha(dias[0]) + ' al ' + csFmtFecha(dias[dias.length-1]),
     signos, catarsis: { conCatarsis: catSi, sinCatarsis: catNo },
-    hidratacion: { ingesta: ingN, egreso: egrN },
+    hidratacion: { ingesta: ingN, egreso: egrN }, diuresis: diuN, bano: { general: banoGral, parcial: banoParc }, catarsisTipos: catTipos,
     adherencia: adher, adherenciaTexto: adherenciaTexto, esSemanaActual: esSemanaActual, dosisDadas: dadas, dosisEsperadas: esperadas,
     novedades
   };
 }
 
+async function _evolFetchJson(url) { try { const r = await fetch(url); return await r.json(); } catch(e) { return null; } }
+async function evolDatosExtra(nombre, desde, hasta, indicList) {
+  const url = (typeof getIndicUrl === 'function') ? getIndicUrl() : '';
+  const extra = { peso:null, dieta:null, notasNutri:[], indicacion:null };
+  if (!url) return extra;
+  const enc = encodeURIComponent(nombre);
+  const res = await Promise.all([
+    _evolFetchJson(url+'?action=getNutricionPesos&residente='+enc+'&t='+Date.now()),
+    _evolFetchJson(url+'?action=getNutricionDieta&residente='+enc+'&t='+Date.now()),
+    _evolFetchJson(url+'?action=getNutricionNotas&residente='+enc+'&t='+Date.now())
+  ]);
+  const jp = res[0], jd = res[1], jn = res[2];
+  if (jp && jp.ok && Array.isArray(jp.data) && jp.data.length) {
+    const arr = jp.data.slice().filter(p => p && (p.peso || p.peso === 0));
+    const dentro = arr.filter(p => p.fecha && p.fecha >= desde && p.fecha <= hasta);
+    const base = dentro.length ? dentro : arr;
+    if (base.length) {
+      const prim = base[0], ult = base[base.length-1];
+      const pi = parseFloat(prim.peso), pu = parseFloat(ult.peso);
+      let tend = 'estable';
+      if (!isNaN(pi) && !isNaN(pu)) { if (pu - pi >= 0.5) tend = 'subió'; else if (pi - pu >= 0.5) tend = 'bajó'; }
+      extra.peso = { primero: prim.peso, ultimo: ult.peso, fechaUltimo: ult.fecha||'', talla: ult.talla||'', imc: ult.imc||'', tendencia: tend, registros: base.length };
+    }
+  }
+  if (jd && jd.ok && jd.data) extra.dieta = jd.data;
+  if (jn && jn.ok && Array.isArray(jn.data)) {
+    extra.notasNutri = jn.data.filter(n => n && (!n.fecha || (n.fecha >= desde && n.fecha <= hasta))).slice(-6).map(n => (n.fecha?(n.fecha+': '):'')+(n.texto||n.nota||''));
+  }
+  try {
+    const it = (indicList||[]).find(x => x && x.residente === nombre);
+    if (it) {
+      const ji = await _evolFetchJson(url+'?action=getIndicacion&id='+encodeURIComponent(it.fileId)+'&t='+Date.now());
+      let contenido = '';
+      if (ji && ji.ok && ji.data) { try { contenido = JSON.stringify(ji.data).slice(0, 1800); } catch(e){} }
+      extra.indicacion = { modificada: !!it.modificado, fechaModif: it.fechaModif||'', contenido: contenido };
+    }
+  } catch(e) {}
+  return extra;
+}
+async function evolRecolectarCompleto(nombre, desde, hasta, indicList) {
+  const d = evolRecolectar(nombre, desde, hasta);
+  try { const ex = await evolDatosExtra(nombre, desde, hasta, indicList); d.peso = ex.peso; d.dieta = ex.dieta; d.notasNutri = ex.notasNutri; d.indicacion = ex.indicacion; } catch(e) {}
+  return d;
+}
+async function _evolIndicList() {
+  let l = (state.indicaciones && state.indicaciones.length) ? state.indicaciones : [];
+  if (!l.length && typeof getIndicUrl === 'function' && getIndicUrl()) { const ji = await _evolFetchJson(getIndicUrl()+'?action=getIndicaciones&t='+Date.now()); if (ji && ji.ok) l = ji.data || []; }
+  return l;
+}
+
 async function evolGenerarTexto(datos) {
   const geminiKey = localStorage.getItem('vt_gemini_key') || '';
   if (!geminiKey) throw new Error('Configurá la clave Gemini API en ⚙️ Configurar nube');
-  const prompt = 'Sos un asistente clínico de un geriátrico argentino. Con los DATOS de la semana de un residente, escribí una EVOLUCIÓN SEMANAL breve y profesional en español (4 a 8 oraciones), tono clínico claro.\n' +
+  const prompt = 'Sos un asistente clínico de un geriátrico argentino. Con los DATOS del período de un residente, escribí una EVOLUCIÓN clínica clara y profesional en español (6 a 12 oraciones).\n' +
     'REGLAS ESTRICTAS:\n' +
     '- Usá SOLO los datos provistos. NO inventes valores, diagnósticos ni síntomas.\n' +
     '- Si un dato falta, decí "sin registro" o no lo menciones.\n' +
     '- Señalá tendencias (estable, mejoría, deterioro) solo si los datos lo respaldan.\n' +
-    '- Mencioná signos vitales (rangos/estabilidad), catarsis, hidratación, adherencia a la medicación y novedades relevantes.\n' +
+    '- Integrá TODO lo disponible: signos vitales (tendencia/estabilidad), diuresis, catarsis y baño, hidratación, adherencia a la medicación, peso y nutrición/dieta, la indicación médica vigente y sus cambios, y las novedades.\n' +
+    '- Evaluá explícitamente si el residente muestra EVOLUCIÓN (mejoría), INVOLUCIÓN (deterioro) o se mantiene ESTABLE, justificándolo con los datos.\n' +
     '- NO des indicaciones ni cambies tratamientos. Es un BORRADOR para que el médico revise y firme.\n' +
     '- Devolvé SOLO el texto de la evolución, sin títulos ni markdown.\n\n' +
     'DATOS (JSON):\n' + JSON.stringify(datos);
@@ -4975,7 +5030,8 @@ async function evolGenerar() {
   const cont = document.getElementById('evol-resultado');
   cont.innerHTML = '<div style="padding:20px;color:#6c7a8a">⏳ Juntando los datos del período y redactando el borrador…</div>';
   try {
-    const datos = evolRecolectar(nombre, desde, hasta);
+    const _il = await _evolIndicList();
+    const datos = await evolRecolectarCompleto(nombre, desde, hasta, _il);
     let texto = '';
     try { texto = await evolGenerarTexto(datos); }
     catch(e) { texto = '⚠️ No se pudo generar el texto con IA (' + e.message + '). Abajo tenés igual los datos de la semana.'; }
@@ -5003,6 +5059,9 @@ function evolRenderResultado(d, texto) {
       '<table class="tabla" style="margin-top:6px"><tbody>'+sigRows+
         '<tr><td style="font-weight:600">Catarsis</td><td>'+d.catarsis.conCatarsis+' día(s) con catarsis, '+d.catarsis.sinCatarsis+' sin</td></tr>' +
         '<tr><td style="font-weight:600">Hidratación</td><td>'+d.hidratacion.ingesta+' registro(s) de ingesta, '+d.hidratacion.egreso+' de egreso</td></tr>' +
+        '<tr><td style="font-weight:600">Diuresis / Baño</td><td>'+(d.diuresis||0)+' con diurético · baño: '+((d.bano&&d.bano.general)||0)+' gral, '+((d.bano&&d.bano.parcial)||0)+' parcial</td></tr>' +
+        '<tr><td style="font-weight:600">Peso</td><td>'+(d.peso?('último '+escapeHtml(String(d.peso.ultimo))+' ('+escapeHtml(d.peso.tendencia)+(d.peso.imc?', IMC '+escapeHtml(String(d.peso.imc)):'')+')'):'<span style="color:#aaa">sin registro</span>')+'</td></tr>' +
+        '<tr><td style="font-weight:600">Indicación médica</td><td>'+(d.indicacion?(d.indicacion.modificada?'modificada recientemente'+(d.indicacion.fechaModif?' ('+escapeHtml(String(d.indicacion.fechaModif))+')':''):'vinculada, sin cambios recientes'):'<span style="color:#aaa">no vinculada</span>')+'</td></tr>' +
         '<tr><td style="font-weight:600">Adherencia medicación</td><td>'+escapeHtml(d.adherenciaTexto||'—')+'</td></tr>' +
       '</tbody></table>' +
       '<b style="display:block;margin-top:10px">Novedades</b><ul style="margin:4px 0 0">'+nov+'</ul>' +
@@ -5041,12 +5100,13 @@ async function evolGenerarTodas() {
   const lista = state.residentes.slice();
   if (!lista.length) { cont.innerHTML = '<div style="padding:20px">No hay residentes.</div>'; return; }
   if (!confirm('Vas a generar la evolución de los ' + lista.length + ' residentes con IA. Puede tardar 1 a 2 minutos. ¿Seguir?')) return;
+  const _il = await _evolIndicList();
   const resultados = [];
   for (let i = 0; i < lista.length; i++) {
     const nombre = lista[i].nombre;
     cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nombre) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
     let datos, texto = '';
-    try { datos = evolRecolectar(nombre, desde, hasta); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
+    try { datos = await evolRecolectarCompleto(nombre, desde, hasta, _il); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
     try { texto = await evolGenerarTexto(datos); } catch(e) { texto = '⚠️ No se pudo generar con IA (' + e.message + '). Probá de nuevo más tarde; los datos están abajo.'; }
     resultados.push({ datos: datos, texto: texto });
     await new Promise(s => setTimeout(s, 600));
