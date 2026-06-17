@@ -976,10 +976,29 @@ function getSession() {
   } catch(e) { return null; }
 }
 
+// Detecta si la persona entró desde celular/tablet o desde computadora,
+// para que en el Historial quede registrado con qué tipo de equipo se conectó.
+function detectarDispositivo() {
+  try {
+    const ua = navigator.userAgent || '';
+    const esMovil = /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile|BlackBerry|webOS/i.test(ua)
+      || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua)); // iPad nuevo se hace pasar por Mac
+    let so = 'Otro';
+    if (/Android/i.test(ua)) so = 'Android';
+    else if (/iPhone|iPad|iPod/i.test(ua)) so = 'iPhone/iPad';
+    else if (/Windows/i.test(ua)) so = 'Windows';
+    else if (/Macintosh|Mac OS/i.test(ua)) so = 'Mac';
+    else if (/Linux/i.test(ua)) so = 'Linux';
+    const tipo = esMovil ? '📱 Celular' : '💻 Computadora';
+    return `${tipo} (${so})`;
+  } catch (e) { return '❓ Equipo desconocido'; }
+}
+
 function setSession(user) {
   user.ts = Date.now();
   sessionStorage.setItem('vt_user', JSON.stringify(user));
-  setTimeout(() => logCambio('sesion', `Inicio de sesión: ${user.nombre} (${user.rol})`), 2000);
+  const equipo = detectarDispositivo();
+  setTimeout(() => logCambio('sesion', `Inicio de sesión: ${user.nombre} (${user.rol}) — ${equipo}`), 2000);
 }
 
 function showApp(user) {
@@ -1051,7 +1070,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-1';
+const APP_VERSION = 'v2026-06-17-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6015,6 +6034,31 @@ setInterval(() => {
 
 // Auto-actualización: si hay una versión nueva deployada, recargar solo (así ningún
 // equipo queda con código viejo que pueda romper las marcas).
+// Muestra una pantalla completa (logo girando + texto) mientras se actualiza,
+// así nadie se queda mirando una pantalla quieta sin saber qué pasa.
+function mostrarPantallaActualizando(){
+  if(document.getElementById('overlay-actualizando')) return;
+  const ov = document.createElement('div');
+  ov.id = 'overlay-actualizando';
+  ov.setAttribute('style',
+    'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;'+
+    'align-items:center;justify-content:center;gap:18px;'+
+    'background:rgba(255,255,255,0.97);backdrop-filter:blur(2px);'+
+    'font-family:inherit;color:#1b5e20;text-align:center;padding:24px;');
+  ov.innerHTML =
+    '<style>@keyframes vtSpin{to{transform:rotate(360deg)}}'+
+    '@keyframes vtPulse{0%,100%{opacity:.55}50%{opacity:1}}</style>'+
+    '<div style="position:relative;width:120px;height:120px;">'+
+      '<div style="position:absolute;inset:0;border:6px solid #c8e6c9;'+
+        'border-top-color:#2e7d32;border-radius:50%;animation:vtSpin 1s linear infinite;"></div>'+
+      '<img src="icon-192.png" alt="Logo" '+
+        'style="position:absolute;inset:14px;width:92px;height:92px;border-radius:50%;object-fit:cover;">'+
+    '</div>'+
+    '<div style="font-size:20px;font-weight:700;">Actualizando…</div>'+
+    '<div style="font-size:14px;opacity:.7;animation:vtPulse 1.4s ease-in-out infinite;">'+
+      'Cargando la versión nueva, no cierres la app</div>';
+  document.body.appendChild(ov);
+}
 async function chequearVersionApp(){
   try{
     const r = await fetch('index.html?v=' + Date.now(), { cache: 'no-store' });
@@ -6022,7 +6066,7 @@ async function chequearVersionApp(){
     const t = await r.text();
     const m = t.match(/APP_VERSION\s*=\s*'([^']+)'/);
     if(m && m[1] && m[1] !== APP_VERSION){
-      try{ if(typeof toast==='function') toast('🔄 Versión nueva detectada. Actualizando…'); }catch(e){}
+      try{ mostrarPantallaActualizando(); }catch(e){}
       setTimeout(function(){ try{ location.reload(true); }catch(e){ location.reload(); } }, 1800);
     }
   }catch(e){}
