@@ -1070,7 +1070,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-2';
+const APP_VERSION = 'v2026-06-17-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1214,7 +1214,16 @@ function saveHistoriasCli() {
 
 function saveCS() {
   localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos));
-  if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('controlSignos', state.controlSignos);
+  // PUSH SEGURO (merge por fecha): NUNCA reemplazar todo controlSignos en la nube.
+  // Antes un equipo con datos viejos borraba los signos/catarsis recién cargados por los
+  // demás. Ahora mandamos cada fecha como delta: el backend conserva las fechas que este
+  // equipo no tiene. Si por algo falla, recién ahí caemos al push completo.
+  if (typeof syncHabilitado === 'function' && syncHabilitado()) {
+    try {
+      var _setsCS = Object.keys(state.controlSignos || {}).map(function(f){ return [[f], state.controlSignos[f]]; });
+      if (_setsCS.length) cloudPushDelta('controlSignos', _setsCS, []);
+    } catch (e) { cloudPush('controlSignos', state.controlSignos); }
+  }
 }
 function migrarCatarsisTurnos() {
   // Migra datos viejos de catarsis (sin turno) al nuevo formato con turno 'm' (mañana)
@@ -1823,12 +1832,26 @@ async function cloudPull(silencioso = false) {
     }
     if (json.data.controlSignos !== undefined && json.data.controlSignos && typeof json.data.controlSignos === 'object' &&
         (Object.keys(json.data.controlSignos).length > 0 || Object.keys(state.controlSignos || {}).length === 0)) {
-      const remoto = JSON.stringify(json.data.controlSignos);
-      const local = JSON.stringify(state.controlSignos);
-      if (remoto !== local) {
-        state.controlSignos = json.data.controlSignos;
-        localStorage.setItem(CS_KEY, remoto);
+      // MERGE POR FECHA (no reemplazar todo): la nube manda en las fechas que trae, pero
+      // NUNCA borramos una fecha que este equipo tiene y la nube no. Así un push viejo de
+      // otro equipo no nos hace perder signos/catarsis ya cargados.
+      const remotoObj = json.data.controlSignos;
+      const localObj = state.controlSignos || {};
+      const merged = {};
+      Object.keys(remotoObj).forEach(function(f){ merged[f] = remotoObj[f]; });
+      const faltanEnNube = [];
+      Object.keys(localObj).forEach(function(f){
+        if (!(f in remotoObj)) { merged[f] = localObj[f]; faltanEnNube.push(f); }
+      });
+      const mergedStr = JSON.stringify(merged);
+      if (mergedStr !== JSON.stringify(localObj)) {
+        state.controlSignos = merged;
+        localStorage.setItem(CS_KEY, mergedStr);
         cambios++;
+      }
+      // AUTO-RECUPERACIÓN: si este equipo tiene fechas que la nube perdió, re-subirlas (merge).
+      if (faltanEnNube.length && syncHabilitado()) {
+        try { cloudPushDelta('controlSignos', faltanEnNube.map(function(f){ return [[f], merged[f]]; }), []); } catch(e){}
       }
     }
     if (json.data.recetas !== undefined && json.data.recetas && typeof json.data.recetas === 'object' &&
