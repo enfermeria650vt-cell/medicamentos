@@ -1438,16 +1438,14 @@ function chequearCambioSemana() {
     return false;
   }
   if (lunesGuardado !== lunesHoy) {
-    // PROTECCIÓN: no archivar/limpiar las marcas COMPARTIDAS hasta haber traído el estado real
-    // de la nube en esta sesión. Evita que un dispositivo con la semana vieja borre las marcas
-    // de la semana actual de todos los demás (causó pérdida de marcas el 15-jun).
-    if (syncHabilitado() && !_syncPullOk) return false;
-    archivarSemana(lunesGuardado, 'auto');
-    limpiarMarcasSemanaActual();
-    state.semanal.semanaActualLunes = lunesHoy;
-    saveSem();
-    toast('📅 Semana nueva. Se archivó la semana del ' + formatearLunes(lunesGuardado), 'success');
-    return true;
+    // YA NO se archiva ni se limpia AUTOMÁTICAMENTE. Un dispositivo desactualizado
+    // (ej. celular abierto desde la semana pasada) borraba las marcas de TODOS al redibujar.
+    // El cierre de semana es SOLO manual (botón "Cerrar semana", admin). Acá solo avisamos.
+    if (!window._avisoSemanaNueva) {
+      window._avisoSemanaNueva = true;
+      try { if (typeof toast === 'function') toast('📅 Hay una semana nueva. Las marcas NO se borran solas. Cuando termines de cargar, cerrá la semana anterior con el botón "Cerrar semana".'); } catch(e) {}
+    }
+    return false;
   }
   return false;
 }
