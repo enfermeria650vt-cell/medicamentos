@@ -315,6 +315,17 @@ input:focus, select:focus, textarea:focus {
 .semanal .dosis-item { display: flex; align-items: center; gap: 4px; }
 .semanal .dosis-item .check { width: 22px; height: 22px; }
 .semanal .dosis-lbl { font-size: 9px; color: #6c7a8a; white-space: nowrap; }
+.semanal td.dia-na { background: repeating-linear-gradient(45deg,#f4f6f9,#f4f6f9 6px,#eceff4 6px,#eceff4 12px); }
+.semanal td.dia-na .na-dash { color: #c2cad6; font-weight: 700; }
+.chip-dias { display: inline-block; margin-top: 3px; font-size: 10.5px; font-weight: 600; color: var(--azul-1,#0F4C75); background: #eaf2fb; border: 1px solid #cfe0f4; border-radius: 10px; padding: 1px 8px; cursor: pointer; white-space: nowrap; }
+.chip-dias:hover { background: #d8e8fb; }
+.chip-dias.estatico { cursor: default; color: #5a6b7d; background: #eef1f5; border-color: #dde3ec; }
+.dias-picker { margin: 8px 0; }
+.dias-picker .dp-radios { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.dias-picker .dp-radios label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.dias-toggles { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 4px; }
+.dias-toggles button { width: 42px; height: 38px; border-radius: 8px; border: 2px solid #cfd8e3; background: #fff; font-weight: 700; color: #6c7a8a; cursor: pointer; font-size: 13px; }
+.dias-toggles button.on { background: var(--azul-2,#3282B8); border-color: var(--azul-2,#3282B8); color: #fff; }
 .semanal tr:nth-child(even) td { background: #FAFBFD; }
 
 /* MODAL */
@@ -1086,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-4';
+const APP_VERSION = 'v2026-06-17-5';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1289,8 +1300,9 @@ function hoyMidnight() {
 }
 // Cuántos días cubre el stock actual (stock / consumo). Es la DURACIÓN total, no lo que resta.
 function diasDeStock(med) {
-  if (typeof med.stock !== 'number' || typeof med.consumo !== 'number' || med.consumo <= 0) return null;
-  return Math.floor(med.stock / med.consumo);
+  const ce = consumoDiarioEfectivo(med); // consumo promedio por día calendario según el patrón de días
+  if (typeof med.stock !== 'number' || ce === null || ce <= 0) return null;
+  return Math.floor(med.stock / ce);
 }
 // Fecha (Date) en que se agota: fecha de ingreso + duración del stock (o desde hoy si no hay ingreso).
 function fechaAgotamientoDate(med) {
@@ -1382,6 +1394,93 @@ function diaHoyIdx() {
   const dow = new Date().getDay() || 7;
   return dow - 1;
 }
+// ===== PATRÓN DE DÍAS POR MEDICAMENTO =====
+// m.dias puede ser: undefined/null/{tipo:'diario'} -> todos los días (compatibilidad)
+//                   {tipo:'semanal', dias:[0..6]}    -> 0=Lun ... 6=Dom
+//                   {tipo:'mensual', diasMes:[1..31]} -> esos números de día del mes
+const _DIAS_CORTO = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+// ISO (YYYY-MM-DD) de la columna i (0=Lun..6=Dom) de la semana mostrada en la planilla.
+function fechaColISO(i) {
+  const lunes = (state.semanal && state.semanal.semanaActualLunes) || getLunesISO();
+  const p = lunes.split('-').map(Number);
+  const dt = new Date(p[0], p[1]-1, p[2]);
+  dt.setDate(dt.getDate() + i);
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+// ¿El medicamento corresponde en una fecha concreta (ISO)?
+function medActivoEnFecha(m, fechaISO) {
+  const d = m && m.dias;
+  if (!d || !d.tipo || d.tipo === 'diario') return true;
+  const p = fechaISO.split('-').map(Number);
+  const dt = new Date(p[0], p[1]-1, p[2]);
+  if (d.tipo === 'semanal') { const i = (dt.getDay()+6) % 7; return Array.isArray(d.dias) && d.dias.includes(i); }
+  if (d.tipo === 'mensual') { return Array.isArray(d.diasMes) && d.diasMes.includes(dt.getDate()); }
+  return true;
+}
+// ¿El medicamento corresponde en la columna i (0=Lun..6=Dom) de la semana mostrada?
+function medActivoEnDia(m, i) {
+  const d = m && m.dias;
+  if (!d || !d.tipo || d.tipo === 'diario') return true;
+  if (d.tipo === 'semanal') return Array.isArray(d.dias) && d.dias.includes(i);
+  if (d.tipo === 'mensual') return medActivoEnFecha(m, fechaColISO(i));
+  return true;
+}
+// Descripción legible del patrón de días.
+function descDias(m) {
+  const d = m && m.dias;
+  if (!d || !d.tipo || d.tipo === 'diario') return 'Todos los días';
+  if (d.tipo === 'semanal') {
+    const arr = (d.dias || []).slice().sort((a,b)=>a-b);
+    if (arr.length === 0) return 'Sin días';
+    if (arr.length === 7) return 'Todos los días';
+    if (arr.join(',') === '0,1,2,3,4') return 'Lun a Vie';
+    if (arr.join(',') === '5,6') return 'Sáb y Dom';
+    return arr.map(i => _DIAS_CORTO[i]).join('/');
+  }
+  if (d.tipo === 'mensual') {
+    const arr = (d.diasMes || []).slice().sort((a,b)=>a-b);
+    if (arr.length === 0) return 'Mensual (sin día)';
+    return 'Día ' + arr.join(', ') + ' del mes';
+  }
+  return 'Todos los días';
+}
+// Consumo promedio por día CALENDARIO según el patrón (para que el stock dure lo correcto).
+// Diario -> consumo; semanal -> consumo * (nDías/7); mensual -> consumo * (nTomas/30.4375).
+function consumoDiarioEfectivo(med) {
+  if (typeof med.consumo !== 'number' || med.consumo <= 0) return null;
+  const d = med && med.dias;
+  if (!d || !d.tipo || d.tipo === 'diario') return med.consumo;
+  if (d.tipo === 'semanal') { const n = Array.isArray(d.dias) ? d.dias.length : 7; return n > 0 ? med.consumo * (n/7) : null; }
+  if (d.tipo === 'mensual') { const n = Array.isArray(d.diasMes) ? d.diasMes.length : 0; return n > 0 ? med.consumo * (n/30.4375) : null; }
+  return med.consumo;
+}
+// Parsea (heurística) una leyenda de texto a un patrón de días. Devuelve null si no detecta nada confiable.
+function detectarDiasDesdeTexto(txt) {
+  if (!txt) return null;
+  let s = (' ' + String(txt) + ' ').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,''); // sin acentos
+  const NOMBRE2IDX = [
+    [/\bdomingos?\b|\bdom\b/, 6], [/\blunes\b|\blun\b/, 0], [/\bmartes\b|\bmar\b/, 1],
+    [/\bmiercoles\b|\bmie\b|\bmx\b/, 2], [/\bjueves\b|\bjue\b/, 3], [/\bviernes\b|\bvie\b/, 4],
+    [/\bsabados?\b|\bsab\b/, 5]
+  ];
+  // Mensual: "15 de cada mes", "los 15", "dia 15", "el 15 de mes"
+  let mMes = s.match(/(?:dia\s*)?(\d{1,2})\s*(?:de\s*cada\s*mes|del\s*mes|de\s*mes|x\s*mes|por\s*mes)/);
+  if (!mMes) mMes = s.match(/\blos\s+(\d{1,2})\b/);
+  if (mMes) { const n = parseInt(mMes[1],10); if (n>=1 && n<=31) return { tipo:'mensual', diasMes:[n] }; }
+  // Rango "lunes a viernes" / "lun a vie"
+  const rango = s.match(/(domingo|lunes|martes|miercoles|jueves|viernes|sabado|dom|lun|mar|mie|jue|vie|sab)\s*(?:a|al|hasta|-)\s*(domingo|lunes|martes|miercoles|jueves|viernes|sabado|dom|lun|mar|mie|jue|vie|sab)/);
+  const idxDe = (tok) => { for (const [re,i] of NOMBRE2IDX) if (re.test(' '+tok+' ')) return i; return -1; };
+  if (rango && /\b(a|al|hasta)\b/.test(s)) {
+    const a = idxDe(rango[1]), b = idxDe(rango[2]);
+    if (a>=0 && b>=0) { const out=[]; for (let i=a;;i=(i+1)%7){ out.push(i); if(i===b) break; } return { tipo:'semanal', dias: out.sort((x,y)=>x-y) }; }
+  }
+  // Lista de días sueltos
+  const found = [];
+  NOMBRE2IDX.forEach(([re,i]) => { if (re.test(s) && !found.includes(i)) found.push(i); });
+  if (found.length) return { tipo:'semanal', dias: found.sort((a,b)=>a-b) };
+  return null;
+}
 // Parsea "08:00, 14:00, 20:00" -> [{h:8,m:0},{h:14,m:0},{h:20,m:0}]
 function parseHorarios(str) {
   if (!str) return [];
@@ -1418,6 +1517,7 @@ function ordenHorario(medId) {
 // Retorna { tipo: 'sin-horario'|'al-dia'|'proxima'|'atrasada', detalle: '...' }
 function estadoDosisHoy(med) {
   const idx = diaHoyIdx();
+  if (!medActivoEnDia(med, idx)) return { tipo: 'no-hoy' }; // hoy no corresponde este medicamento
   const horarioStr = state.semanal[med.id + '_horario'] || '';
   const horarios = parseHorarios(horarioStr);
   if (horarios.length === 0) return { tipo: 'sin-horario' };
@@ -1462,7 +1562,7 @@ function resumenAlertasResidente(r) {
   let atrasadas = 0, ahora = 0, proximas = 0, alDia = 0, conHorario = 0;
   r.meds.forEach(m => {
     const e = estadoDosisHoy(m);
-    if (e.tipo === 'sin-horario') return;
+    if (e.tipo === 'sin-horario' || e.tipo === 'no-hoy') return;
     conHorario++;
     if (e.tipo === 'atrasada') atrasadas++;
     else if (e.tipo === 'ahora') ahora++;
@@ -1508,6 +1608,7 @@ function archivarSemana(lunesISO, origen = 'manual') {
         id: m.id,
         med: m.med,
         consumo: m.consumo,
+        dias: m.dias || null,
         horario: state.semanal[m.id + '_horario'] || '',
         marcas: [0,1,2,3,4,5,6].map(function(i){ return dosisDeMed(m.id).every(function(_, di){ return state.semanal[claveDosis(m.id, i, di)] === true; }); })
       })).filter(m => m.horario || m.marcas.some(x => x))
@@ -2834,13 +2935,14 @@ function viewResidente() {
                 <td><strong>${escapeHtml(m.med)}</strong></td>
                 <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" ${ro} onchange="actualizarStock('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
                 <td><input type="number" value="${m.consumo ?? ''}" step="0.25" min="0" ${ro} onchange="actualizarConsumo('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
-                <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}</td>
+                <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}${descDias(m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(m))}</span>` : ''}</td>
                 <td><input type="date" value="${m.fechaIngreso || ''}" ${ro} onchange="actualizarFechaIngreso('${nombreEsc}','${jsAttr(m.id)}',this.value)" style="width:140px;font-size:12px"></td>
                 <td>${calcDiasRestantes(m) ?? '—'}</td>
                 <td>${fechaAgotamiento(m)}</td>
                 <td><span class="pill ${e.clase}">${e.label}</span></td>
                 ${admin ? `<td style="white-space:nowrap">
                   <button class="btn small" onclick="abrirIngresoRapido('${nombreEsc}','${jsAttr(m.id)}')">+ Ingreso</button>
+                  <button class="btn small secondary" onclick="abrirEditarDias('${nombreEsc}','${jsAttr(m.id)}')" title="Días de toma">📅</button>
                   <button class="btn icon-only delete" onclick="eliminarMedicamento('${nombreEsc}','${jsAttr(m.id)}')" title="Eliminar">🗑️</button>
                 </td>` : ''}
               </tr>`;
@@ -2903,9 +3005,10 @@ function viewResidente() {
               else if (e.tipo === 'proxima') tag = `<span class="tag-estado proxima">Próxima ${e.detalle}</span>`;
               return `
                 <tr class="${rowCls}">
-                  <td class="med-name">${escapeHtml(m.med)}${tag}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? (m.consumoTxt || '—')}/día</span></td>
+                  <td class="med-name">${escapeHtml(m.med)}${tag}<br><span style="font-size:11px;color:#6c7a8a">Consumo: ${m.consumo ?? (m.consumoTxt || '—')}/día</span>${admin ? `<br><span class="chip-dias" onclick="abrirEditarDias('${nombreEsc}','${jsAttr(m.id)}')" title="Cambiar los días en que se toma">📅 ${escapeHtml(descDias(m))}</span>` : (descDias(m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(m))}</span>` : '')}</td>
                   <td class="horario-cell"><input class="horario-input" value="${escapeHtml(horario)}" placeholder="Ej: 08:00, 20:00" ${ro} onchange="setHorario('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
                   ${dias.map((d,i) => {
+                    if (!medActivoEnDia(m, i)) { return `<td class="dia-na" title="No corresponde este día (${escapeHtml(descDias(m))})"><span class="na-dash">·</span></td>`; }
                     const tomas = dosisDeMed(m.id);
                     const esHoy = i === diaHoyIdx();
                     const algunoPendiente = tomas.some((_,di) => state.semanal[claveDosis(m.id,i,di)] !== true);
@@ -2929,6 +3032,7 @@ function viewResidente() {
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
         ${admin ? `<button class="btn" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Agregar medicamento</button>
+        <button class="btn secondary small" onclick="abrirDetectarDias()">🔎 Detectar días por texto</button>
         <button class="btn secondary small" onclick="limpiarSemana('${nombreEsc}')">🧹 Limpiar marcas</button>
         <button class="btn secondary small" onclick="limpiarHorarios('${nombreEsc}')">⏰ Borrar horarios</button>
         <button class="btn secondary small" onclick="cerrarSemanaManual()">📚 Cerrar semana y archivar</button>` : ''}
@@ -3371,6 +3475,166 @@ function listaMedicamentosUnicos() {
   return Array.from(set).sort();
 }
 
+// ===== SELECTOR DE DÍAS (reutilizable) =====
+function diasPickerHtml(pre) {
+  const tipo = (pre && pre.tipo) ? pre.tipo : 'diario';
+  const semSel = (pre && pre.tipo === 'semanal' && Array.isArray(pre.dias)) ? pre.dias : [];
+  const mesSel = (pre && pre.tipo === 'mensual' && Array.isArray(pre.diasMes)) ? pre.diasMes.join(', ') : '';
+  const letras = ['L','M','M','J','V','S','D'];
+  const nombres = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const toggles = letras.map((l,i) => `<button type="button" class="dp-tog ${semSel.includes(i)?'on':''}" data-d="${i}" title="${nombres[i]}">${l}</button>`).join('');
+  return `<div class="dias-picker" id="dias-picker">
+    <label style="font-weight:600">📅 ¿Qué días se toma?</label>
+    <div class="dp-radios">
+      <label><input type="radio" name="dp-tipo" value="diario" ${tipo==='diario'?'checked':''}> Todos los días</label>
+      <label><input type="radio" name="dp-tipo" value="semanal" ${tipo==='semanal'?'checked':''}> Solo ciertos días de la semana</label>
+      <label><input type="radio" name="dp-tipo" value="mensual" ${tipo==='mensual'?'checked':''}> Día(s) fijo(s) del mes (ej: vitaminas el 15)</label>
+    </div>
+    <div class="dp-semanal" style="display:${tipo==='semanal'?'block':'none'}">
+      <div class="dias-toggles">${toggles}</div>
+      <div style="font-size:11px;color:#6c7a8a">Tocá los días (L=Lun … D=Dom). Ej: Lunes, Jueves y Sábado.</div>
+    </div>
+    <div class="dp-mensual" style="display:${tipo==='mensual'?'block':'none'}">
+      <label style="font-size:13px">Número de día del mes (1 a 31), separá con coma si son varios:</label>
+      <input type="text" class="dp-mes-input" placeholder="Ej: 15   o   1, 15" value="${escapeHtml(mesSel)}">
+    </div>
+  </div>`;
+}
+function attachDiasPicker(root) {
+  if (!root) return;
+  const cont = root.querySelector('#dias-picker'); if (!cont) return;
+  const sincronizar = () => {
+    const sel = (cont.querySelector('input[name="dp-tipo"]:checked') || {}).value || 'diario';
+    cont.querySelector('.dp-semanal').style.display = sel === 'semanal' ? 'block' : 'none';
+    cont.querySelector('.dp-mensual').style.display = sel === 'mensual' ? 'block' : 'none';
+  };
+  cont.querySelectorAll('input[name="dp-tipo"]').forEach(r => r.addEventListener('change', sincronizar));
+  cont.querySelectorAll('.dp-tog').forEach(b => b.addEventListener('click', () => b.classList.toggle('on')));
+}
+// Lee el patrón elegido. Devuelve {tipo:'diario'} o {tipo:'semanal',dias:[...]} o {tipo:'mensual',diasMes:[...]}.
+// Si la selección es inválida (semanal sin días, mensual sin números) devuelve {error:'...'}.
+function leerDiasPicker(root) {
+  const cont = root.querySelector('#dias-picker'); if (!cont) return { tipo:'diario' };
+  const sel = (cont.querySelector('input[name="dp-tipo"]:checked') || {}).value || 'diario';
+  if (sel === 'diario') return { tipo:'diario' };
+  if (sel === 'semanal') {
+    const dias = Array.from(cont.querySelectorAll('.dp-tog.on')).map(b => parseInt(b.dataset.d,10)).sort((a,b)=>a-b);
+    if (!dias.length) return { error: 'Elegí al menos un día de la semana.' };
+    if (dias.length === 7) return { tipo:'diario' };
+    return { tipo:'semanal', dias };
+  }
+  if (sel === 'mensual') {
+    const raw = (cont.querySelector('.dp-mes-input').value || '');
+    const nums = raw.split(/[,;\s]+/).map(x => parseInt(x,10)).filter(n => n>=1 && n<=31);
+    const uniq = Array.from(new Set(nums)).sort((a,b)=>a-b);
+    if (!uniq.length) return { error: 'Escribí el número de día del mes (1 a 31).' };
+    return { tipo:'mensual', diasMes: uniq };
+  }
+  return { tipo:'diario' };
+}
+// Guarda el patrón en el medicamento (diario -> borra el campo para mantenerlo simple).
+function aplicarDiasAMed(m, patron) {
+  if (!patron || patron.tipo === 'diario') { delete m.dias; return; }
+  m.dias = patron;
+}
+
+// Modal para editar los días de un medicamento ya cargado.
+function abrirEditarDias(nombreResidente, medId) {
+  if (bloquearSiNoAdmin('cambiar los días de un medicamento')) return;
+  const r = state.residentes.find(x => x.nombre === nombreResidente);
+  const m = r && r.meds.find(x => x.id === medId);
+  if (!m) { toast('Medicamento no encontrado', 'error'); return; }
+  const sugerido = m.dias || detectarDiasDesdeTexto(m.consumoTxt || m.notas || m.stockTxt || '');
+  const leyenda = (m.consumoTxt || m.notas || m.stockTxt || '').trim();
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML =
+    '<div class="modal">' +
+      '<h3>📅 Días de toma — ' + escapeHtml(m.med) + '</h3>' +
+      (leyenda ? '<div style="font-size:12px;color:#6c7a8a;margin-bottom:8px">Indicación cargada: <em>' + escapeHtml(leyenda) + '</em></div>' : '') +
+      (!m.dias && sugerido ? '<div style="font-size:12px;color:#1b7a3d;background:#eafaef;border:1px solid #b9e6c8;border-radius:6px;padding:6px 8px;margin-bottom:8px">Sugerencia detectada del texto: <strong>' + escapeHtml(descDias({dias:sugerido})) + '</strong>. Revisá y confirmá.</div>' : '') +
+      diasPickerHtml(sugerido || {tipo:'diario'}) +
+      '<div class="btn-group" style="margin-top:14px">' +
+        '<button class="btn" id="ed-guardar">✅ Guardar</button>' +
+        '<button class="btn secondary" id="ed-cancelar">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  attachDiasPicker(modalBg);
+  modalBg.querySelector('#ed-cancelar').onclick = () => modalBg.remove();
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+  modalBg.querySelector('#ed-guardar').onclick = () => {
+    const patron = leerDiasPicker(modalBg);
+    if (patron.error) { toast(patron.error, 'error'); return; }
+    aplicarDiasAMed(m, patron);
+    logCambio('medicacion', 'Días de toma: ' + m.med + ' (' + nombreResidente + ') → ' + descDias(m));
+    saveData();
+    toast('Días actualizados: ' + descDias(m));
+    modalBg.remove();
+    render();
+  };
+}
+
+// ===== DETECTAR DÍAS DESDE TEXTO (todos los residentes) + REVISIÓN =====
+function abrirDetectarDias() {
+  if (bloquearSiNoAdmin('detectar días')) return;
+  const filas = [];
+  state.residentes.forEach(r => {
+    r.meds.forEach(m => {
+      if (m.dias) return; // ya tiene patrón definido, no lo tocamos
+      const txt = (m.consumoTxt || m.notas || m.stockTxt || '').trim();
+      const det = detectarDiasDesdeTexto(txt);
+      if (det) filas.push({ residente: r.nombre, medId: m.id, med: m.med, txt, det });
+    });
+  });
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  if (!filas.length) {
+    modalBg.innerHTML = '<div class="modal"><h3>🔎 Detectar días por texto</h3>' +
+      '<p style="font-size:14px;color:#4a5a6a">No se detectaron patrones nuevos en las indicaciones escritas. Podés cargar los días a mano con el botón 📅 que aparece en cada medicamento de la planilla.</p>' +
+      '<div class="btn-group"><button class="btn secondary" id="dd-cerrar">Cerrar</button></div></div>';
+    document.body.appendChild(modalBg);
+    modalBg.querySelector('#dd-cerrar').onclick = () => modalBg.remove();
+    modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+    return;
+  }
+  const filasHtml = filas.map((f,i) => `<tr>
+      <td style="text-align:center"><input type="checkbox" class="dd-chk" data-i="${i}" checked></td>
+      <td style="font-size:12px">${escapeHtml(f.residente)}</td>
+      <td style="font-size:12px"><strong>${escapeHtml(f.med)}</strong><br><span style="color:#6c7a8a">"${escapeHtml(f.txt)}"</span></td>
+      <td style="font-size:12px"><span class="chip-dias estatico">${escapeHtml(descDias({dias:f.det}))}</span></td>
+    </tr>`).join('');
+  modalBg.innerHTML =
+    '<div class="modal" style="max-width:760px;width:94vw">' +
+      '<h3>🔎 Revisá los días detectados (' + filas.length + ')</h3>' +
+      '<div style="font-size:12.5px;color:#4a5a6a;margin-bottom:10px">Tildá los que estén bien y aplicá. Lo que NO esté acá queda como “Todos los días”; podés ajustarlo después con el botón 📅 de cada medicamento. Esto NO cambia el stock cargado, solo qué días aparecen.</div>' +
+      '<div style="max-height:52vh;overflow:auto;border:1px solid #e3e8ef;border-radius:8px">' +
+        '<table class="tabla" style="margin:0"><thead><tr><th style="width:36px">✔</th><th>Residente</th><th>Medicamento (indicación)</th><th>Días detectados</th></tr></thead><tbody>' + filasHtml + '</tbody></table>' +
+      '</div>' +
+      '<div class="btn-group" style="margin-top:14px">' +
+        '<button class="btn" id="dd-aplicar">✅ Aplicar seleccionados</button>' +
+        '<button class="btn secondary" id="dd-cancelar">Cancelar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modalBg);
+  modalBg.querySelector('#dd-cancelar').onclick = () => modalBg.remove();
+  modalBg.onclick = (e) => { if (e.target === modalBg) modalBg.remove(); };
+  modalBg.querySelector('#dd-aplicar').onclick = () => {
+    let n = 0;
+    modalBg.querySelectorAll('.dd-chk').forEach(chk => {
+      if (!chk.checked) return;
+      const f = filas[parseInt(chk.dataset.i,10)];
+      const r = state.residentes.find(x => x.nombre === f.residente);
+      const m = r && r.meds.find(x => x.id === f.medId);
+      if (m && !m.dias) { aplicarDiasAMed(m, f.det); n++; logCambio('medicacion', 'Días (auto-texto): ' + m.med + ' (' + f.residente + ') → ' + descDias(m)); }
+    });
+    saveData();
+    toast(n + ' medicamento(s) actualizado(s)');
+    modalBg.remove();
+    render();
+  };
+}
+
 function abrirNuevoMedicamento(nombreResidente) {
   if (bloquearSiNoAdmin('agregar medicamentos')) return;
   const lista = listaMedicamentosUnicos();
@@ -3398,12 +3662,14 @@ function abrirNuevoMedicamento(nombreResidente) {
         '<label>Detalle / Indicación (opcional)</label>' +
         '<input type="text" id="nm-detalle" placeholder="Ej: tomar lun/mié/vie">' +
       '</div>' +
-      '<div class="btn-group">' +
+      diasPickerHtml({tipo:'diario'}) +
+      '<div class="btn-group" style="margin-top:8px">' +
         '<button class="btn" id="nm-guardar">✅ Guardar</button>' +
         '<button class="btn secondary" id="nm-cancelar">Cancelar</button>' +
       '</div>' +
     '</div>';
   document.body.appendChild(modalBg);
+  attachDiasPicker(modalBg);
   setTimeout(() => document.getElementById('nm-nombre').focus(), 50);
 
   modalBg.querySelector('#nm-cancelar').onclick = () => modalBg.remove();
@@ -3416,17 +3682,21 @@ function abrirNuevoMedicamento(nombreResidente) {
     const detalle = document.getElementById('nm-detalle').value.trim();
     const fechaIngreso = document.getElementById('nm-fecha-ingreso').value || null;
     if (!nombre) { toast('Falta el nombre', 'error'); return; }
+    const patron = leerDiasPicker(modalBg);
+    if (patron.error) { toast(patron.error, 'error'); return; }
     const r = state.residentes.find(x => x.nombre === nombreResidente);
     const stock = stockStr === '' ? null : parseFloat(stockStr);
     const consumo = consumoStr === '' ? null : parseFloat(consumoStr);
     const newId = nombreResidente + '__' + Date.now();
-    r.meds.push({
+    const nuevoMed = {
       id: newId, med: nombre, stock: stock, stockTxt: '',
       consumo: consumo, consumoTxt: detalle || '', horario: '', notas: detalle || '',
       fechaIngreso: fechaIngreso
-    });
+    };
+    aplicarDiasAMed(nuevoMed, patron);
+    r.meds.push(nuevoMed);
     if (horario) state.semanal[newId + '_horario'] = horario;
-    logCambio('medicacion', `Medicamento agregado: ${nombre} (${nombreResidente}) — stock: ${stock}, consumo: ${consumo}`);
+    logCambio('medicacion', `Medicamento agregado: ${nombre} (${nombreResidente}) — stock: ${stock}, consumo: ${consumo}, días: ${descDias(nuevoMed)}`);
     saveData(); saveSem();
     toast('Agregado: ' + nombre);
     modalBg.remove();
