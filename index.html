@@ -1051,6 +1051,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
+const APP_VERSION = 'v2026-06-17-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6011,6 +6012,23 @@ setInterval(() => {
     cloudPull(true);
   }
 }, 30000);
+
+// Auto-actualización: si hay una versión nueva deployada, recargar solo (así ningún
+// equipo queda con código viejo que pueda romper las marcas).
+async function chequearVersionApp(){
+  try{
+    const r = await fetch('index.html?v=' + Date.now(), { cache: 'no-store' });
+    if(!r.ok) return;
+    const t = await r.text();
+    const m = t.match(/APP_VERSION\s*=\s*'([^']+)'/);
+    if(m && m[1] && m[1] !== APP_VERSION){
+      try{ if(typeof toast==='function') toast('🔄 Versión nueva detectada. Actualizando…'); }catch(e){}
+      setTimeout(function(){ try{ location.reload(true); }catch(e){ location.reload(); } }, 1800);
+    }
+  }catch(e){}
+}
+setTimeout(chequearVersionApp, 12000);
+setInterval(chequearVersionApp, 300000);
 window.addEventListener('online', () => { try { flushColaDeltas(); } catch (e) {} });
 
 // Indicador de sincronización: refrescar el texto cada 10s y reaccionar a la conexión.
