@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-5';
+const APP_VERSION = 'v2026-06-17-6';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1480,6 +1480,13 @@ function detectarDiasDesdeTexto(txt) {
   NOMBRE2IDX.forEach(([re,i]) => { if (re.test(s) && !found.includes(i)) found.push(i); });
   if (found.length) return { tipo:'semanal', dias: found.sort((a,b)=>a-b) };
   return null;
+}
+// Si un texto de horario trae nombres de días, separa el patrón de días y deja solo las horas (HH:MM).
+function separarDiasYHora(texto) {
+  const patron = detectarDiasDesdeTexto(texto);
+  const horas = parseHorarios(texto).map(x => String(x.h).padStart(2,'0') + ':' + String(x.m).padStart(2,'0'));
+  const horaLimpia = Array.from(new Set(horas)).join(', ');
+  return { patron, horaLimpia };
 }
 // Parsea "08:00, 14:00, 20:00" -> [{h:8,m:0},{h:14,m:0},{h:20,m:0}]
 function parseHorarios(str) {
@@ -3351,13 +3358,25 @@ function toggleDosis(residente, medId, diaIdx, dosisIdx) {
 }
 function setHorario(residente, medId, valor) {
   if (bloquearSiNoAdmin('cambiar horarios')) { render(); return; }
-  state.semanal[medId+'_horario'] = valor;
-  // También guardar en el objeto del medicamento para que sincronice con la nube
   const r = state.residentes.find(x => x.nombre === residente);
-  if (r) { const m = r.meds.find(x => x.id === medId); if (m) m.horario = valor; }
+  const m = r && r.meds.find(x => x.id === medId);
+  let valorFinal = valor;
+  // Si escribieron días junto a la hora (ej: "Martes, Jueves 20:00"), pasar los días al patrón y dejar solo la hora.
+  if (m) {
+    const sp = separarDiasYHora(valor);
+    if (sp.patron && (sp.patron.tipo === 'semanal' || sp.patron.tipo === 'mensual')) {
+      aplicarDiasAMed(m, sp.patron);
+      valorFinal = sp.horaLimpia;
+      logCambio('medicacion', 'Días (auto desde horario): ' + m.med + ' (' + residente + ') → ' + descDias(m));
+      try { toast('📅 Días detectados: ' + descDias(m) + (valorFinal ? ' · ' + valorFinal : ' (agregá la hora)')); } catch(e) {}
+    }
+  }
+  state.semanal[medId+'_horario'] = valorFinal;
+  if (m) m.horario = valorFinal; // sincronizar con la nube
   try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch(e) {}
-  cloudPushDelta('semanal', [[[medId+'_horario'], valor]], []);
-  saveData(); // asegura que el horario quede en la nube
+  cloudPushDelta('semanal', [[[medId+'_horario'], valorFinal]], []);
+  saveData(); // asegura que el horario y el patrón de días queden en la nube
+  render(); // refrescar para mostrar la hora limpia y los días aplicados
 }
 function limpiarSemana(residente) {
   if (bloquearSiNoAdmin('limpiar la semana')) return;
@@ -3544,7 +3563,7 @@ function abrirEditarDias(nombreResidente, medId) {
   const r = state.residentes.find(x => x.nombre === nombreResidente);
   const m = r && r.meds.find(x => x.id === medId);
   if (!m) { toast('Medicamento no encontrado', 'error'); return; }
-  const sugerido = m.dias || detectarDiasDesdeTexto(m.consumoTxt || m.notas || m.stockTxt || '');
+  const sugerido = m.dias || detectarDiasDesdeTexto(m.consumoTxt || m.notas || m.stockTxt || '') || (separarDiasYHora(state.semanal[m.id+'_horario'] || m.horario || '').patron);
   const leyenda = (m.consumoTxt || m.notas || m.stockTxt || '').trim();
   const modalBg = document.createElement('div');
   modalBg.className = 'modal-bg';
@@ -3582,9 +3601,11 @@ function abrirDetectarDias() {
   state.residentes.forEach(r => {
     r.meds.forEach(m => {
       if (m.dias) return; // ya tiene patrón definido, no lo tocamos
-      const txt = (m.consumoTxt || m.notas || m.stockTxt || '').trim();
-      const det = detectarDiasDesdeTexto(txt);
-      if (det) filas.push({ residente: r.nombre, medId: m.id, med: m.med, txt, det });
+      const hor = (state.semanal[m.id+'_horario'] || m.horario || '').trim();
+      const txtBase = (m.consumoTxt || m.notas || m.stockTxt || '').trim();
+      let det = detectarDiasDesdeTexto(txtBase), txt = txtBase, horaLimpia = null;
+      if (!det && hor) { const sp = separarDiasYHora(hor); if (sp.patron) { det = sp.patron; txt = hor; horaLimpia = sp.horaLimpia; } }
+      if (det) filas.push({ residente: r.nombre, medId: m.id, med: m.med, txt, det, horaLimpia });
     });
   });
   const modalBg = document.createElement('div');
@@ -3626,7 +3647,11 @@ function abrirDetectarDias() {
       const f = filas[parseInt(chk.dataset.i,10)];
       const r = state.residentes.find(x => x.nombre === f.residente);
       const m = r && r.meds.find(x => x.id === f.medId);
-      if (m && !m.dias) { aplicarDiasAMed(m, f.det); n++; logCambio('medicacion', 'Días (auto-texto): ' + m.med + ' (' + f.residente + ') → ' + descDias(m)); }
+      if (m && !m.dias) {
+        aplicarDiasAMed(m, f.det);
+        if (f.horaLimpia !== null && f.horaLimpia !== undefined) { state.semanal[f.medId+'_horario'] = f.horaLimpia; m.horario = f.horaLimpia; cloudPushDelta('semanal', [[[f.medId+'_horario'], f.horaLimpia]], []); }
+        n++; logCambio('medicacion', 'Días (auto-texto): ' + m.med + ' (' + f.residente + ') → ' + descDias(m));
+      }
     });
     saveData();
     toast(n + ' medicamento(s) actualizado(s)');
