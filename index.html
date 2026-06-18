@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-8';
+const APP_VERSION = 'v2026-06-17-9';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6168,7 +6168,35 @@ render = function() {
       console.warn('Error en sync inicial:', e);
     }
   }
+  try { setTimeout(mostrarNovedades, 1500); } catch (e) {}
 })();
+
+// ===== Aviso de novedades (se muestra UNA sola vez por equipo, por versión) =====
+const NOVEDADES_VERSION = '2026-06-17-correccion-borrado';
+function mostrarNovedades(){
+  try{
+    if(localStorage.getItem('vt_novedades_visto') === NOVEDADES_VERSION) return;
+    if(document.getElementById('overlay-novedades')) return;
+    const ov = document.createElement('div');
+    ov.id = 'overlay-novedades';
+    ov.setAttribute('style','position:fixed;inset:0;z-index:99998;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);padding:18px;font-family:inherit;');
+    ov.innerHTML =
+      '<div style="background:#fff;max-width:450px;width:100%;border-radius:16px;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,.25);">'+
+        '<div style="font-size:22px;font-weight:800;color:#1b5e20;margin-bottom:4px;">✅ Sistema actualizado</div>'+
+        '<div style="font-size:13px;color:#999;margin-bottom:14px;">Novedades — Control de Signos</div>'+
+        '<div style="font-size:15px;color:#333;line-height:1.5;">'+
+          '<p style="margin:0 0 10px;"><b>Se arregló el borrado de datos.</b> Ya se puede cargar el Control de Signos desde <b>varios celulares o computadoras a la vez</b> sin que se pierda lo que cargó otra persona.</p>'+
+          '<p style="margin:0 0 10px;"><b>Recuperamos lo que se había perdido:</b> volvieron los signos, hidratación, baño y novedades borrados.</p>'+
+          '<p style="margin:0;">No tenés que hacer nada: seguí cargando normal. 🙌</p>'+
+        '</div>'+
+        '<button id="btn-novedades-ok" style="margin-top:18px;width:100%;background:#2e7d32;color:#fff;border:none;border-radius:10px;padding:13px;font-size:16px;font-weight:700;cursor:pointer;">Entendido</button>'+
+      '</div>';
+    document.body.appendChild(ov);
+    const cerrar = function(){ try{ localStorage.setItem('vt_novedades_visto', NOVEDADES_VERSION); }catch(e){} ov.remove(); };
+    document.getElementById('btn-novedades-ok').onclick = cerrar;
+    ov.addEventListener('click', function(e){ if(e.target===ov) cerrar(); });
+  }catch(e){}
+}
 
 // =====================================================
 // INSUMOS — STOCK (funciones helper)
