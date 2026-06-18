@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-6';
+const APP_VERSION = 'v2026-06-17-7';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1240,34 +1240,40 @@ function saveHistoriasCli() {
 }
 
 function saveCS() {
+  // SOLO guardar local. NO subir el día entero a la nube.
+  // Las cargas normales (signos/hidratación/catarsis/turnos) ya suben casillero por
+  // casillero con csSet() -> cloudPushDelta con path [fecha,seccion,residente,campo].
+  // Las altas/bajas/renombres suben su propio delta GRANULAR (ver csBorrarDatosCS /
+  // csMigrarNombreCS). Antes saveCS subía el objeto completo del día con path [fecha],
+  // y el backend reemplazaba el día entero: si otro equipo cargaba el MISMO día al mismo
+  // tiempo, su carga se perdía ("se borra todo"). Por eso ya no se sube el día completo.
   localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos));
-  // PUSH SEGURO (merge por fecha): NUNCA reemplazar todo controlSignos en la nube.
-  // Antes un equipo con datos viejos borraba los signos/catarsis recién cargados por los
-  // demás. Ahora mandamos cada fecha como delta: el backend conserva las fechas que este
-  // equipo no tiene. Si por algo falla, recién ahí caemos al push completo.
-  if (typeof syncHabilitado === 'function' && syncHabilitado()) {
-    try {
-      var _setsCS = Object.keys(state.controlSignos || {}).map(function(f){ return [[f], state.controlSignos[f]]; });
-      if (_setsCS.length) cloudPushDelta('controlSignos', _setsCS, []);
-    } catch (e) { cloudPush('controlSignos', state.controlSignos); }
-  }
 }
 function migrarCatarsisTurnos() {
-  // Migra datos viejos de catarsis (sin turno) al nuevo formato con turno 'm' (mañana)
+  // Migra datos viejos de catarsis (sin turno) al nuevo formato con turno 'm' (mañana).
+  // Sube SOLO los casilleros migrados como delta granular (no el día completo).
   let cambios = false;
+  const sets = [];
   for (const fecha in state.controlSignos) {
+    if (fecha.charAt(0) === '_') continue;
     const dia = state.controlSignos[fecha];
-    if (!dia.catarsis) continue;
+    if (!dia || typeof dia !== 'object' || !dia.catarsis) continue;
     for (const nombre in dia.catarsis) {
       const cat = dia.catarsis[nombre];
       // Si tiene hubo/tipo directamente (formato viejo) → migrar a turno 'm'
       if (cat && typeof cat.hubo !== 'undefined') {
         dia.catarsis[nombre] = { m: { hubo: cat.hubo, tipo: cat.tipo || '' } };
+        sets.push([[fecha, 'catarsis', nombre], dia.catarsis[nombre]]);
         cambios = true;
       }
     }
   }
-  if (cambios) saveCS();
+  if (cambios) {
+    saveCS();
+    if (sets.length && typeof syncHabilitado === 'function' && syncHabilitado()) {
+      try { cloudPushDelta('controlSignos', sets, []); } catch (e) {}
+    }
+  }
 }
 
 // ============ STATE ============
@@ -4480,25 +4486,43 @@ function csResNameCell(nombre) {
     `</span></div></td>`;
 }
 function csMigrarNombreCS(viejo, nuevo) {
+  // Mover los datos del nombre viejo al nuevo SUBIENDO deltas granulares (no el día entero):
+  // así no se pisa lo que otro equipo esté cargando el mismo día.
+  const sets = [], dels = [];
   for (const fecha in state.controlSignos) {
     if (fecha.charAt(0) === '_') continue; // claves especiales (ej: _resumenes)
     const dia = state.controlSignos[fecha];
+    if (!dia || typeof dia !== 'object') continue;
     for (const seccion in dia) {
       const s = dia[seccion];
       if (s && Object.prototype.hasOwnProperty.call(s, viejo)) {
         s[nuevo] = s[viejo];
         delete s[viejo];
+        sets.push([[fecha, seccion, nuevo], s[nuevo]]);
+        dels.push([fecha, seccion, viejo]);
       }
     }
   }
+  if ((sets.length || dels.length) && typeof syncHabilitado === 'function' && syncHabilitado()) {
+    try { cloudPushDelta('controlSignos', sets, dels); } catch (e) {}
+  }
 }
 function csBorrarDatosCS(nombre) {
+  // Borrar al residente de cada día SUBIENDO deltas de borrado granulares (no el día entero).
+  const dels = [];
   for (const fecha in state.controlSignos) {
     if (fecha.charAt(0) === '_') continue; // claves especiales (ej: _resumenes)
     const dia = state.controlSignos[fecha];
+    if (!dia || typeof dia !== 'object') continue;
     for (const seccion in dia) {
-      if (dia[seccion]) delete dia[seccion][nombre];
+      if (dia[seccion] && Object.prototype.hasOwnProperty.call(dia[seccion], nombre)) {
+        delete dia[seccion][nombre];
+        dels.push([fecha, seccion, nombre]);
+      }
     }
+  }
+  if (dels.length && typeof syncHabilitado === 'function' && syncHabilitado()) {
+    try { cloudPushDelta('controlSignos', [], dels); } catch (e) {}
   }
 }
 function csNuevoResidente() {
