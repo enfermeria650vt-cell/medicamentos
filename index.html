@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-18-2';
+const APP_VERSION = 'v2026-06-18-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4681,24 +4681,23 @@ function csDiaPrevio(fecha) {
 }
 
 function csAlertasCatarsis() {
-  // Cuenta los días SEGUIDOS sin catarsis de corrido, desde hoy hacia atrás.
-  // NO se reinicia al archivar/cambiar de semana: mira el historial completo
-  // hasta el primer día con datos cargados en el sistema.
-  // Un día tiene catarsis si CUALQUIER turno (M/T/N) tiene 'Sí'.
+  // Alertas ACOTADAS A LA SEMANA EN CURSO: se reinician cada lunes.
+  // Cuenta los días SEGUIDOS sin catarsis dentro de la semana actual, desde hoy
+  // hacia atrás hasta el lunes; NO arrastra días de semanas anteriores.
+  // Un día tiene catarsis si CUALQUIER turno (M/T/N) está marcado en verde.
+  // (Se usa csClasifCatarsis para que la cuenta coincida con el color que se ve.)
   const hoy = csHoy();
   const turnos = ['m','t','n'];
-  // Día más antiguo con datos: límite para no contar un pasado infinito
-  const fechas = Object.keys(state.controlSignos).filter(f => f.charAt(0) !== '_');
-  if (fechas.length === 0) return '';
-  const masAntigua = fechas.sort()[0];
-  if (masAntigua > hoy) return '';
+  const lunes = csSemanaDias(hoy)[0]; // lunes de la semana en curso
+  const tuvoCatarsis = (res, fecha) => turnos.some(t =>
+    csClasifCatarsis(csGet(fecha, 'catarsis', res, t, 'tipo'),
+                     csGet(fecha, 'catarsis', res, t, 'hubo')) === 'si');
   const alertas = [];
   state.residentes.forEach(r => {
     let diasSin = 0;
     let cursor = hoy;
-    while (cursor >= masAntigua) {
-      const tuvoCatarsis = turnos.some(t => csGet(cursor, 'catarsis', r.nombre, t, 'hubo') === 'Sí');
-      if (tuvoCatarsis) break;
+    while (cursor >= lunes) {
+      if (tuvoCatarsis(r.nombre, cursor)) break;
       diasSin++;
       cursor = csDiaPrevio(cursor);
     }
@@ -4719,7 +4718,7 @@ function csAlertasCatarsis() {
     return `<div class="cs-alerta-item">⚠️ <strong>${escapeHtml(a.nombre)}</strong> — ${a.dias} días sin catarsis → ${motraxHtml}</div>`;
   }).join('');
   return `<div class="cs-alertas-catarsis">
-    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días seguidos sin catarsis)</div>
+    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días sin catarsis en la semana en curso)</div>
     ${items}
   </div>`;
 }
