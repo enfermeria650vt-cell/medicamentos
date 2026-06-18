@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-18-1';
+const APP_VERSION = 'v2026-06-18-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2827,6 +2827,20 @@ function viewHistorialCambios() {
   `;
 }
 
+// El backend de Indicaciones devuelve la fecha del Historial formateada en UTC+1 (la hora sale
+// +4h respecto a Argentina). Verificado contra el ISO real de las entradas del monitor: el
+// desfasaje es siempre exactamente +1h sobre UTC = +4h sobre Argentina, sin excepción y sin
+// horario de verano. Acá la corregimos al MOSTRAR: interpretamos la hora como UTC+1 y la pasamos
+// a hora de Argentina (resta fija de 4h). Solo se aplica a la fecha que viene de la nube.
+function histFechaAR(f) {
+  if (!f) return f;
+  const m = String(f).match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return f; // formato inesperado: no tocar
+  const d = new Date(Date.UTC(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0)));
+  d.setUTCHours(d.getUTCHours() - 4);
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` + (m[6] ? `:${p(d.getUTCSeconds())}` : '');
+}
 async function cargarHistorialCloud() {
   try {
     const url = (typeof getIndicUrl === 'function') ? getIndicUrl() : null;
@@ -2839,7 +2853,7 @@ async function cargarHistorialCloud() {
           tipo: h.accion || 'otro',
           descripcion: h.detalle || (h.residente ? '(' + h.residente + ')' : ''),
           usuario: (h.usuario || '?') + (h.rol ? ' (' + h.rol + ')' : ''),
-          fecha: h.fecha || ''
+          fecha: histFechaAR(h.fecha || '')
         }));
       }
     }
