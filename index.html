@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-7';
+const APP_VERSION = 'v2026-06-17-8';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2113,10 +2113,13 @@ async function flushColaDeltas() {
         const r = await fetch(getCloudUrl(), { method: 'POST', body: fd });
         const j = await r.json();
         if (!j.ok) {
-          // Backend viejo sin pushDelta: caer al push completo para no trabar la cola
+          // Backend que NO soporta pushDelta: antes acá se hacía un push COMPLETO de
+          // controlSignos/semanal, que pisaba lo cargado por otros equipos ("se borra todo").
+          // Ahora NO se sube el objeto entero: descartamos este delta para no trabar la cola.
+          // El dato sigue guardado localmente y se re-sincroniza en el próximo pull o edición.
           if (/no válida|no reconocida|pushDelta solo/i.test(String(j.error||''))) {
+            console.warn('Backend sin pushDelta: delta descartado para evitar push completo destructivo', it.key);
             q.shift(); guardarColaDeltas(q);
-            await cloudPush(it.key, it.key === 'semanal' ? state.semanal : state.controlSignos);
             continue;
           }
           throw new Error(j.error || 'Respuesta no OK');
