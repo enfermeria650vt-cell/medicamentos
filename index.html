@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-17-9';
+const APP_VERSION = 'v2026-06-18-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2078,7 +2078,7 @@ function guardarColaDeltas(q) { try { localStorage.setItem(DELTA_QUEUE_KEY, JSON
 const DELTA_GRACIA_MS = 120000; // 2 minutos
 let _deltasRecientes = [];
 function registrarDeltaReciente(key, sets, dels) {
-  if (key !== 'semanal' && key !== 'controlSignos') return;
+  if (key !== 'semanal' && key !== 'controlSignos' && key !== 'residentes') return;
   _deltasRecientes.push({ key: key, sets: sets || [], dels: dels || [], ts: Date.now() });
   const corte = Date.now() - DELTA_GRACIA_MS;
   _deltasRecientes = _deltasRecientes.filter(d => d.ts > corte).slice(-500);
@@ -2150,7 +2150,14 @@ function aplicarDeltasLocales() {
   // gracia: así un pull viejo del servidor no puede borrar de pantalla un cambio recién hecho.
   const aplicar = leerColaDeltas().concat(_deltasRecientes);
   if (!aplicar.length) return;
+  let _resTocado = false;
   aplicar.forEach(it => {
+    // residentes: el delta direcciona [medId, campo] sobre el array de residentes (stock/fechaIngreso).
+    // Así un pull "viejo" que reemplaza residentes completo no revierte el ingreso recién cargado.
+    if (it.key === 'residentes') {
+      (it.sets || []).forEach(par => { if (_setResidenteCampo(par[0], par[1])) _resTocado = true; });
+      return;
+    }
     const raiz = it.key === 'semanal' ? state.semanal : (it.key === 'controlSignos' ? state.controlSignos : null);
     if (!raiz) return;
     (it.sets || []).forEach(par => _setPathLocal(raiz, par[0], par[1]));
@@ -2158,6 +2165,25 @@ function aplicarDeltasLocales() {
   });
   try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch(e) {}
   try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch(e) {}
+  if (_resTocado) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.residentes)); } catch(e) {} }
+}
+// Aplica un campo (stock/fechaIngreso) a un medicamento ubicándolo por id dentro de residentes.
+function _setResidenteCampo(path, val) {
+  if (!Array.isArray(path) || path.length < 2) return false;
+  const medId = path[0], campo = path[1];
+  for (const r of (state.residentes || [])) {
+    const m = (r.meds || []).find(x => x.id === medId);
+    if (m) { m[campo] = val; return true; }
+  }
+  return false;
+}
+// Empuja SOLO los campos de stock/fecha de un medicamento como delta granular (no pisa el resto
+// de residentes que tengan otros equipos) y lo registra en la ventana de gracia para que el
+// próximo pull no lo revierta. Mismo mecanismo a prueba de pisadas que las tildes.
+function cloudPushResidenteDelta(medId, campos) {
+  if (!medId || !campos) return;
+  const sets = Object.keys(campos).map(c => [[medId, c], campos[c]]);
+  if (sets.length) cloudPushDelta('residentes', sets, []);
 }
 function _setPathLocal(o, path, val) {
   for (let i = 0; i < path.length - 1; i++) { const pz = path[i]; if (typeof o[pz] !== 'object' || o[pz] === null) o[pz] = {}; o = o[pz]; }
@@ -3267,6 +3293,7 @@ function actualizarStock(residente, medId, val) {
   m.stock = val === '' ? null : parseFloat(val);
   logCambio('stock', `Stock editado: ${m.med} (${residente}) — ${stockAnterior} → ${m.stock}`);
   saveData();
+  cloudPushResidenteDelta(m.id, { stock: m.stock });
   toast(`Stock actualizado: ${m.med}`);
   render();
 }
@@ -3285,6 +3312,7 @@ function actualizarFechaIngreso(residente, medId, val) {
   const m = r.meds.find(x => x.id === medId);
   m.fechaIngreso = val || null;
   saveData();
+  cloudPushResidenteDelta(m.id, { fechaIngreso: m.fechaIngreso });
   if (val) {
     const f = new Date(val + 'T00:00:00').toLocaleDateString('es-AR');
     toast(`📅 Fecha ingreso: ${m.med} → ${f}`);
@@ -3324,6 +3352,7 @@ function registrarIngreso() {
   });
   logCambio('ingreso', `Ingreso: +${cantidad} ${m.med} (${residente}) → stock ${m.stock}`, {recibido, obs});
   saveData(); saveSem();
+  cloudPushResidenteDelta(m.id, { stock: m.stock, fechaIngreso: m.fechaIngreso });
   toast(`✅ Ingreso registrado: +${cantidad} ${m.med} → stock ${m.stock}`);
   document.getElementById('ing-cantidad').value = '';
   document.getElementById('ing-recibido').value = '';
@@ -3799,6 +3828,7 @@ async function sincronizarWhatsapp() {
       }
       match.med.stock = (Number(match.med.stock) || 0) + Number(ing.cantidad);
       match.med.fechaIngreso = new Date(ing.fecha).toISOString().slice(0, 10);
+      cloudPushResidenteDelta(match.med.id, { stock: match.med.stock, fechaIngreso: match.med.fechaIngreso });
       aplicados++;
       detalle.push('✅ ' + match.residente + ' - ' + match.med.med + ': +' + ing.cantidad + ' (stock: ' + match.med.stock + ')');
       if (!state.semanal.ingresos) state.semanal.ingresos = [];
