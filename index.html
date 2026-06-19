@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-19-6';
+const APP_VERSION = 'v2026-06-19-7';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2979,6 +2979,7 @@ function viewResidente() {
         <h3 style="margin:0">📦 Stock y consumo</h3>
         <span class="spacer"></span>
         <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoMensual('${nombreEsc}')">🖨 Imprimir pedido (A5)</button>
+        <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoBlanco()">📄 Hoja en blanco (A5)</button>
         ${admin ? `<button class="btn small" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Nuevo medicamento</button>` : ''}
       </div>
       <table class="tabla">
@@ -7759,6 +7760,43 @@ function imprimirPedidoMensual(nombre) {
       ${filasMed}
       ${filasVacias}
     </tbody>
+  </table>
+  <script>window.onload = () => { window.print(); }<\/script>
+  </body></html>`);
+  win.document.close();
+}
+// ─── HOJA EN BLANCO (A5) — sin nombre ni medicamentos ───────────────
+function imprimirPedidoBlanco() {
+  const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const hoy = new Date();
+  const tituloMes = MESES[hoy.getMonth()] + ' ' + hoy.getFullYear();
+  let filas = '';
+  for (let i = 0; i < 22; i++) filas += '<tr><td>&nbsp;</td><td></td><td></td><td></td></tr>';
+  const win = window.open('', '_blank', 'width=700,height=900');
+  win.document.write(`<!DOCTYPE html><html><head>
+  <meta charset="utf-8">
+  <title>Hoja en blanco — ${escapeHtml(tituloMes)}</title>
+  <style>
+    @page { size: A5 portrait; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 7pt; color: #000; background: white; padding: 2cm; }
+    .titulo { text-align: center; font-weight: bold; font-size: 11pt; text-decoration: underline; margin-bottom: 8px; }
+    .subtitulo { font-size: 8pt; margin-bottom: 10px; }
+    .linea { display: inline-block; border-bottom: 1px solid #000; min-width: 60%; }
+    table { width: 100%; border-collapse: collapse; font-size: 7pt; }
+    th, td { border: 1px solid #000; padding: 2px 5px; vertical-align: middle; text-align: center; }
+    th { font-weight: bold; }
+    tbody td { height: 5mm; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style></head><body>
+  <div class="titulo">MEDICAMENTOS PARA ${escapeHtml(tituloMes)}</div>
+  <div class="subtitulo">Medicación para: <span class="linea"></span></div>
+  <table>
+    <colgroup><col style="width:15%"><col style="width:10%"><col style="width:33%"><col style="width:20%"></colgroup>
+    <thead><tr>
+      <th>Medicamento</th><th>RECETAS</th><th>MEDICAMENTOS</th><th>QUIEN RECIBE</th>
+    </tr></thead>
+    <tbody>${filas}</tbody>
   </table>
   <script>window.onload = () => { window.print(); }<\/script>
   </body></html>`);
