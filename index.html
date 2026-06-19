@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-19-2';
+const APP_VERSION = 'v2026-06-19-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4109,18 +4109,30 @@ async function cargarHistorialIndicacion(fileId, btn, cont) {
   }
 }
 
+// ─── Normalización para comparar textos tipeados a mano ───
+// Ignora espacios sobrantes (incl. palabras partidas tipo "YOGU RT" o "S.O. S"),
+// nbsp/zero-width, mayúsculas y puntuación final. NO altera lo que se muestra.
+function diffKey(t) {
+  return (t || '')
+    .replace(/[   ]/g, ' ')     // espacios "raros" → espacio normal
+    .replace(/[​-‍﻿]/g, '')      // zero-width
+    .toLowerCase()
+    .replace(/\s+/g, '')                          // quita TODOS los espacios
+    .replace(/[.,;:]+$/, '');                     // puntuación final
+}
+
 // ─── DIFF: resalta filas y celdas que cambiaron entre pase anterior y actual ───
 function resaltarCambiosDiff(colAnt, colAct) {
   const tablaAnt = colAnt.querySelector('table');
   const tablaAct = colAct.querySelector('table');
   if (!tablaAnt || !tablaAct) return;
 
-  // Construir mapa: clave = texto de primera celda (nombre del medicamento) en minúsculas
+  // Construir mapa: clave = texto de primera celda (nombre del medicamento) normalizada
   function filasComoMap(tabla) {
     const map = {};
     const rows = Array.from(tabla.querySelectorAll('tr')).filter(r => r.querySelector('td'));
     rows.forEach(function(tr) {
-      const clave = (tr.cells[0] ? tr.cells[0].textContent.trim().toLowerCase() : '');
+      const clave = (tr.cells[0] ? diffKey(tr.cells[0].textContent) : '');
       if (clave) map[clave] = tr;
     });
     return map;
@@ -4137,8 +4149,8 @@ function resaltarCambiosDiff(colAnt, colAct) {
       trAnt.classList.add('diff-removed');
     } else {
       const trAct = mapAct[clave];
-      const textoAnt = trAnt.textContent.trim();
-      const textoAct = trAct.textContent.trim();
+      const textoAnt = diffKey(trAnt.textContent);
+      const textoAct = diffKey(trAct.textContent);
       if (textoAnt !== textoAct) {
         // Medicamento cambió — resaltar fila y resaltar celdas individuales
         trAnt.classList.add('diff-changed');
@@ -4151,7 +4163,7 @@ function resaltarCambiosDiff(colAnt, colAct) {
           if (!celdaAnt || !celdaAct) continue;
           const vAnt = celdaAnt.textContent.trim();
           const vAct = celdaAct.textContent.trim();
-          if (vAnt !== vAct) {
+          if (diffKey(vAnt) !== diffKey(vAct)) {
             celdaAnt.innerHTML = '<span class="diff-old-val">' + escapeHtml(vAnt) + '</span>';
             celdaAct.innerHTML = '<span class="diff-new-val">' + escapeHtml(vAct) + '</span>';
           }
@@ -4199,7 +4211,7 @@ function rcExtraerDatos(html) {
       if (/^evoluci/i.test(c0) || c0.length > 80) {
         evol.push(c0 + (resto ? ' ' + resto : ''));
       } else {
-        const k = c0.toLowerCase();
+        const k = diffKey(c0);
         if (!meds[k]) meds[k] = { nombre: c0, lineas: [] };
         meds[k].lineas.push(resto || '(sin detalle)');
       }
@@ -4220,15 +4232,15 @@ function rcDiff(d) {
   const nuevos = [], suspendidos = [], cambiados = [];
   Object.keys(act.meds).forEach(function(k) {
     if (!ant.meds[k]) { nuevos.push(act.meds[k]); return; }
-    const a = ant.meds[k].lineas.slice().sort().join(' | ');
-    const b = act.meds[k].lineas.slice().sort().join(' | ');
+    const a = ant.meds[k].lineas.map(diffKey).sort().join('|');
+    const b = act.meds[k].lineas.map(diffKey).sort().join('|');
     if (a !== b) cambiados.push({ nombre: act.meds[k].nombre, antes: ant.meds[k].lineas, ahora: act.meds[k].lineas });
   });
   Object.keys(ant.meds).forEach(function(k) {
     if (!act.meds[k]) suspendidos.push(ant.meds[k]);
   });
-  const evolNueva = (act.evol && act.evol !== ant.evol) ? act.evol : '';
-  const diagNuevo = (act.diag && ant.diag && act.diag !== ant.diag) ? act.diag : '';
+  const evolNueva = (act.evol && diffKey(act.evol) !== diffKey(ant.evol)) ? act.evol : '';
+  const diagNuevo = (act.diag && ant.diag && diffKey(act.diag) !== diffKey(ant.diag)) ? act.diag : '';
   const hay = nuevos.length || suspendidos.length || cambiados.length || evolNueva || diagNuevo;
   return hay ? { nuevos: nuevos, suspendidos: suspendidos, cambiados: cambiados, evolNueva: evolNueva, diagNuevo: diagNuevo } : null;
 }
