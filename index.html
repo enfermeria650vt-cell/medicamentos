@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-19-5';
+const APP_VERSION = 'v2026-06-19-6';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -7736,16 +7736,16 @@ function imprimirPedidoMensual(nombre) {
   <meta charset="utf-8">
   <title>Medicamentos ${escapeHtml(tituloMes)} — ${escapeHtml(r.nombre)}</title>
   <style>
-    @page { size: A5 portrait; margin: 2cm; }
+    @page { size: A5 portrait; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 7pt; color: #000; background: white; }
-    .titulo { text-align: center; font-weight: bold; font-size: 10pt; text-decoration: underline; margin-bottom: 8px; }
-    .subtitulo { font-size: 7pt; text-align: center; margin-bottom: 8px; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 7pt; color: #000; background: white; padding: 2cm; }
+    .titulo { text-align: center; font-weight: bold; font-size: 11pt; text-decoration: underline; margin-bottom: 8px; }
+    .subtitulo { font-size: 8pt; text-align: center; margin-bottom: 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 7pt; }
     th, td { border: 1px solid #000; padding: 2px 5px; vertical-align: middle; text-align: center; }
     th { font-weight: bold; }
     tbody td { height: 5mm; }
-    td.med { white-space: nowrap; text-transform: uppercase; text-align: left; padding-left: 7px; }
+    td.med { white-space: nowrap; text-transform: uppercase; text-align: left; padding-left: 6px; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style></head><body>
   <div class="titulo">MEDICAMENTOS PARA ${escapeHtml(tituloMes)}</div>
