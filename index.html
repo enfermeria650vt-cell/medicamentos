@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-19-3';
+const APP_VERSION = 'v2026-06-19-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6516,7 +6516,7 @@ async function chequearVersionApp(){
   }catch(e){}
 }
 setTimeout(chequearVersionApp, 12000);
-setInterval(chequearVersionApp, 300000);
+setInterval(chequearVersionApp, 60000);
 window.addEventListener('online', () => { try { flushColaDeltas(); } catch (e) {} });
 
 // Indicador de sincronización: refrescar el texto cada 10s y reaccionar a la conexión.
