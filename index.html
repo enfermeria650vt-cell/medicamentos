@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-18-6';
+const APP_VERSION = 'v2026-06-18-7';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2119,15 +2119,16 @@ async function flushColaDeltas() {
           // El dato sigue guardado localmente y se re-sincroniza en el próximo pull o edición.
           if (/no válida|no reconocida|pushDelta solo/i.test(String(j.error||''))) {
             console.warn('Backend sin pushDelta: delta descartado para evitar push completo destructivo', it.key);
-            q.shift(); guardarColaDeltas(q);
+            q = leerColaDeltas(); q.shift(); guardarColaDeltas(q);
             continue;
           }
           throw new Error(j.error || 'Respuesta no OK');
         }
         ultimo = j;
         syncState.lastOk = new Date().toISOString(); syncState.lastError = null;
-        q.shift(); guardarColaDeltas(q);
-        q = leerColaDeltas();
+        // FIX carrera: re-leer la cola ANTES de escribir, para no pisar deltas que se
+        // agregaron mientras se enviaba esta (marcar varias casillas rapido perdia las demas).
+        q = leerColaDeltas(); q.shift(); guardarColaDeltas(q);
       } catch (err) {
         // Sin conexion: queda en cola, se reintenta en el proximo sync de 30s o al volver online
         syncState.lastError = String((err && err.message) || err);
