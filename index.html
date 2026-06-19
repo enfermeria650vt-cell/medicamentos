@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-19-4';
+const APP_VERSION = 'v2026-06-19-5';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2978,6 +2978,7 @@ function viewResidente() {
       <div style="display:flex;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
         <h3 style="margin:0">📦 Stock y consumo</h3>
         <span class="spacer"></span>
+        <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoMensual('${nombreEsc}')">🖨 Imprimir pedido (A5)</button>
         ${admin ? `<button class="btn small" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Nuevo medicamento</button>` : ''}
       </div>
       <table class="tabla">
@@ -7714,6 +7715,51 @@ function imprimirRecetaFam(key, idx) {
   </div>
   <!-- PIE -->
   <div class="pie">Residencia Villa Teresa</div>
+  <script>window.onload = () => { window.print(); }<\/script>
+  </body></html>`);
+  win.document.close();
+}
+// ─── PEDIDO MENSUAL DE MEDICAMENTOS (hoja A5 imprimible) ─────────────
+function imprimirPedidoMensual(nombre) {
+  const r = state.residentes.find(x => x.nombre === nombre);
+  if (!r) { alert('Residente no encontrado'); return; }
+  const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const hoy = new Date();
+  const tituloMes = MESES[hoy.getMonth()] + ' ' + hoy.getFullYear();
+  const meds = (r.meds || []).slice().sort((a, b) => ((parseFloat(a.consumo) > 0 ? 0 : 1) - (parseFloat(b.consumo) > 0 ? 0 : 1)));
+  const filasMed = meds.map(m => `<tr><td class="med">${escapeHtml(m.med)}</td><td></td><td></td><td></td></tr>`).join('');
+  const blancos = 11;
+  let filasVacias = '';
+  for (let i = 0; i < blancos; i++) filasVacias += '<tr><td>&nbsp;</td><td></td><td></td><td></td></tr>';
+  const win = window.open('', '_blank', 'width=700,height=900');
+  win.document.write(`<!DOCTYPE html><html><head>
+  <meta charset="utf-8">
+  <title>Medicamentos ${escapeHtml(tituloMes)} — ${escapeHtml(r.nombre)}</title>
+  <style>
+    @page { size: A5 portrait; margin: 2cm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 7pt; color: #000; background: white; }
+    .titulo { text-align: center; font-weight: bold; font-size: 10pt; text-decoration: underline; margin-bottom: 8px; }
+    .subtitulo { font-size: 7pt; text-align: center; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 7pt; }
+    th, td { border: 1px solid #000; padding: 2px 5px; vertical-align: middle; text-align: center; }
+    th { font-weight: bold; }
+    tbody td { height: 5mm; }
+    td.med { white-space: nowrap; text-transform: uppercase; text-align: left; padding-left: 7px; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style></head><body>
+  <div class="titulo">MEDICAMENTOS PARA ${escapeHtml(tituloMes)}</div>
+  <div class="subtitulo">Medicación para: ${escapeHtml(r.nombre)}</div>
+  <table>
+    <colgroup><col style="width:15%"><col style="width:10%"><col style="width:33%"><col style="width:20%"></colgroup>
+    <thead><tr>
+      <th>Medicamento</th><th>RECETAS</th><th>MEDICAMENTOS</th><th>QUIEN RECIBE</th>
+    </tr></thead>
+    <tbody>
+      ${filasMed}
+      ${filasVacias}
+    </tbody>
+  </table>
   <script>window.onload = () => { window.print(); }<\/script>
   </body></html>`);
   win.document.close();
