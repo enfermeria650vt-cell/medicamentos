@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-18-7';
+const APP_VERSION = 'v2026-06-19-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4241,13 +4241,13 @@ function rcBloqueHTML(b) {
   }
   const d = b.diff;
   d.nuevos.forEach(function(m) {
-    h += '<div class="res-item nuevo">➕ <strong>NUEVO: ' + escapeHtml(m.nombre) + '</strong> — ' + escapeHtml(m.lineas.join(' / ')) + '</div>';
+    h += '<div class="res-item nuevo">➕ <strong>SE AGREGA: ' + escapeHtml(m.nombre) + '</strong> — ' + escapeHtml(m.lineas.join(' / ')) + '</div>';
   });
   d.cambiados.forEach(function(m) {
-    h += '<div class="res-item cambio">✏ <strong>' + escapeHtml(m.nombre) + ':</strong> antes: ' + escapeHtml(m.antes.join(' / ')) + ' <span class="flecha">→</span> ahora: <strong>' + escapeHtml(m.ahora.join(' / ')) + '</strong></div>';
+    h += '<div class="res-item cambio">✏ <strong>CAMBIO — ' + escapeHtml(m.nombre) + ':</strong> antes: ' + escapeHtml(m.antes.join(' / ')) + ' <span class="flecha">→</span> ahora: <strong>' + escapeHtml(m.ahora.join(' / ')) + '</strong></div>';
   });
   d.suspendidos.forEach(function(m) {
-    h += '<div class="res-item susp">➖ <strong>SUSPENDIDO: ' + escapeHtml(m.nombre) + '</strong> (era ' + escapeHtml(m.lineas.join(' / ')) + ')</div>';
+    h += '<div class="res-item susp">➖ <strong>SE SACA / SE SUSPENDE: ' + escapeHtml(m.nombre) + '</strong> (era ' + escapeHtml(m.lineas.join(' / ')) + ')</div>';
   });
   if (d.diagNuevo) h += '<div class="res-item">🩺 <strong>Diagnóstico:</strong> ' + escapeHtml(d.diagNuevo) + '</div>';
   if (d.evolNueva) h += '<div class="res-item evol">📝 <strong>Evolución:</strong> ' + escapeHtml(d.evolNueva) + '</div>';
@@ -4295,7 +4295,15 @@ async function resumenCambiosA4() {
     else if (!puedeComparar && d.modificado) bloques.push({ nombre: d.residente, modificado: d.modificado, diff: null });
     else sinNovedad.push(d.residente); // contenido igual al pase anterior → sin novedad
   });
-  bloques.sort(function(a, b){ return (a.nombre || '').localeCompare(b.nombre || ''); });
+  // Orden: primero los que tienen cambios de medicación (agrega/saca/cambio),
+  // luego los que solo tienen evolución/diagnóstico, luego los sin comparación.
+  const rcRank = function(b){
+    const d = b && b.diff;
+    if (d && ((d.nuevos && d.nuevos.length) || (d.cambiados && d.cambiados.length) || (d.suspendidos && d.suspendidos.length))) return 0;
+    if (d && (d.evolNueva || d.diagNuevo)) return 1;
+    return 2;
+  };
+  bloques.sort(function(a, b){ return (rcRank(a) - rcRank(b)) || (a.nombre || '').localeCompare(b.nombre || ''); });
   sinNovedad.sort(function(a, b){ return (a || '').localeCompare(b || ''); });
 
   const ahora = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
