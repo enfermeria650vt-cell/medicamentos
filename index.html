@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-19-9';
+const APP_VERSION = 'v2026-06-20-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2084,6 +2084,18 @@ function registrarDeltaReciente(key, sets, dels) {
   _deltasRecientes = _deltasRecientes.filter(d => d.ts > corte).slice(-500);
 }
 
+// Altas/bajas de medicamentos hechas recién en este equipo. La ventana de gracia normal solo
+// re-aplica CAMPOS (stock/fecha) sobre meds que ya existen; NO puede re-crear un med recién
+// agregado que un pull "viejo" del servidor (que todavía no lo tiene) borró de pantalla, ni
+// volver a quitar uno recién eliminado que el pull hizo reaparecer. Esto cubre ese hueco.
+let _medsRecientes = [];
+function registrarMedReciente(action, residente, med, horario) {
+  if (!residente || !med || !med.id) return;
+  _medsRecientes.push({ action: action, residente: residente, medId: med.id, med: med, horario: horario || '', ts: Date.now() });
+  const corte = Date.now() - DELTA_GRACIA_MS;
+  _medsRecientes = _medsRecientes.filter(d => d.ts > corte).slice(-200);
+}
+
 async function cloudPushDelta(key, sets, dels) {
   if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
   const q = leerColaDeltas();
@@ -2147,10 +2159,11 @@ async function flushColaDeltas() {
 function aplicarDeltasLocales() {
   const corte = Date.now() - DELTA_GRACIA_MS;
   _deltasRecientes = _deltasRecientes.filter(d => d.ts > corte);
+  _medsRecientes = _medsRecientes.filter(d => d.ts > corte);
   // Re-aplicar lo de la cola (aún sin subir) Y lo reciente ya subido dentro de la ventana de
   // gracia: así un pull viejo del servidor no puede borrar de pantalla un cambio recién hecho.
   const aplicar = leerColaDeltas().concat(_deltasRecientes);
-  if (!aplicar.length) return;
+  if (!aplicar.length && !_medsRecientes.length) return;
   let _resTocado = false;
   aplicar.forEach(it => {
     // residentes: el delta direcciona [medId, campo] sobre el array de residentes (stock/fechaIngreso).
@@ -2163,6 +2176,27 @@ function aplicarDeltasLocales() {
     if (!raiz) return;
     (it.sets || []).forEach(par => _setPathLocal(raiz, par[0], par[1]));
     (it.dels || []).forEach(pp => _delPathLocal(raiz, pp));
+  });
+  // Altas/bajas de medicamentos recién hechas: re-insertar las altas que el pull no trajo y
+  // re-quitar las bajas que el pull hizo reaparecer, mientras dure la ventana de gracia (2 min).
+  _medsRecientes.forEach(it => {
+    const r = (state.residentes || []).find(x => x.nombre === it.residente);
+    if (!r) return;
+    if (!Array.isArray(r.meds)) r.meds = [];
+    if (it.action === 'add') {
+      if (!r.meds.some(m => m.id === it.medId)) { r.meds.push(it.med); _resTocado = true; }
+      if (it.horario && state.semanal[it.medId + '_horario'] !== it.horario) {
+        state.semanal[it.medId + '_horario'] = it.horario;
+      }
+    } else if (it.action === 'del') {
+      const antes = r.meds.length;
+      r.meds = r.meds.filter(m => m.id !== it.medId);
+      if (r.meds.length !== antes) {
+        _resTocado = true;
+        for (let i = 0; i < 7; i++) delete state.semanal[it.medId + '_' + i];
+        delete state.semanal[it.medId + '_horario'];
+      }
+    }
   });
   try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch(e) {}
   try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch(e) {}
@@ -3776,6 +3810,7 @@ function abrirNuevoMedicamento(nombreResidente) {
     aplicarDiasAMed(nuevoMed, patron);
     r.meds.push(nuevoMed);
     if (horario) state.semanal[newId + '_horario'] = horario;
+    registrarMedReciente('add', nombreResidente, nuevoMed, horario || '');
     logCambio('medicacion', `Medicamento agregado: ${nombre} (${nombreResidente}) — stock: ${stock}, consumo: ${consumo}, días: ${descDias(nuevoMed)}`);
     saveData(); saveSem();
     toast('Agregado: ' + nombre);
@@ -3793,6 +3828,7 @@ function eliminarMedicamento(nombreResidente, medId) {
   r.meds = r.meds.filter(x => x.id !== medId);
   for (let i = 0; i < 7; i++) delete state.semanal[medId + '_' + i];
   delete state.semanal[medId + '_horario'];
+  registrarMedReciente('del', nombreResidente, { id: medId });
   logCambio('medicacion', `Medicamento eliminado: ${m.med} (${nombreResidente})`);
   saveData(); saveSem();
   toast('Eliminado: ' + m.med);
