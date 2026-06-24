@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-24-1';
+const APP_VERSION = 'v2026-06-24-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -3052,6 +3052,7 @@ function viewResidente() {
         <span class="spacer"></span>
         <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoMensual('${nombreEsc}')">🖨 Imprimir pedido (A5)</button>
         <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoBlanco()">📄 Hoja en blanco (A5)</button>
+        <button class="btn small" style="background:#2e7d32" onclick="informeFamilia('${nombreEsc}')" title="Hoja para la familia con stock, consumo y hasta cuándo alcanza">👪 Informe familia (PDF)</button>
         ${admin ? `<button class="btn small" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Nuevo medicamento</button>` : ''}
       </div>
       <table class="tabla">
@@ -7835,6 +7836,76 @@ function imprimirPedidoMensual(nombre) {
       ${filasVacias}
     </tbody>
   </table>
+  <script>window.onload = () => { window.print(); }<\/script>
+  </body></html>`);
+  win.document.close();
+}
+// ─── INFORME PARA LA FAMILIA (PDF) — datos en vivo ──────────────────
+// Hoja imprimible/PDF con: medicamento, stock, consumo/día, inicio de mes
+// y hasta cuándo alcanza. Toma el stock ACTUAL, así que si cargaron un
+// ingreso recién, ya sale corregido.
+function informeFamilia(nombre) {
+  const r = state.residentes.find(x => x.nombre === nombre);
+  if (!r) { alert('Residente no encontrado'); return; }
+  const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const hoy = new Date();
+  const tituloMes = MESES[hoy.getMonth()] + ' ' + hoy.getFullYear();
+  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+    .toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const fechaHoy = hoy.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const meds = (r.meds || []).slice().sort((a, b) =>
+    ((parseFloat(a.consumo) > 0 ? 0 : 1) - (parseFloat(b.consumo) > 0 ? 0 : 1)));
+  const filas = meds.map(m => {
+    const tieneConsumo = parseFloat(m.consumo) > 0;
+    const stock = (m.stock ?? m.stockTxt ?? '—');
+    const consumo = tieneConsumo ? (m.consumo + '/día') : (m.consumoTxt || 'A demanda / S.O.S.');
+    const hasta = tieneConsumo ? fechaAgotamiento(m) : '—';
+    const dias = tieneConsumo ? (calcDiasRestantes(m) ?? '—') : '—';
+    return `<tr>
+      <td class="med">${escapeHtml(m.med)}</td>
+      <td>${escapeHtml(String(stock))}</td>
+      <td>${escapeHtml(String(consumo))}</td>
+      <td>${escapeHtml(inicioMes)}</td>
+      <td><b>${escapeHtml(String(hasta))}</b>${tieneConsumo ? `<br><span class="dias">(${dias} días)</span>` : ''}</td>
+    </tr>`;
+  }).join('');
+  const win = window.open('', '_blank', 'width=800,height=950');
+  win.document.write(`<!DOCTYPE html><html><head>
+  <meta charset="utf-8">
+  <title>Medicación ${escapeHtml(r.nombre)} — ${escapeHtml(tituloMes)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 1.5cm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #000; background: white; }
+    .titulo { text-align: center; font-weight: bold; font-size: 16pt; color:#1F4E78; margin-bottom: 4px; }
+    .sub { text-align: center; font-size: 11pt; margin-bottom: 2px; }
+    .res { text-align: center; font-size: 13pt; font-weight: bold; margin: 8px 0; }
+    .gen { text-align: center; font-size: 9pt; color:#666; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10.5pt; }
+    th, td { border: 1px solid #999; padding: 6px 8px; vertical-align: middle; text-align: center; }
+    th { background:#1F4E78; color:#fff; font-weight: bold; }
+    td.med { text-align: left; font-weight: bold; text-transform: uppercase; }
+    tbody tr:nth-child(even) { background:#f2f6fb; }
+    .dias { font-size: 8.5pt; color:#666; font-weight: normal; }
+    .nota { margin-top: 16px; font-size: 9pt; color:#444; line-height:1.5; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style></head><body>
+  <div class="titulo">Informe de Medicación</div>
+  <div class="sub">Mes de ${escapeHtml(tituloMes)}</div>
+  <div class="res">Residente: ${escapeHtml(r.nombre)}</div>
+  <div class="gen">Stock al día ${escapeHtml(fechaHoy)}</div>
+  <table>
+    <colgroup><col style="width:30%"><col style="width:13%"><col style="width:20%"><col style="width:17%"><col style="width:20%"></colgroup>
+    <thead><tr>
+      <th>Medicamento</th><th>Stock actual</th><th>Consumo</th><th>Inicio de mes</th><th>Alcanza hasta</th>
+    </tr></thead>
+    <tbody>${filas || '<tr><td colspan="5">Sin medicamentos cargados</td></tr>'}</tbody>
+  </table>
+  <div class="nota">
+    <b>Stock actual:</b> cantidad disponible al día de la fecha.<br>
+    <b>Alcanza hasta:</b> fecha estimada en que se agota según el consumo diario. Le pedimos reponer antes de esa fecha.<br>
+    <i>Este informe se genera con los datos actualizados del sistema; si ingresan nuevos medicamentos, las fechas se recalculan automáticamente.</i>
+  </div>
   <script>window.onload = () => { window.print(); }<\/script>
   </body></html>`);
   win.document.close();
