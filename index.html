@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-23-1';
+const APP_VERSION = 'v2026-06-24-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1854,7 +1854,44 @@ function bloquearSiNoAdmin(accion = 'editar') {
 const SYNC_URL_KEY = 'med_geri_sync_url';
 // URL del Web App de Apps Script preconfigurada (Maxi - mayo 2026)
 const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzNsNlspZ93MU9ReVk9pH8_gIAhzLS7vX4hyWX2uDcYSXIpSnVkp7ZQsGSl_zw_zI_d9Q/exec'; // URL preconfigurada — auto-conexión sin configuración manual
-function getCloudUrl() { return localStorage.getItem(SYNC_URL_KEY) || DEFAULT_SYNC_URL; }
+// Backend de respaldo (misma planilla, otra "puerta"): si el principal se cae, la app cambia sola.
+const BACKUP_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzau6JaP0UTrVMabAKumz97PgVy3UpNiAXICQBdaLtLslOW24-vdHGVLM6ZSdtHADBSKw/exec';
+const BACKEND_URLS = [DEFAULT_SYNC_URL, BACKUP_SYNC_URL];
+const ACTIVE_BACKEND_KEY = 'med_geri_active_backend';
+function backendsDisponibles() {
+  // Respeta una URL configurada a mano que NO sea de las conocidas (modo avanzado).
+  const custom = localStorage.getItem(SYNC_URL_KEY);
+  if (custom && BACKEND_URLS.indexOf(custom) === -1) return [custom];
+  const active = localStorage.getItem(ACTIVE_BACKEND_KEY);
+  const list = BACKEND_URLS.slice();
+  const i = active ? list.indexOf(active) : -1;
+  if (i > 0) { list.splice(i, 1); list.unshift(active); }
+  return list;
+}
+function getCloudUrl() { return backendsDisponibles()[0]; }
+// Fetch con timeout + failover automatico entre backends (principal -> respaldo).
+// buildUrl(base) arma la URL final desde cada base /exec. Las escrituras del backend son
+// idempotentes (SET/DEL), asi que reintentar en otro backend NO duplica datos.
+async function cloudFetchFailover(buildUrl, opts, timeoutMs) {
+  timeoutMs = timeoutMs || 12000;
+  const bases = backendsDisponibles();
+  let lastErr;
+  for (let i = 0; i < bases.length; i++) {
+    const base = bases[i];
+    const ctrl = new AbortController();
+    const id = setTimeout(function(){ ctrl.abort(); }, timeoutMs);
+    try {
+      const r = await fetch(buildUrl(base), Object.assign({}, opts || {}, { signal: ctrl.signal }));
+      clearTimeout(id);
+      if (r && r.ok) {
+        if (BACKEND_URLS.indexOf(base) !== -1) localStorage.setItem(ACTIVE_BACKEND_KEY, base);
+        return r;
+      }
+      lastErr = new Error('HTTP ' + (r ? r.status : '?'));
+    } catch (e) { clearTimeout(id); lastErr = e; }
+  }
+  throw (lastErr || new Error('Backend no disponible'));
+}
 function getSyncToken() { return (localStorage.getItem('vt_sync_token') || '').trim(); }
 function syncTokenParam() { var t = getSyncToken(); return t ? ('&token=' + encodeURIComponent(t)) : ''; }
 function setCloudUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
@@ -1903,8 +1940,7 @@ async function cloudPull(silencioso = false) {
   syncState.running = true;
   actualizarBadgeSync('🔄 Trayendo...');
   try {
-    const url = getCloudUrl() + '?action=pull&t=' + Date.now() + syncTokenParam();
-    const r = await fetch(url, { method: 'GET' });
+    const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' });
     const json = await r.json();
     if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
 
@@ -2050,7 +2086,7 @@ async function cloudPush(key, valueObj, silencioso = true) {
     fd.append('token', getSyncToken());
     fd.append('user', getCurrentUser() || 'anónimo');
     fd.append('lastSeenAt', getLastPull() || '');
-    const r = await fetch(url, { method: 'POST', body: fd });
+    const r = await cloudFetchFailover(function(base){ return base; }, { method: 'POST', body: fd });
     const json = await r.json();
     if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
     syncState.lastOk = new Date().toISOString();
@@ -2124,7 +2160,7 @@ async function flushColaDeltas() {
         fd.append('dels', JSON.stringify(it.dels));
         fd.append('token', getSyncToken());
         fd.append('user', getCurrentUser() || 'anónimo');
-        const r = await fetch(getCloudUrl(), { method: 'POST', body: fd });
+        const r = await cloudFetchFailover(function(base){ return base; }, { method: 'POST', body: fd });
         const j = await r.json();
         if (!j.ok) {
           // Backend que NO soporta pushDelta: antes acá se hacía un push COMPLETO de
@@ -6241,8 +6277,7 @@ render = function() {
   if (syncHabilitado()) {
     // Primer pull para ver qué hay en la nube
     try {
-      const url = getCloudUrl() + '?action=pull&t=' + Date.now() + syncTokenParam();
-      const r = await fetch(url);
+      const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' });
       const j = await r.json();
       // Si la nube está vacía pero tengo datos locales → push
       const remotoVacio = !j.ok || !j.data ||
