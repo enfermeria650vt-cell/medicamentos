@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-24-2';
+const APP_VERSION = 'v2026-06-28-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2753,6 +2753,68 @@ function viewDashboard() {
   `;
 }
 
+// ====== ALERTA: DOSIS NO DADAS (vencidas sin tildar HOY) ======
+// Recorre cada residente/med ACTIVO hoy, mira cada toma con horario real
+// (ignora S.O.S y dosis aun no vencidas) y devuelve las que pasaron de su
+// hora por mas de `graciaMin` minutos y no estan tildadas. Reutiliza las
+// mismas funciones que usa la planilla (claveDosis/dosisDeMed/parseHorarios)
+// para coincidir exactamente con las marcas reales.
+function dosisNoDadasHoy(graciaMin) {
+  if (graciaMin == null) graciaMin = 30;
+  var idx = diaHoyIdx();
+  var ahora = new Date();
+  var minAhora = ahora.getHours() * 60 + ahora.getMinutes();
+  var out = [];
+  (state.residentes || []).forEach(function (r) {
+    (r.meds || []).forEach(function (m) {
+      if (!medActivoEnDia(m, idx)) return;
+      var horarios = parseHorarios(state.semanal[m.id + '_horario'] || '');
+      if (!horarios.length) return; // S.O.S / sin hora => no aplica
+      horarios.forEach(function (hh, di) {
+        var minDosis = hh.h * 60 + hh.m;
+        if (minAhora - minDosis <= graciaMin) return; // aun no vencida / dentro de gracia
+        if (state.semanal[claveDosis(m.id, idx, di)] === true) return; // ya dada
+        out.push({
+          residente: r.nombre,
+          med: m.med,
+          hora: String(hh.h).padStart(2, '0') + ':' + String(hh.m).padStart(2, '0'),
+          min: minDosis,
+          atrasoMin: minAhora - minDosis
+        });
+      });
+    });
+  });
+  out.sort(function (a, b) { return a.min - b.min || a.residente.localeCompare(b.residente); });
+  return out;
+}
+
+function panelDosisNoDadas() {
+  var lista = dosisNoDadasHoy(30);
+  if (!lista.length) {
+    return '<div style="margin-bottom:14px;background:#f0fff4;border:1.5px solid #27ae60;border-radius:10px;padding:14px 16px">' +
+      '<strong style="color:#1e8449">&#128138; Dosis de hoy: todo al d&iacute;a</strong>' +
+      '<div style="font-size:12px;color:#5a6a5a;margin-top:2px">No hay dosis vencidas sin registrar.</div></div>';
+  }
+  var filas = lista.map(function (d) {
+    var hh = d.atrasoMin >= 120 ? Math.floor(d.atrasoMin / 60) + 'h' : d.atrasoMin + ' min';
+    return '<tr><td><span class="pill" style="background:#c0392b;color:#fff">' + d.hora + '</span></td>' +
+      '<td><strong>' + escapeHtml(d.residente) + '</strong></td>' +
+      '<td>' + escapeHtml(d.med) + '</td>' +
+      '<td style="color:#c0392b;font-weight:600">' + hh + '</td></tr>';
+  }).join('');
+  return '' +
+    '<div style="margin-bottom:18px">' +
+      '<div style="font-weight:700;font-size:14px;padding:10px 14px;background:#ffd9d4;border-radius:8px 8px 0 0;border-bottom:2px solid rgba(0,0,0,0.1);color:#922">' +
+        '&#128138; DOSIS NO DADAS HOY &mdash; ' + lista.length + ' sin registrar (vencidas +30 min)' +
+      '</div>' +
+      '<table class="tabla" style="margin-top:0;border-radius:0 0 8px 8px">' +
+        '<thead><tr><th>Hora</th><th>Residente</th><th>Medicamento</th><th>Atraso</th></tr></thead>' +
+        '<tbody>' + filas + '</tbody>' +
+      '</table>' +
+      '<div style="font-size:11px;color:#888;margin-top:4px">Se actualiza en vivo. No incluye S.O.S ni dosis a&uacute;n no vencidas. Verific&aacute; y registr&aacute; en la planilla semanal.</div>' +
+    '</div>';
+}
+
 function viewAlertas() {
   const sinStock = [], criticos = [], atencion = [];
   state.residentes.forEach(r => {
@@ -2795,6 +2857,7 @@ function viewAlertas() {
     </div>`;
 
   return `
+    ${panelDosisNoDadas()}
     <h2>🚨 Alertas de stock</h2>
     <div class="subtitle">Medicamentos con stock crítico — actualizados en tiempo real</div>
 
