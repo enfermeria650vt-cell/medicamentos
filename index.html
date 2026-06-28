@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-28-2';
+const APP_VERSION = 'v2026-06-28-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1872,9 +1872,39 @@ function getCloudUrl() { return backendsDisponibles()[0]; }
 // Fetch con timeout + failover automatico entre backends (principal -> respaldo).
 // buildUrl(base) arma la URL final desde cada base /exec. Las escrituras del backend son
 // idempotentes (SET/DEL), asi que reintentar en otro backend NO duplica datos.
-async function cloudFetchFailover(buildUrl, opts, timeoutMs) {
+async function cloudFetchFailover(buildUrl, opts, timeoutMs, race) {
   timeoutMs = timeoutMs || 30000; // 30s: tolera arranque en frio de Apps Script (antes 12s abortaba el 1er pull del dia)
   const bases = backendsDisponibles();
+  if (!bases.length) throw new Error('Backend no disponible');
+  // Modo CARRERA (solo lecturas/pull): dispara TODOS los backends en paralelo y usa la 1a respuesta OK.
+  // Evita esperar a un backend lento o con 404 antes de probar el otro. Lecturas idempotentes => seguro.
+  if (race && bases.length > 1) {
+    return await new Promise(function (resolve, reject) {
+      const ctrls = bases.map(function () { return new AbortController(); });
+      const timers = [];
+      let resolved = false, pending = bases.length, lastErrR = null;
+      function failOne(e) {
+        lastErrR = e || lastErrR;
+        if (--pending <= 0 && !resolved) { timers.forEach(clearTimeout); reject(lastErrR || new Error('Backend no disponible')); }
+      }
+      bases.forEach(function (base, i) {
+        timers[i] = setTimeout(function () { try { ctrls[i].abort(); } catch (e) {} }, timeoutMs);
+        fetch(buildUrl(base), Object.assign({}, opts || {}, { signal: ctrls[i].signal }))
+          .then(function (r) {
+            clearTimeout(timers[i]);
+            if (r && r.ok) {
+              if (resolved) return;
+              resolved = true;
+              if (BACKEND_URLS.indexOf(base) !== -1) localStorage.setItem(ACTIVE_BACKEND_KEY, base);
+              ctrls.forEach(function (c, j) { if (j !== i) { try { c.abort(); } catch (e) {} } clearTimeout(timers[j]); });
+              resolve(r);
+            } else { failOne(new Error('HTTP ' + (r ? r.status : '?'))); }
+          })
+          .catch(function (e) { clearTimeout(timers[i]); failOne(e); });
+      });
+    });
+  }
+  // Modo SECUENCIAL (escrituras): principal -> respaldo, con failover.
   let lastErr;
   for (let i = 0; i < bases.length; i++) {
     const base = bases[i];
@@ -1940,7 +1970,7 @@ async function cloudPull(silencioso = false) {
   syncState.running = true;
   actualizarBadgeSync('🔄 Trayendo...');
   try {
-    const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' });
+    const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 30000, true);
     const json = await r.json();
     if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
 
@@ -6341,7 +6371,7 @@ render = function() {
   if (syncHabilitado()) {
     // Primer pull para ver qué hay en la nube
     try {
-      const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' });
+      const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 30000, true);
       const j = await r.json();
       // Si la nube está vacía pero tengo datos locales → push
       const remotoVacio = !j.ok || !j.data ||
