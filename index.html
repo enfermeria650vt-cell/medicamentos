@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-28-1';
+const APP_VERSION = 'v2026-06-28-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1873,7 +1873,7 @@ function getCloudUrl() { return backendsDisponibles()[0]; }
 // buildUrl(base) arma la URL final desde cada base /exec. Las escrituras del backend son
 // idempotentes (SET/DEL), asi que reintentar en otro backend NO duplica datos.
 async function cloudFetchFailover(buildUrl, opts, timeoutMs) {
-  timeoutMs = timeoutMs || 12000;
+  timeoutMs = timeoutMs || 30000; // 30s: tolera arranque en frio de Apps Script (antes 12s abortaba el 1er pull del dia)
   const bases = backendsDisponibles();
   let lastErr;
   for (let i = 0; i < bases.length; i++) {
