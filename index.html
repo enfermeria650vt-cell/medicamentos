@@ -655,6 +655,18 @@ input:focus, select:focus, textarea:focus {
 .cs-catbox.no { background:#E74C3C; }
 .cs-catbox.tienetipo::after { content:''; position:absolute; top:1px; right:1px; width:5px; height:5px; border-radius:50%; background:#fff; box-shadow:0 0 0 1px rgba(0,0,0,.25); }
 .cs-tipobox { width:44px; height:24px; border:1px solid #a0a0a0; border-radius:3px; text-align:center; font-size:11px; font-weight:700; padding:0 1px; box-sizing:border-box; font-family:inherit; }
+.cs-vista-toggle { display:flex; gap:8px; margin-bottom:10px; }
+.cs-vtbtn { padding:7px 16px; border:1px solid var(--gris-borde); border-radius:8px; background:white; font-size:14px; font-weight:600; cursor:pointer; }
+.cs-vtbtn.active { background:var(--azul-1); color:white; border-color:var(--azul-1); }
+.cs-tabla.semana th, .cs-tabla.semana td { padding:3px 4px; }
+.cs-tabla.semana .cs-dayh { font-size:12px; line-height:1.15; min-width:120px; }
+.cs-tabla.semana .cs-dayh.cs-finde { background:#5a3d7a !important; }
+.cs-tabla.semana .cs-dayh.cs-hoy { background:#1b8a4c !important; }
+.cs-tabla.semana .cs-dayh, .cs-tabla.semana .cs-daycell { border-right:3px solid #111 !important; }
+.cs-tabla.semana .cs-resname { border-right:3px solid #111 !important; }
+.cs-riesgo { display:inline-block; font-size:10px; font-weight:700; padding:1px 6px; border-radius:8px; margin-left:5px; white-space:nowrap; vertical-align:middle; }
+.cs-riesgo.alto { background:#E74C3C; color:white; }
+.cs-riesgo.medio { background:#F39C12; color:white; }
 .cs-tipobox::placeholder { color:#9aa3ad; font-weight:400; }
 .cs-tipobox.vacio { background:#E0E0E0; color:#444; }
 .cs-tipobox.si { background:#27AE60; color:#fff; }
@@ -1099,7 +1111,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-7';
+const APP_VERSION = 'v2026-06-29-8';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4737,10 +4749,11 @@ function csInput(seccion, f, res, campo, val, wide) {
 }
 
 // ---- Gestión de residentes desde Control de Signos ----
-function csResNameCell(nombre) {
+function csResNameCell(nombre, extra) {
   const n = escapeHtml(nombre);
   return `<td class="cs-resname"><div class="cs-resrow">` +
     `<span class="cs-resnombre">${n}</span>` +
+    (extra || '') +
     `<span class="cs-resacc">` +
     `<button class="cs-resbtn" type="button" data-cs-action="rename" data-cs-res="${n}" title="Editar nombre">✏️</button>` +
     `<button class="cs-resbtn" type="button" data-cs-action="delete" data-cs-res="${n}" title="Eliminar residente">🗑️</button>` +
@@ -4976,7 +4989,82 @@ function csClasifCatarsis(tipo, hubo) {
   if (hubo === 'Sí') return 'si';
   return 'vacio';
 }
+// Días SEGUIDOS sin catarsis (de corrido), misma lógica que la alerta de Motrax.
+function csDiasSinCatarsis(res) {
+  const hoy = csHoy();
+  const turnos = ['m','t','n'];
+  const TOPE = 90;
+  const tuvoCatarsis = (fecha) => turnos.some(t =>
+    csClasifCatarsis(csGet(fecha,'catarsis',res,t,'tipo'), csGet(fecha,'catarsis',res,t,'hubo')) === 'si');
+  const tuvoMotrax = (fecha) => !!csGet(fecha,'catarsis',res,'motrax','by');
+  let diasSin = 0, cursor = hoy, pasos = 0;
+  while (pasos < TOPE) {
+    if (tuvoCatarsis(cursor)) break;
+    if (tuvoMotrax(cursor)) break;
+    diasSin++; cursor = csDiaPrevio(cursor); pasos++;
+  }
+  return diasSin;
+}
+function csSemanaShift(lunISO, deltaSemanas) {
+  const p = lunISO.split('-').map(Number);
+  const d = new Date(p[0], p[1]-1, p[2]);
+  d.setDate(d.getDate() + deltaSemanas*7);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function csTablaCatarsisSemana() {
+  const hoy = csHoy();
+  const lun = state.csSemanaLun || csSemanaDias(hoy)[0];
+  const dias = csSemanaDias(lun);
+  const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const turnos = [['m','M'],['t','T'],['n','N']];
+  let h1 = '<th class="cs-resname">Residente</th>';
+  dias.forEach((d, i) => {
+    const esHoy = (d === hoy);
+    const fin = (i >= 5) ? ' cs-finde' : '';
+    h1 += `<th class="cs-dayh${fin}${esHoy?' cs-hoy':''}">${nom[i]}<br>${d.slice(8)}/${d.slice(5,7)}</th>`;
+  });
+  let rows = '';
+  state.residentes.forEach(r => {
+    const sin = csDiasSinCatarsis(r.nombre);
+    let badge = '';
+    if (sin >= 4) badge = `<span class="cs-riesgo alto" title="${sin} días seguidos sin catarsis">⚠ ${sin}d sin</span>`;
+    else if (sin === 3) badge = `<span class="cs-riesgo medio" title="3 días sin catarsis">3d sin</span>`;
+    let tds = csResNameCell(r.nombre, badge);
+    dias.forEach(d => {
+      let boxes = '';
+      turnos.forEach(tn => {
+        const hubo = csGet(d, 'catarsis', r.nombre, tn[0], 'hubo');
+        const tipo = csGet(d, 'catarsis', r.nombre, tn[0], 'tipo');
+        const est = csClasifCatarsis(tipo, hubo);
+        const title = tn[1] + ' ' + csFmtFecha(d);
+        boxes += `<input class="cs-tipobox ${est}" data-cs-tipo="1" data-d="${d}" data-res="${escapeHtml(r.nombre)}" data-t="${tn[0]}" value="${escapeHtml(tipo)}" placeholder="${tn[1]}" maxlength="10" title="${escapeHtml(title)}">`;
+      });
+      tds += `<td class="cs-daycell"><div class="cs-turnos-box">${boxes}</div></td>`;
+    });
+    rows += `<tr>${tds}</tr>`;
+  });
+  const fmt = iso => iso.slice(8) + '/' + iso.slice(5,7);
+  const bar = `<div class="cs-mes-bar">
+      <button class="cs-mes-nav" type="button" data-cs-sem="${csSemanaShift(lun,-1)}">◀ Semana anterior</button>
+      <span class="cs-mes-tit">Semana del ${fmt(dias[0])} al ${fmt(dias[6])}</span>
+      <button class="cs-mes-nav" type="button" data-cs-sem="${csSemanaShift(lun,1)}">Semana siguiente ▶</button>
+      <button class="cs-mes-nav" type="button" data-cs-sem="${csSemanaDias(hoy)[0]}">Hoy</button>
+      <span class="cs-mes-leyenda">
+        <span class="cs-leg"><i style="background:#27AE60"></i>Hubo</span>
+        <span class="cs-leg"><i style="background:#E74C3C"></i>No hubo</span>
+        <span class="cs-leg"><i style="background:#E0E0E0"></i>Sin cargar</span>
+        <span style="color:#888">· deslizá para ver los 7 días · ⚠ marca riesgo de fecaloma (3+ días sin catarsis)</span>
+      </span>
+    </div>`;
+  return bar + `<table class="cs-tabla semana"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
+}
 function csTablaCatarsis() {
+  const vista = state.csCatVista || 'semana';
+  const toggle = `<div class="cs-vista-toggle">`
+    + `<button class="cs-vtbtn ${vista==='semana'?'active':''}" type="button" onclick="state.csCatVista='semana';render()">📅 Semana</button>`
+    + `<button class="cs-vtbtn ${vista==='mes'?'active':''}" type="button" onclick="state.csCatVista='mes';render()">🗓️ Mes</button>`
+    + `</div>`;
+  if (vista === 'semana') return csAlertasCatarsis() + toggle + csTablaCatarsisSemana();
   const mes = state.csMes || csMesActual();
   const dias = csDiasDelMes(mes);
   const letras = ['D','L','M','M','J','V','S'];
@@ -5017,7 +5105,7 @@ function csTablaCatarsis() {
         <span style="color:#888">· escribí la consistencia (ej. ++++5) · para "no hubo" escribí No o –</span>
       </span>
     </div>`;
-  return csAlertasCatarsis() + bar + `<table class="cs-tabla mensual"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
+  return csAlertasCatarsis() + toggle + bar + `<table class="cs-tabla mensual"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---- Historial: archivo por semana y día ----
@@ -5182,6 +5270,8 @@ function attachListeners() {
     csCont.onclick = (e) => {
       const mesBtn = e.target.closest('[data-cs-mes]');
       if (mesBtn) { state.csMes = mesBtn.dataset.csMes; render(); return; }
+      const semBtn = e.target.closest('[data-cs-sem]');
+      if (semBtn) { state.csSemanaLun = semBtn.dataset.csSem; render(); return; }
       const mtx = e.target.closest('[data-cs-motrax]');
       if (mtx) {
         const res = mtx.dataset.csMotrax;
