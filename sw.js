@@ -1,7 +1,7 @@
 // Service Worker — Residencia Villa Teresa
-// vt-v4: estrategia NETWORK-FIRST para el index.html (evita quedar pegado a una version vieja).
+// vt-v5: estrategia NETWORK-FIRST para el index.html (evita quedar pegado a una version vieja).
 // Los iconos/manifest siguen cache-first porque casi no cambian.
-const CACHE = 'vt-v4';
+const CACHE = 'vt-v5';
 const BASE = '/medicamentos';
 const ASSETS = [
   BASE + '/manifest.json',
