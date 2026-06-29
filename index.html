@@ -187,6 +187,7 @@ body {
 .pill.atencion { background: var(--amarillo); color: #9C5700; }
 .pill.ok { background: var(--verde); color: var(--verde-oscuro); }
 .pill.sos { background: #E5E7EB; color: #4B5563; }
+.pill.pendiente { background: #DBEAFE; color: #1E40AF; }
 
 /* TABLA */
 .tabla {
@@ -1097,7 +1098,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-1';
+const APP_VERSION = 'v2026-06-29-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1321,8 +1322,9 @@ function fechaAgotamientoDate(med) {
   } else {
     base = hoyMidnight();
   }
-  // Fix: una fecha de ingreso futura no debe "estirar" el stock que ya esta en mano.
-  if (base.getTime() > hoyMidnight().getTime()) base = hoyMidnight();
+  // Una fecha de ingreso FUTURA se respeta: el stock recién empieza a contar
+  // desde su fecha de ingreso (ej. stock del mes próximo cargado por adelantado),
+  // no desde hoy. Así "julio no cuenta hasta el 1/7".
   base.setDate(base.getDate() + d);
   return base;
 }
@@ -1332,12 +1334,25 @@ function calcDiasRestantes(med) {
   const d = diasDeStock(med);
   if (d === null) return null;
   if (!med.fechaIngreso) return d; // sin fecha de ingreso: contamos desde hoy
+  const ingX = new Date(med.fechaIngreso + 'T00:00:00');
+  if (!isNaN(ingX.getTime()) && ingX.getTime() > hoyMidnight().getTime()) return d; // ingreso futuro: aún no inicia, dura todo su stock
   const agot = fechaAgotamientoDate(med);
   if (!agot) return d;
   const rest = Math.round((agot.getTime() - hoyMidnight().getTime()) / 86400000);
   return rest < 0 ? 0 : rest;
 }
 function estadoMed(med) {
+  // Stock con fecha de ingreso FUTURA: todavía no empezó a consumirse (ej. el
+  // stock del mes próximo). No descuenta ni dispara alertas hasta que llega esa
+  // fecha; se muestra como "🔵 Inicia DD/MM" y no cuenta en el tablero.
+  const dsFut = diasDeStock(med);
+  if (dsFut !== null && med.fechaIngreso) {
+    const ingF = new Date(med.fechaIngreso + 'T00:00:00');
+    if (!isNaN(ingF.getTime()) && ingF.getTime() > hoyMidnight().getTime()) {
+      const ddF = String(ingF.getDate()).padStart(2,'0') + '/' + String(ingF.getMonth()+1).padStart(2,'0');
+      return { tipo: 'pendiente', label: '🔵 Inicia ' + ddF, clase: 'pendiente', dias: dsFut };
+    }
+  }
   const d = calcDiasRestantes(med);
   if (d === null) return { tipo: 'sos', label: 'S.O.S.', clase: 'sos' };
   if (d <= 0) return { tipo: 'sinstock', label: '⚫ SIN STOCK', clase: 'sinstock', dias: 0 };
@@ -1356,28 +1371,30 @@ function todosMedicamentos() {
   return out;
 }
 function resumenResidente(res) {
-  let cri=0, aten=0, sin=0, ok=0, sos=0;
+  let cri=0, aten=0, sin=0, ok=0, sos=0, pend=0;
   res.meds.forEach(m => {
     const e = estadoMed(m);
     if (e.tipo === 'critico') cri++;
     else if (e.tipo === 'atencion') aten++;
     else if (e.tipo === 'sinstock') sin++;
     else if (e.tipo === 'ok') ok++;
+    else if (e.tipo === 'pendiente') pend++;
     else sos++;
   });
-  return { cri, aten, sin, ok, sos, total: res.meds.length };
+  return { cri, aten, sin, ok, sos, pend, total: res.meds.length };
 }
 function totales() {
-  let cri=0, aten=0, sin=0, ok=0, sos=0;
+  let cri=0, aten=0, sin=0, ok=0, sos=0, pend=0;
   todosMedicamentos().forEach(m => {
     const e = estadoMed(m);
     if (e.tipo === 'critico') cri++;
     else if (e.tipo === 'atencion') aten++;
     else if (e.tipo === 'sinstock') sin++;
     else if (e.tipo === 'ok') ok++;
+    else if (e.tipo === 'pendiente') pend++;
     else sos++;
   });
-  return { cri, aten, sin, ok, sos, total: cri+aten+sin+ok+sos };
+  return { cri, aten, sin, ok, sos, pend, total: cri+aten+sin+ok+sos+pend };
 }
 
 // ============ SEMANA / ALERTAS DE HORARIOS ============
