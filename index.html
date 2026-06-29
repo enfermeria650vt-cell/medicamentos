@@ -422,7 +422,7 @@ input:focus, select:focus, textarea:focus {
   .cs-tabla.semana { font-size: 9px; }
   .cs-tabla.semana th, .cs-tabla.semana td { padding: 1px !important; }
   .cs-tabla.semana .cs-resname { min-width: 80px !important; max-width: 80px !important; width: 80px !important; }
-  .cs-tabla.semana .cs-resnombre { font-size: 9px; line-height: 1.05; white-space: normal; word-break: break-word; }
+  .cs-tabla.semana .cs-resnombre { font-size: 9px; line-height: 1.1; white-space: normal; word-break: normal; overflow-wrap: break-word; hyphens: none; }
   .cs-tabla.semana .cs-resacc { display: none !important; }
   .cs-tabla.semana .cs-dayh { min-width: 0 !important; font-size: 8.5px; padding: 2px 0 !important; line-height: 1.05; }
   .cs-tabla.semana .cs-turnos-box { gap: 0; }
@@ -1123,7 +1123,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-10';
+const APP_VERSION = 'v2026-06-29-11';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
