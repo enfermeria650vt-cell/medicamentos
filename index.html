@@ -825,6 +825,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-section">Gestión</div>
     <div class="nav-item" data-view="stock">📦 <span>Stock general</span></div>
     <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
+    <div class="nav-item" data-view="ingresosMes">📜 <span>Ingresos por mes</span></div>
     <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
     <div class="nav-item" data-view="historial">📚 <span>Historial semanas</span></div>
     <div class="nav-item" data-view="controlsignos">🩺 <span>Control de signos</span></div>
@@ -1098,7 +1099,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-2';
+const APP_VERSION = 'v2026-06-29-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2569,6 +2570,7 @@ function render() {
   else if (state.view === 'alertas') main.innerHTML = viewAlertas();
   else if (state.view === 'stock') main.innerHTML = viewStock();
   else if (state.view === 'ingresos') main.innerHTML = viewIngresos();
+  else if (state.view === 'ingresosMes') main.innerHTML = viewIngresosMes();
   else if (state.view === 'semanal') main.innerHTML = viewSemanal();
   else if (state.view === 'historial') main.innerHTML = viewHistorial();
   else if (state.view === 'historial-cambios') main.innerHTML = viewHistorialCambios();
@@ -7919,6 +7921,135 @@ function imprimirRecetaFam(key, idx) {
   win.document.close();
 }
 // ─── PEDIDO MENSUAL DE MEDICAMENTOS (hoja A5 imprimible) ─────────────
+// ====== INGRESOS POR MES (auditar / mostrar a la familia) ======
+function ingMesActual() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function ingMesShift(ym, delta) {
+  const p = (ym || ingMesActual()).split('-').map(Number);
+  const d = new Date(p[0], p[1]-1+delta, 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function ingMesLabel(ym) {
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const p = ym.split('-').map(Number);
+  return (MESES[p[1]-1] || '') + ' ' + p[0];
+}
+// Extrae 'YYYY-MM' de una fecha guardada tipo "1/7/2026 14:30" o "01/07/2026"
+function ingFechaAMes(fechaStr) {
+  if (!fechaStr) return null;
+  const datePart = String(fechaStr).trim().split(' ')[0];
+  const p = datePart.split('/').map(s => parseInt(s, 10));
+  if (p.length < 3 || p.some(n => isNaN(n))) return null;
+  return p[2] + '-' + String(p[1]).padStart(2,'0');
+}
+// Clave ordenable AAAAMMDDHHMM desde "1/7/2026 14:30"
+function ingFechaSortKey(fechaStr) {
+  const s = String(fechaStr || '').trim();
+  const partes = s.split(' ');
+  const d = (partes[0] || '').split('/').map(x => parseInt(x,10));
+  if (d.length < 3 || d.some(n => isNaN(n))) return '0';
+  const hm = (partes[1] || '00:00').split(':').map(x => parseInt(x,10));
+  const pad = (n,l)=>String(n||0).padStart(l,'0');
+  return pad(d[2],4)+pad(d[1],2)+pad(d[0],2)+pad(hm[0]||0,2)+pad(hm[1]||0,2);
+}
+function ingresosDelMes(ym, resFiltro) {
+  const todos = (state.semanal && state.semanal.ingresos) ? state.semanal.ingresos : [];
+  return todos.filter(i => ingFechaAMes(i.fecha) === ym && (!resFiltro || i.residente === resFiltro))
+              .slice().sort((a,b) => ingFechaSortKey(a.fecha).localeCompare(ingFechaSortKey(b.fecha)));
+}
+function cambiarMesIngresos(delta) {
+  state.histIngMes = ingMesShift(state.histIngMes || ingMesActual(), delta);
+  render();
+}
+function filtrarResIngresos(val) {
+  state.histIngRes = val || '';
+  render();
+}
+function viewIngresosMes() {
+  const ym = state.histIngMes || ingMesActual();
+  const resF = state.histIngRes || '';
+  const lista = ingresosDelMes(ym, resF);
+  const opciones = state.residentes.map(r => `<option value="${escapeHtml(r.nombre)}"${r.nombre===resF?' selected':''}>${escapeHtml(r.nombre)}</option>`).join('');
+  const totalUnidades = lista.reduce((a,i) => a + (parseFloat(i.cantidad)||0), 0);
+  const filas = lista.map(i => `<tr>
+    <td>${escapeHtml(String(i.fecha||''))}</td>
+    <td>${escapeHtml(String(i.residente||''))}</td>
+    <td style="font-weight:600">${escapeHtml(String(i.medicamento||''))}</td>
+    <td style="text-align:center">+${escapeHtml(String(i.cantidad||''))}</td>
+    <td>${escapeHtml(String(i.recibido||'—'))}</td>
+    <td style="font-size:12px;color:#6c7a8a">${escapeHtml(String(i.obs||''))}</td>
+  </tr>`).join('');
+  return `
+    <h2>📜 Ingresos por mes</h2>
+    <div class="subtitle">Historial de la medicación que entró cada mes. Sirve para verificar con la familia qué llegó, cuándo y quién lo recibió.</div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn secondary small" onclick="cambiarMesIngresos(-1)">◀ Mes anterior</button>
+        <strong style="min-width:150px;text-align:center;font-size:15px">${escapeHtml(ingMesLabel(ym))}</strong>
+        <button class="btn secondary small" onclick="cambiarMesIngresos(1)">Mes siguiente ▶</button>
+        <select onchange="filtrarResIngresos(this.value)" style="margin-left:auto;max-width:240px">
+          <option value="">Todos los residentes</option>
+          ${opciones}
+        </select>
+        <button class="btn small" style="background:#2e7d32" onclick="imprimirIngresosMes()">🖨 Imprimir / PDF</button>
+      </div>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">${lista.length} ingreso${lista.length===1?'':'s'} en ${escapeHtml(ingMesLabel(ym))}${resF?(' · '+escapeHtml(resF)):''} · ${totalUnidades} unidades en total</p>
+      <div style="overflow-x:auto"><table class="tabla">
+        <thead><tr><th>Fecha</th><th>Residente</th><th>Medicamento</th><th>Cant.</th><th>Quién recibió</th><th>Observación</th></tr></thead>
+        <tbody>${filas || ('<tr><td colspan="6" style="text-align:center;color:#888;padding:24px">No hay ingresos registrados en este mes' + (resF?(' para '+escapeHtml(resF)):'') + '</td></tr>')}</tbody>
+      </table></div>
+    </div>`;
+}
+function imprimirIngresosMes() {
+  const ym = state.histIngMes || ingMesActual();
+  const resF = state.histIngRes || '';
+  const lista = ingresosDelMes(ym, resF);
+  const totalUnidades = lista.reduce((a,i) => a + (parseFloat(i.cantidad)||0), 0);
+  const filas = lista.map(i => `<tr>
+    <td>${escapeHtml(String(i.fecha||''))}</td>
+    <td>${escapeHtml(String(i.residente||''))}</td>
+    <td class="med">${escapeHtml(String(i.medicamento||''))}</td>
+    <td style="text-align:center">+${escapeHtml(String(i.cantidad||''))}</td>
+    <td>${escapeHtml(String(i.recibido||'—'))}</td>
+    <td>${escapeHtml(String(i.obs||''))}</td>
+  </tr>`).join('');
+  const fechaHoy = new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'});
+  const win = window.open('', '_blank', 'width=900,height=950');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Ingresos ${escapeHtml(ingMesLabel(ym))}${resF?(' - '+escapeHtml(resF)):''}</title>
+  <style>
+    @page { size: A4 portrait; margin: 1.5cm; }
+    * { box-sizing: border-box; margin:0; padding:0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; color:#000; background:#fff; }
+    .titulo { text-align:center; font-weight:bold; font-size:16pt; color:#1F4E78; margin-bottom:4px; }
+    .sub { text-align:center; font-size:12pt; margin-bottom:2px; }
+    .gen { text-align:center; font-size:9pt; color:#666; margin-bottom:14px; }
+    table { width:100%; border-collapse:collapse; font-size:10pt; }
+    th,td { border:1px solid #999; padding:5px 7px; vertical-align:top; text-align:left; }
+    th { background:#1F4E78; color:#fff; }
+    td.med { font-weight:bold; text-transform:uppercase; }
+    tbody tr:nth-child(even){ background:#f2f6fb; }
+    .tot { margin-top:10px; font-size:10pt; font-weight:bold; }
+    .nota { margin-top:14px; font-size:8.5pt; color:#555; line-height:1.5; }
+    @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+  </style></head><body>
+  <div class="titulo">Historial de ingresos de medicacion</div>
+  <div class="sub">${escapeHtml(ingMesLabel(ym))}${resF?(' — '+escapeHtml(resF)):' — Todos los residentes'}</div>
+  <div class="gen">Residencia Villa Teresa · emitido el ${escapeHtml(fechaHoy)}</div>
+  <table>
+    <colgroup><col style="width:17%"><col style="width:20%"><col style="width:24%"><col style="width:7%"><col style="width:17%"><col style="width:15%"></colgroup>
+    <thead><tr><th>Fecha</th><th>Residente</th><th>Medicamento</th><th>Cant.</th><th>Quien recibio</th><th>Obs.</th></tr></thead>
+    <tbody>${filas || '<tr><td colspan="6" style="text-align:center">Sin ingresos en este mes</td></tr>'}</tbody>
+  </table>
+  <div class="tot">Total: ${lista.length} ingreso(s) · ${totalUnidades} unidades</div>
+  <div class="nota">Este historial registra cada ingreso cargado en el sistema, con la fecha, la cantidad y la persona que lo recibio. Documento de control interno de la Residencia.</div>
+  <scr`+`ipt>window.onload = () => { window.print(); }</scr`+`ipt>
+  </body></html>`);
+  win.document.close();
+}
+
 function imprimirPedidoMensual(nombre) {
   const r = state.residentes.find(x => x.nombre === nombre);
   if (!r) { alert('Residente no encontrado'); return; }
