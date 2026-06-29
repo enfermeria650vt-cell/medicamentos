@@ -1099,7 +1099,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-6';
+const APP_VERSION = 'v2026-06-29-7';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6069,6 +6069,165 @@ function evolImprimirTodasA4() {
   win.document.close();
 }
 
+// ====== INSUMOS · INFORME PARA FAMILIA (uso mensual + disponible + Varios) ======
+const INS_VARIOS_KEY = 'med_geri_ins_varios_v1';
+const INS_FAMOVR_KEY = 'med_geri_ins_famovr_v1';
+const INS_FAM_LABELS = { 'pañal':'Pañal', 'zalea':'Zalea', 'aposito':'Apósito / Protector diario', 'bombacha':'Bombacha / Calzoncillo' };
+function insVariosLoad(){ try { return JSON.parse(localStorage.getItem(INS_VARIOS_KEY)) || {}; } catch(e){ return {}; } }
+function insVariosSave(o){ try { localStorage.setItem(INS_VARIOS_KEY, JSON.stringify(o||{})); } catch(e){} }
+function insVariosDe(res){ const o=insVariosLoad(); return Array.isArray(o[res])?o[res]:[]; }
+function insFamOvrLoad(){ try { return JSON.parse(localStorage.getItem(INS_FAMOVR_KEY)) || {}; } catch(e){ return {}; } }
+function insFamOvrSave(o){ try { localStorage.setItem(INS_FAMOVR_KEY, JSON.stringify(o||{})); } catch(e){} }
+function famUsoMostrar(res, mes, campo, autoVal){
+  const ovr = insFamOvrLoad(); const k = res+'|'+mes+'|'+campo;
+  return (ovr[k] !== undefined && ovr[k] !== '' && ovr[k] !== null) ? Number(ovr[k]) : autoVal;
+}
+function setFamOverride(campo, val){
+  const f = insumosState.fam; if (!f) return;
+  const ovr = insFamOvrLoad(); const k = f.res+'|'+f.mes+'|'+campo;
+  if (val === '' || val === null) delete ovr[k]; else ovr[k] = Number(val);
+  insFamOvrSave(ovr); refrescarFam();
+}
+function refrescarFam(){
+  const f = insumosState.fam; if (!f) return;
+  const c = document.getElementById('ins-fam-contenido');
+  if (c) c.innerHTML = renderInformeFamilia(f.res, f.mes, f.uso, f.stock);
+}
+function insVariosAdd(res){ const o=insVariosLoad(); if(!Array.isArray(o[res])) o[res]=[]; o[res].push({id:'v'+Date.now(), nombre:'', usoMes:'', disp:''}); insVariosSave(o); refrescarFam(); }
+function insVariosSet(res, id, campo, val){ const o=insVariosLoad(); const arr=o[res]||[]; const it=arr.find(x=>x.id===id); if(it){ it[campo]=val; insVariosSave(o); } }
+function insVariosDel(res, id){ const o=insVariosLoad(); o[res]=(o[res]||[]).filter(x=>x.id!==id); insVariosSave(o); refrescarFam(); }
+function famAlcanzaTxt(disp, usoM){
+  if (typeof disp !== 'number' || !(usoM > 0)) return '—';
+  const meses = disp / usoM;
+  const dias = Math.round(meses * 30.44);
+  const f = new Date(); f.setDate(f.getDate() + dias);
+  const fstr = f.toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'});
+  const mtxt = (Math.round(meses*10)/10).toString().replace('.0','');
+  return '~' + mtxt + ' ' + (mtxt === '1' ? 'mes' : 'meses') + ' (≈ ' + fstr + ')';
+}
+async function cargarInformeFamilia(res, mes){
+  const cont = document.getElementById('ins-fam-contenido');
+  if (!cont) return;
+  if (!res || !mes) { cont.innerHTML = '<div style="color:#888;padding:16px">Elegí residente y mes, y tocá <b>Ver informe</b>.</div>'; return; }
+  const url = getIndicUrl();
+  if (!url) { cont.innerHTML = '<div class="card" style="color:red">Configurá la URL del Web App en ⚙️ Configurar nube</div>'; return; }
+  cont.innerHTML = '<div style="padding:16px;color:#888">⏳ Cargando informe...</div>';
+  try {
+    const [rU, rS] = await Promise.all([
+      fetch(url + '?action=getInsumos&residente=' + encodeURIComponent(res) + '&mes=' + mes + '&t=' + Date.now()),
+      fetch(url + '?action=getStockResumen&residente=' + encodeURIComponent(res) + '&t=' + Date.now())
+    ]);
+    const jU = await rU.json(); const jS = await rS.json();
+    const uso = { 'pañal':0, 'zalea':0, 'aposito':0, 'bombacha':0 };
+    if (jU && jU.ok && Array.isArray(jU.data)) {
+      jU.data.forEach(row => {
+        INSUMOS_CAMPOS.forEach(c => {
+          INSUMOS_TURNOS.forEach(([tk]) => { uso[c] += Number(row[c+'_'+tk] || 0); });
+        });
+      });
+    }
+    const stock = (jS && jS.ok) ? (jS.data || {}) : {};
+    insumosState.fam = { res, mes, uso, stock };
+    cont.innerHTML = renderInformeFamilia(res, mes, uso, stock);
+  } catch(e) {
+    cont.innerHTML = '<div class="card" style="color:red">Error de conexión. Verificá la URL del Web App.</div>';
+  }
+}
+function renderInformeFamilia(res, mes, uso, stock){
+  const filas = INSUMOS_CAMPOS.map(campo => {
+    const auto = Math.round(uso[campo] || 0);
+    const usoM = famUsoMostrar(res, mes, campo, auto);
+    const disp = (stock[campo] && stock[campo].disponible != null) ? Number(stock[campo].disponible) : null;
+    const alcanza = famAlcanzaTxt(disp, usoM);
+    return `<tr>
+      <td style="font-weight:600">${INS_FAM_LABELS[campo]}</td>
+      <td style="text-align:center">
+        <input type="number" min="0" value="${usoM}" onchange="setFamOverride('${campo}', this.value)" style="width:80px;text-align:center">
+        <div style="font-size:10px;color:#9aa7b4">auto: ${auto}</div>
+      </td>
+      <td style="text-align:center;font-weight:600">${disp != null ? disp : '—'}</td>
+      <td style="text-align:center">${alcanza}</td>
+    </tr>`;
+  }).join('');
+  const varios = insVariosDe(res);
+  const filasV = varios.map(v => `<tr>
+    <td><input type="text" value="${escapeHtml(String(v.nombre||''))}" placeholder="ej: algodón" onchange="insVariosSet('${escapeHtml(res)}','${v.id}','nombre',this.value)" style="width:96%"></td>
+    <td style="text-align:center"><input type="number" min="0" value="${escapeHtml(String(v.usoMes||''))}" onchange="insVariosSet('${escapeHtml(res)}','${v.id}','usoMes',this.value)" style="width:80px;text-align:center"></td>
+    <td style="text-align:center"><input type="number" min="0" value="${escapeHtml(String(v.disp||''))}" onchange="insVariosSet('${escapeHtml(res)}','${v.id}','disp',this.value)" style="width:80px;text-align:center"></td>
+    <td style="text-align:center"><button class="btn small" style="background:#c0392b" onclick="insVariosDel('${escapeHtml(res)}','${v.id}')">🗑</button></td>
+  </tr>`).join('');
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <h3 style="margin:0">👪 Informe para la familia — ${escapeHtml(res)}</h3>
+        <button class="btn small" style="background:#2e7d32" onclick="imprimirInformeInsumosFamilia()">🖨 Imprimir / PDF</button>
+      </div>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">Uso del mes (automático del Uso Diario, editable) y cuánto queda. Editá el número si querés ajustar el promedio.</p>
+      <div style="overflow-x:auto"><table class="tabla">
+        <thead><tr><th>Insumo</th><th>Usa por mes</th><th>Disponible</th><th>Le alcanza para</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>
+
+      <h3 style="margin:20px 0 6px;font-size:15px;color:#1F4E78">🧺 Varios</h3>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 8px">Algodón, perfume, desodorante, óleo calcáreo, etc. Cargá el ítem, cuánto usa por mes y cuánto queda.</p>
+      <div style="overflow-x:auto"><table class="tabla">
+        <thead><tr><th>Ítem</th><th>Usa por mes</th><th>Disponible</th><th></th></tr></thead>
+        <tbody>${filasV || '<tr><td colspan="4" style="text-align:center;color:#888;padding:14px">Sin ítems. Agregá con el botón de abajo.</td></tr>'}</tbody>
+      </table></div>
+      <button class="btn small" style="margin-top:10px" onclick="insVariosAdd('${escapeHtml(res)}')">➕ Agregar ítem</button>
+    </div>`;
+}
+function imprimirInformeInsumosFamilia(){
+  const f = insumosState.fam;
+  if (!f) { alert('Primero cargá el informe con "Ver informe".'); return; }
+  const res = f.res, mes = f.mes;
+  const MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const anio = mes.substring(0,4); const mesN = parseInt(mes.substring(4,6));
+  const tituloMes = (MESES[mesN-1]||'') + ' ' + anio;
+  const fechaHoy = new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'});
+  const filas = INSUMOS_CAMPOS.map(campo => {
+    const auto = Math.round((f.uso[campo])||0);
+    const usoM = famUsoMostrar(res, mes, campo, auto);
+    const disp = (f.stock[campo] && f.stock[campo].disponible != null) ? Number(f.stock[campo].disponible) : null;
+    return `<tr><td class="it">${INS_FAM_LABELS[campo]}</td><td>${usoM}</td><td>${disp!=null?disp:'-'}</td><td>${famAlcanzaTxt(disp,usoM)}</td></tr>`;
+  }).join('');
+  const varios = insVariosDe(res).filter(v => (v.nombre||'').trim() !== '');
+  const filasV = varios.map(v => `<tr><td class="it">${escapeHtml(String(v.nombre||''))}</td><td>${escapeHtml(String(v.usoMes||'-'))}</td><td>${escapeHtml(String(v.disp||'-'))}</td><td>${famAlcanzaTxt(v.disp!==''?Number(v.disp):null, v.usoMes!==''?Number(v.usoMes):0)}</td></tr>`).join('');
+  const win = window.open('', '_blank', 'width=820,height=950');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Insumos ${escapeHtml(res)} - ${escapeHtml(tituloMes)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 1.5cm; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size:11pt; color:#000; }
+    .titulo { text-align:center; font-weight:bold; font-size:16pt; color:#1F4E78; }
+    .sub { text-align:center; font-size:11pt; margin-top:2px; }
+    .res { text-align:center; font-size:13pt; font-weight:bold; margin:8px 0; }
+    .gen { text-align:center; font-size:9pt; color:#666; margin-bottom:14px; }
+    h2.sec { font-size:12pt; color:#1F4E78; margin:16px 0 6px; }
+    table { width:100%; border-collapse:collapse; font-size:10.5pt; }
+    th,td { border:1px solid #999; padding:6px 8px; text-align:center; }
+    th { background:#1F4E78; color:#fff; }
+    td.it { text-align:left; font-weight:bold; }
+    tbody tr:nth-child(even){ background:#f2f6fb; }
+    .nota { margin-top:16px; font-size:9pt; color:#444; line-height:1.5; }
+    @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+  </style></head><body>
+  <div class="titulo">Insumos - Aviso a la familia</div>
+  <div class="sub">Mes de ${escapeHtml(tituloMes)}</div>
+  <div class="res">Residente: ${escapeHtml(res)}</div>
+  <div class="gen">Emitido el ${escapeHtml(fechaHoy)} · Residencia Villa Teresa</div>
+  <table>
+    <colgroup><col style="width:34%"><col style="width:18%"><col style="width:18%"><col style="width:30%"></colgroup>
+    <thead><tr><th>Insumo</th><th>Usa por mes</th><th>Disponible</th><th>Le alcanza para</th></tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+  ${filasV ? '<h2 class="sec">Varios</h2><table><colgroup><col style="width:34%"><col style="width:18%"><col style="width:18%"><col style="width:30%"></colgroup><thead><tr><th>Item</th><th>Usa por mes</th><th>Disponible</th><th>Le alcanza para</th></tr></thead><tbody>'+filasV+'</tbody></table>' : ''}
+  <div class="nota"><b>Usa por mes:</b> consumo estimado mensual. <b>Disponible:</b> lo que queda en stock hoy. <b>Le alcanza para:</b> tiempo aproximado segun el consumo. Le pedimos reponer antes de esa fecha.</div>
+  <scr`+`ipt>window.onload = () => { window.print(); }</scr`+`ipt>
+  </body></html>`);
+  win.document.close();
+}
 function viewInsumos() {
   const ahora = new Date();
   const mesActual = ahora.getFullYear() + String(ahora.getMonth()+1).padStart(2,'0');
@@ -6151,6 +6310,20 @@ function viewInsumos() {
     </div>
   </div>` : '';
 
+  const familiaHtml = sub === 'familia' ? `
+    <div class="card" style="max-width:560px;margin-bottom:14px">
+      <div class="form-row">
+        <div><label>Residente</label>
+          <select class="ins-select" id="ins-fam-res">${resOpts}</select></div>
+        <div><label>Mes</label>
+          <select class="ins-select" id="ins-fam-mes">${mesOpts.join('')}</select></div>
+        <div style="align-self:flex-end">
+          <button class="btn primary" onclick="cargarInformeFamilia(document.getElementById('ins-fam-res').value, document.getElementById('ins-fam-mes').value)">📊 Ver informe</button>
+        </div>
+      </div>
+    </div>
+    <div id="ins-fam-contenido"><div style="color:#888;padding:16px">Elegí residente y mes, y tocá <b>Ver informe</b>.</div></div>
+  ` : '';
   return `
 <style>
 .ins-header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
@@ -6197,6 +6370,7 @@ function viewInsumos() {
   <div class="cs-subtabs" style="margin-bottom:18px">
     <div class="cs-subtab ${sub==='usodiario'?'active':''}" onclick="insumosState.sub='usodiario';render()">📋 Uso Diario</div>
     <div class="cs-subtab ${sub==='stock'?'active':''}" onclick="insumosState.sub='stock';render()">📦 Stock</div>
+    <div class="cs-subtab ${sub==='familia'?'active':''}" onclick="insumosState.sub='familia';render()">👪 Informe familia</div>
   </div>
 
   ${sub === 'usodiario' ? `
@@ -6225,7 +6399,7 @@ function viewInsumos() {
         ${totFila}
       </table>
     </div>
-  </div>` : stockHtml}
+  </div>` : (sub === 'familia' ? familiaHtml : stockHtml)}
 </div>
 <div id="ins-toast" class="ins-toast">✅ Guardado</div>`;
 }
