@@ -1099,7 +1099,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-3';
+const APP_VERSION = 'v2026-06-29-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1107,6 +1107,7 @@ const USER_KEY = 'med_geri_user';
 const SYNC_LASTPULL_KEY = 'med_geri_lastpull';
 const SYNC_AUTO_KEY = 'med_geri_autosync';
 const FAM_LIST_KEY = 'med_geri_fam_lista_v1';
+const SNAP_KEY = 'med_geri_snap_v1';
 const FAM_REC_KEY  = 'med_geri_fam_recetas_v1';
 function loadFamLista() {
   try { const s = localStorage.getItem(FAM_LIST_KEY); if (s) return JSON.parse(s); } catch(e) {}
@@ -1152,7 +1153,9 @@ function saveRecetas() {
 function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.residentes));
   if (typeof syncHabilitado === 'function' && syncHabilitado()) cloudPush('residentes', state.residentes);
-}
+
+function _afterSaveData(){ try { capturarSnapshotStock(); } catch(e){} }
+
 function loadSem() {
   try { return JSON.parse(localStorage.getItem(SEM_KEY)) || {}; } catch(e) { return {}; }
 }
@@ -1299,6 +1302,7 @@ const state = {
   recetasFamiliares: loadFamRecetas(),
   familiarSel: null,
   historiasCli: loadHistoriasCli(),
+  snapshotsStock: loadSnapshots(),
 };
 
 // ============ CÁLCULOS ============
@@ -6371,6 +6375,7 @@ function attachInsumos() {
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
   el.onclick = () => navigate(el.dataset.view);
 });
+try { capturarSnapshotStock(); } catch(e) {}
 document.getElementById('btn-export').onclick = exportarExcel;
 document.getElementById('btn-reset').onclick = resetDatos;
 document.getElementById('btn-nuevo-residente').onclick = nuevoResidente;
@@ -7967,13 +7972,73 @@ function filtrarResIngresos(val) {
   state.histIngRes = val || '';
   render();
 }
+function loadSnapshots() {
+  try { return JSON.parse(localStorage.getItem(SNAP_KEY)) || {}; } catch(e) { return {}; }
+}
+function saveSnapshots() {
+  try { localStorage.setItem(SNAP_KEY, JSON.stringify(state.snapshotsStock || {})); } catch(e) {}
+}
+// "Foto" del stock por mes de fecha de ingreso. Permite ver meses pasados aunque
+// luego se pise la fecha al cargar el mes siguiente. Se guarda en el dispositivo.
+function capturarSnapshotStock() {
+  if (!state || !state.residentes) return;
+  if (!state.snapshotsStock) state.snapshotsStock = {};
+  state.residentes.forEach(r => (r.meds || []).forEach(m => {
+    if (!m.fechaIngreso || String(m.fechaIngreso).length < 7) return;
+    const ym = String(m.fechaIngreso).slice(0,7);
+    if (!/^\d{4}-\d{2}$/.test(ym)) return;
+    if (!state.snapshotsStock[ym]) state.snapshotsStock[ym] = {};
+    state.snapshotsStock[ym][r.nombre + '||' + m.id] = {
+      residente: r.nombre, med: m.med,
+      stock: (m.stock != null ? m.stock : null),
+      fechaIngreso: m.fechaIngreso,
+      consumo: (m.consumo != null ? m.consumo : null)
+    };
+  }));
+  saveSnapshots();
+}
+// Stock cargado con fecha de ingreso en el mes ym (mezcla la foto guardada con lo
+// que está vivo ahora; lo vivo manda por ser más fresco).
+function stockCargadoDelMes(ym, resFiltro) {
+  const map = {};
+  const snap = (state.snapshotsStock && state.snapshotsStock[ym]) || {};
+  Object.keys(snap).forEach(k => {
+    const e = snap[k];
+    if (!resFiltro || e.residente === resFiltro) map[k] = Object.assign({}, e);
+  });
+  state.residentes.forEach(r => (r.meds || []).forEach(m => {
+    if (!m.fechaIngreso || String(m.fechaIngreso).slice(0,7) !== ym) return;
+    if (resFiltro && r.nombre !== resFiltro) return;
+    map[r.nombre + '||' + m.id] = {
+      residente: r.nombre, med: m.med,
+      stock: (m.stock != null ? m.stock : null),
+      fechaIngreso: m.fechaIngreso, consumo: (m.consumo != null ? m.consumo : null)
+    };
+  }));
+  return Object.values(map).sort((a,b) =>
+    (String(a.fechaIngreso)+a.residente+a.med).localeCompare(String(b.fechaIngreso)+b.residente+b.med));
+}
+function fmtFechaISO(iso) {
+  if (!iso) return '';
+  const p = String(iso).slice(0,10).split('-');
+  if (p.length < 3) return iso;
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
 function viewIngresosMes() {
   const ym = state.histIngMes || ingMesActual();
   const resF = state.histIngRes || '';
   const lista = ingresosDelMes(ym, resF);
+  const cargado = stockCargadoDelMes(ym, resF);
   const opciones = state.residentes.map(r => `<option value="${escapeHtml(r.nombre)}"${r.nombre===resF?' selected':''}>${escapeHtml(r.nombre)}</option>`).join('');
   const totalUnidades = lista.reduce((a,i) => a + (parseFloat(i.cantidad)||0), 0);
-  const filas = lista.map(i => `<tr>
+  const filasCarg = cargado.map(c => `<tr>
+    <td>${escapeHtml(String(c.residente||''))}</td>
+    <td style="font-weight:600">${escapeHtml(String(c.med||''))}</td>
+    <td style="text-align:center">${c.stock!=null?escapeHtml(String(c.stock)):'—'}</td>
+    <td style="text-align:center">${(c.consumo!=null&&c.consumo!=='')?(escapeHtml(String(c.consumo))+'/día'):'—'}</td>
+    <td>${escapeHtml(fmtFechaISO(c.fechaIngreso))}</td>
+  </tr>`).join('');
+  const filasIng = lista.map(i => `<tr>
     <td>${escapeHtml(String(i.fecha||''))}</td>
     <td>${escapeHtml(String(i.residente||''))}</td>
     <td style="font-weight:600">${escapeHtml(String(i.medicamento||''))}</td>
@@ -7983,9 +8048,9 @@ function viewIngresosMes() {
   </tr>`).join('');
   return `
     <h2>📜 Ingresos por mes</h2>
-    <div class="subtitle">Historial de la medicación que entró cada mes. Sirve para verificar con la familia qué llegó, cuándo y quién lo recibió.</div>
+    <div class="subtitle">Lo que se cargó cada mes. Sirve para verificar con la familia qué medicación entró, cuándo y quién la recibió.</div>
     <div class="card">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <button class="btn secondary small" onclick="cambiarMesIngresos(-1)">◀ Mes anterior</button>
         <strong style="min-width:150px;text-align:center;font-size:15px">${escapeHtml(ingMesLabel(ym))}</strong>
         <button class="btn secondary small" onclick="cambiarMesIngresos(1)">Mes siguiente ▶</button>
@@ -7995,24 +8060,42 @@ function viewIngresosMes() {
         </select>
         <button class="btn small" style="background:#2e7d32" onclick="imprimirIngresosMes()">🖨 Imprimir / PDF</button>
       </div>
-      <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">${lista.length} ingreso${lista.length===1?'':'s'} en ${escapeHtml(ingMesLabel(ym))}${resF?(' · '+escapeHtml(resF)):''} · ${totalUnidades} unidades en total</p>
+
+      <h3 style="margin:16px 0 6px;font-size:15px;color:#1F4E78">📦 Stock cargado con fecha de ${escapeHtml(ingMesLabel(ym))}</h3>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 8px">${cargado.length} medicamento${cargado.length===1?'':'s'} con fecha de ingreso en este mes${resF?(' · '+escapeHtml(resF)):''}</p>
+      <div style="overflow-x:auto"><table class="tabla">
+        <thead><tr><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Fecha ingreso</th></tr></thead>
+        <tbody>${filasCarg || ('<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No hay stock cargado con fecha de este mes' + (resF?(' para '+escapeHtml(resF)):'') + '</td></tr>')}</tbody>
+      </table></div>
+
+      <h3 style="margin:22px 0 6px;font-size:15px;color:#1F4E78">📥 Ingresos registrados (con quién recibió)</h3>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 8px">${lista.length} ingreso${lista.length===1?'':'s'} cargado${lista.length===1?'':'s'} con el botón + Ingreso · ${totalUnidades} unidades</p>
       <div style="overflow-x:auto"><table class="tabla">
         <thead><tr><th>Fecha</th><th>Residente</th><th>Medicamento</th><th>Cant.</th><th>Quién recibió</th><th>Observación</th></tr></thead>
-        <tbody>${filas || ('<tr><td colspan="6" style="text-align:center;color:#888;padding:24px">No hay ingresos registrados en este mes' + (resF?(' para '+escapeHtml(resF)):'') + '</td></tr>')}</tbody>
+        <tbody>${filasIng || ('<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">No hay ingresos cargados con + Ingreso en este mes' + (resF?(' para '+escapeHtml(resF)):'') + '</td></tr>')}</tbody>
       </table></div>
+      <p style="color:#9aa7b4;font-size:11px;margin-top:12px">El "stock cargado" se arma con la fecha de ingreso de cada medicamento y se guarda una foto por mes. Los "ingresos registrados" son los que se cargan con el botón + Ingreso (incluyen quién recibió).</p>
     </div>`;
 }
 function imprimirIngresosMes() {
   const ym = state.histIngMes || ingMesActual();
   const resF = state.histIngRes || '';
   const lista = ingresosDelMes(ym, resF);
+  const cargado = stockCargadoDelMes(ym, resF);
   const totalUnidades = lista.reduce((a,i) => a + (parseFloat(i.cantidad)||0), 0);
-  const filas = lista.map(i => `<tr>
+  const filasCarg = cargado.map(c => `<tr>
+    <td>${escapeHtml(String(c.residente||''))}</td>
+    <td class="med">${escapeHtml(String(c.med||''))}</td>
+    <td style="text-align:center">${c.stock!=null?escapeHtml(String(c.stock)):'-'}</td>
+    <td style="text-align:center">${(c.consumo!=null&&c.consumo!=='')?(escapeHtml(String(c.consumo))+'/dia'):'-'}</td>
+    <td>${escapeHtml(fmtFechaISO(c.fechaIngreso))}</td>
+  </tr>`).join('');
+  const filasIng = lista.map(i => `<tr>
     <td>${escapeHtml(String(i.fecha||''))}</td>
     <td>${escapeHtml(String(i.residente||''))}</td>
     <td class="med">${escapeHtml(String(i.medicamento||''))}</td>
     <td style="text-align:center">+${escapeHtml(String(i.cantidad||''))}</td>
-    <td>${escapeHtml(String(i.recibido||'—'))}</td>
+    <td>${escapeHtml(String(i.recibido||'-'))}</td>
     <td>${escapeHtml(String(i.obs||''))}</td>
   </tr>`).join('');
   const fechaHoy = new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'});
@@ -8020,31 +8103,41 @@ function imprimirIngresosMes() {
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
   <title>Ingresos ${escapeHtml(ingMesLabel(ym))}${resF?(' - '+escapeHtml(resF)):''}</title>
   <style>
-    @page { size: A4 portrait; margin: 1.5cm; }
+    @page { size: A4 portrait; margin: 1.4cm; }
     * { box-sizing: border-box; margin:0; padding:0; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 10.5pt; color:#000; background:#fff; }
-    .titulo { text-align:center; font-weight:bold; font-size:16pt; color:#1F4E78; margin-bottom:4px; }
-    .sub { text-align:center; font-size:12pt; margin-bottom:2px; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color:#000; background:#fff; }
+    .titulo { text-align:center; font-weight:bold; font-size:15pt; color:#1F4E78; margin-bottom:4px; }
+    .sub { text-align:center; font-size:11pt; margin-bottom:2px; }
     .gen { text-align:center; font-size:9pt; color:#666; margin-bottom:14px; }
-    table { width:100%; border-collapse:collapse; font-size:10pt; }
-    th,td { border:1px solid #999; padding:5px 7px; vertical-align:top; text-align:left; }
+    h2.sec { font-size:11pt; color:#1F4E78; margin:14px 0 6px; }
+    table { width:100%; border-collapse:collapse; font-size:9.5pt; margin-bottom:6px; }
+    th,td { border:1px solid #999; padding:4px 6px; vertical-align:top; text-align:left; }
     th { background:#1F4E78; color:#fff; }
     td.med { font-weight:bold; text-transform:uppercase; }
     tbody tr:nth-child(even){ background:#f2f6fb; }
-    .tot { margin-top:10px; font-size:10pt; font-weight:bold; }
-    .nota { margin-top:14px; font-size:8.5pt; color:#555; line-height:1.5; }
+    .tot { font-size:9.5pt; font-weight:bold; margin:4px 0 8px; }
+    .nota { margin-top:12px; font-size:8.5pt; color:#555; line-height:1.5; }
     @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
   </style></head><body>
   <div class="titulo">Historial de ingresos de medicacion</div>
   <div class="sub">${escapeHtml(ingMesLabel(ym))}${resF?(' — '+escapeHtml(resF)):' — Todos los residentes'}</div>
   <div class="gen">Residencia Villa Teresa · emitido el ${escapeHtml(fechaHoy)}</div>
+
+  <h2 class="sec">Stock cargado con fecha de ${escapeHtml(ingMesLabel(ym))}</h2>
+  <table>
+    <colgroup><col style="width:24%"><col style="width:30%"><col style="width:12%"><col style="width:16%"><col style="width:18%"></colgroup>
+    <thead><tr><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Fecha ingreso</th></tr></thead>
+    <tbody>${filasCarg || '<tr><td colspan="5" style="text-align:center">Sin stock cargado con fecha de este mes</td></tr>'}</tbody>
+  </table>
+
+  <h2 class="sec">Ingresos registrados (con quien recibio)</h2>
   <table>
     <colgroup><col style="width:17%"><col style="width:20%"><col style="width:24%"><col style="width:7%"><col style="width:17%"><col style="width:15%"></colgroup>
     <thead><tr><th>Fecha</th><th>Residente</th><th>Medicamento</th><th>Cant.</th><th>Quien recibio</th><th>Obs.</th></tr></thead>
-    <tbody>${filas || '<tr><td colspan="6" style="text-align:center">Sin ingresos en este mes</td></tr>'}</tbody>
+    <tbody>${filasIng || '<tr><td colspan="6" style="text-align:center">Sin ingresos registrados con + Ingreso en este mes</td></tr>'}</tbody>
   </table>
-  <div class="tot">Total: ${lista.length} ingreso(s) · ${totalUnidades} unidades</div>
-  <div class="nota">Este historial registra cada ingreso cargado en el sistema, con la fecha, la cantidad y la persona que lo recibio. Documento de control interno de la Residencia.</div>
+  <div class="tot">Ingresos registrados: ${lista.length} · ${totalUnidades} unidades</div>
+  <div class="nota">Documento de control interno de la Residencia. "Stock cargado" surge de la fecha de ingreso de cada medicamento; "Ingresos registrados" son las cargas hechas con el boton + Ingreso, que incluyen la persona que recibio.</div>
   <scr`+`ipt>window.onload = () => { window.print(); }</scr`+`ipt>
   </body></html>`);
   win.document.close();
