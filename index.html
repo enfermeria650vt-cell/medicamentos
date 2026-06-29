@@ -1099,7 +1099,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-5';
+const APP_VERSION = 'v2026-06-29-6';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -7999,12 +7999,27 @@ function capturarSnapshotStock() {
 }
 // Stock cargado con fecha de ingreso en el mes ym (mezcla la foto guardada con lo
 // que está vivo ahora; lo vivo manda por ser más fresco).
+function agotInfoEntry(stock, consumo, fechaIngreso) {
+  const c = parseFloat(consumo);
+  if (!(c > 0) || typeof stock !== 'number') return { fecha: '\u2014', dias: null };
+  const dur = Math.floor(stock / c);
+  let base = fechaIngreso ? new Date(String(fechaIngreso).slice(0,10) + 'T00:00:00') : hoyMidnight();
+  if (isNaN(base.getTime())) base = hoyMidnight();
+  const agot = new Date(base); agot.setDate(agot.getDate() + dur);
+  const hoy = hoyMidnight();
+  const dias = (base.getTime() > hoy.getTime()) ? dur : Math.max(0, Math.round((agot.getTime() - hoy.getTime())/86400000));
+  return { fecha: agot.toLocaleDateString('es-AR', {day:'2-digit',month:'2-digit',year:'numeric'}), dias };
+}
 function stockCargadoDelMes(ym, resFiltro) {
   const map = {};
   const snap = (state.snapshotsStock && state.snapshotsStock[ym]) || {};
   Object.keys(snap).forEach(k => {
     const e = snap[k];
-    if (!resFiltro || e.residente === resFiltro) map[k] = Object.assign({}, e);
+    if (resFiltro && e.residente !== resFiltro) return;
+    const o = Object.assign({}, e);
+    const info = agotInfoEntry(o.stock, o.consumo, o.fechaIngreso);
+    o.agotaHasta = info.fecha; o.dias = info.dias;
+    map[k] = o;
   });
   state.residentes.forEach(r => (r.meds || []).forEach(m => {
     if (!m.fechaIngreso || String(m.fechaIngreso).slice(0,7) !== ym) return;
@@ -8012,7 +8027,8 @@ function stockCargadoDelMes(ym, resFiltro) {
     map[r.nombre + '||' + m.id] = {
       residente: r.nombre, med: m.med,
       stock: (m.stock != null ? m.stock : null),
-      fechaIngreso: m.fechaIngreso, consumo: (m.consumo != null ? m.consumo : null)
+      fechaIngreso: m.fechaIngreso, consumo: (m.consumo != null ? m.consumo : null),
+      agotaHasta: fechaAgotamiento(m), dias: calcDiasRestantes(m)
     };
   }));
   return Object.values(map).sort((a,b) =>
@@ -8037,6 +8053,7 @@ function viewIngresosMes() {
     <td style="text-align:center">${c.stock!=null?escapeHtml(String(c.stock)):'—'}</td>
     <td style="text-align:center">${(c.consumo!=null&&c.consumo!=='')?(escapeHtml(String(c.consumo))+'/día'):'—'}</td>
     <td>${escapeHtml(fmtFechaISO(c.fechaIngreso))}</td>
+    <td><strong>${escapeHtml(String(c.agotaHasta||'\u2014'))}</strong>${c.dias!=null?` <span style="color:#6c7a8a;font-size:11px">(${c.dias} días)</span>`:''}</td>
   </tr>`).join('');
   const filasIng = lista.map(i => `<tr>
     <td>${escapeHtml(String(i.fecha||''))}</td>
@@ -8064,8 +8081,8 @@ function viewIngresosMes() {
       <h3 style="margin:16px 0 6px;font-size:15px;color:#1F4E78">📦 Stock cargado con fecha de ${escapeHtml(ingMesLabel(ym))}</h3>
       <p style="color:#6c7a8a;font-size:13px;margin:0 0 8px">${cargado.length} medicamento${cargado.length===1?'':'s'} con fecha de ingreso en este mes${resF?(' · '+escapeHtml(resF)):''}</p>
       <div style="overflow-x:auto"><table class="tabla">
-        <thead><tr><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Fecha ingreso</th></tr></thead>
-        <tbody>${filasCarg || ('<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No hay stock cargado con fecha de este mes' + (resF?(' para '+escapeHtml(resF)):'') + '</td></tr>')}</tbody>
+        <thead><tr><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Fecha ingreso</th><th>Alcanza hasta</th></tr></thead>
+        <tbody>${filasCarg || ('<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">No hay stock cargado con fecha de este mes' + (resF?(' para '+escapeHtml(resF)):'') + '</td></tr>')}</tbody>
       </table></div>
 
       <h3 style="margin:22px 0 6px;font-size:15px;color:#1F4E78">📥 Ingresos registrados (con quién recibió)</h3>
@@ -8089,6 +8106,7 @@ function imprimirIngresosMes() {
     <td style="text-align:center">${c.stock!=null?escapeHtml(String(c.stock)):'-'}</td>
     <td style="text-align:center">${(c.consumo!=null&&c.consumo!=='')?(escapeHtml(String(c.consumo))+'/dia'):'-'}</td>
     <td>${escapeHtml(fmtFechaISO(c.fechaIngreso))}</td>
+    <td style="text-align:center">${escapeHtml(String(c.agotaHasta||'\u2014'))}${c.dias!=null?(' ('+c.dias+'d)'):''}</td>
   </tr>`).join('');
   const filasIng = lista.map(i => `<tr>
     <td>${escapeHtml(String(i.fecha||''))}</td>
@@ -8125,9 +8143,9 @@ function imprimirIngresosMes() {
 
   <h2 class="sec">Stock cargado con fecha de ${escapeHtml(ingMesLabel(ym))}</h2>
   <table>
-    <colgroup><col style="width:24%"><col style="width:30%"><col style="width:12%"><col style="width:16%"><col style="width:18%"></colgroup>
-    <thead><tr><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Fecha ingreso</th></tr></thead>
-    <tbody>${filasCarg || '<tr><td colspan="5" style="text-align:center">Sin stock cargado con fecha de este mes</td></tr>'}</tbody>
+    <colgroup><col style="width:18%"><col style="width:23%"><col style="width:9%"><col style="width:13%"><col style="width:16%"><col style="width:21%"></colgroup>
+    <thead><tr><th>Residente</th><th>Medicamento</th><th>Stock</th><th>Consumo</th><th>Fecha ingreso</th><th>Alcanza hasta</th></tr></thead>
+    <tbody>${filasCarg || '<tr><td colspan="6" style="text-align:center">Sin stock cargado con fecha de este mes</td></tr>'}</tbody>
   </table>
 
   <h2 class="sec">Ingresos registrados (con quien recibio)</h2>
