@@ -1097,7 +1097,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-28-3';
+const APP_VERSION = 'v2026-06-29-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4872,48 +4872,62 @@ function csDiaPrevio(fecha) {
 }
 
 function csAlertasCatarsis() {
-  // Alertas ACOTADAS A LA SEMANA EN CURSO: se reinician cada lunes.
-  // Cuenta los días SEGUIDOS sin catarsis dentro de la semana actual, desde hoy
-  // hacia atrás hasta el lunes; NO arrastra días de semanas anteriores.
-  // Un día tiene catarsis si CUALQUIER turno (M/T/N) está marcado en verde.
-  // (Se usa csClasifCatarsis para que la cuenta coincida con el color que se ve.)
+  // Alerta DAR MOTRAX. Cuenta los días SEGUIDOS sin catarsis DE CORRIDO
+  // (NO se reinicia los lunes; cruza semanas y meses). Al 4º día seguido sin
+  // catarsis avisa "DAR MOTRAX". Un Motrax registrado REINICIA el conteo: si
+  // tras darlo el residente sigue sin catarsis, al 4º día vuelve a avisar
+  // (cadencia "cada 3 días"). El día que se da el Motrax queda visible la
+  // confirmación (quién/cuándo). Un día tiene catarsis si CUALQUIER turno
+  // (M/T/N) está en verde (csClasifCatarsis, para coincidir con el color).
   const hoy = csHoy();
   const turnos = ['m','t','n'];
-  const lunes = csSemanaDias(hoy)[0]; // lunes de la semana en curso
+  const TOPE = 90; // cap de seguridad (días hacia atrás)
   const tuvoCatarsis = (res, fecha) => turnos.some(t =>
     csClasifCatarsis(csGet(fecha, 'catarsis', res, t, 'tipo'),
                      csGet(fecha, 'catarsis', res, t, 'hubo')) === 'si');
+  const tuvoMotrax = (res, fecha) => !!csGet(fecha, 'catarsis', res, 'motrax', 'by');
   const alertas = [];
   state.residentes.forEach(r => {
+    const motraxHoyBy = csGet(hoy, 'catarsis', r.nombre, 'motrax', 'by');
+    // Conteo de corrido; se corta al encontrar catarsis o un Motrax previo.
     let diasSin = 0;
     let cursor = hoy;
-    while (cursor >= lunes) {
-      if (tuvoCatarsis(r.nombre, cursor)) break;
+    let motivo = 'tope';
+    let pasos = 0;
+    while (pasos < TOPE) {
+      if (tuvoCatarsis(r.nombre, cursor)) { motivo = 'catarsis'; break; }
+      if (tuvoMotrax(r.nombre, cursor))   { motivo = 'motrax';   break; }
       diasSin++;
       cursor = csDiaPrevio(cursor);
+      pasos++;
     }
-    if (diasSin >= 4) alertas.push({ nombre: r.nombre, dias: diasSin });
+    if (motraxHoyBy) {
+      alertas.push({ nombre: r.nombre, estado: 'dado' });
+    } else if (diasSin >= 4) {
+      alertas.push({ nombre: r.nombre, estado: 'pendiente', dias: diasSin, motivo: motivo });
+    }
   });
   if (alertas.length === 0) return '';
   const items = alertas.map(a => {
-    const by = csGet(hoy, 'catarsis', a.nombre, 'motrax', 'by');
-    const at = csGet(hoy, 'catarsis', a.nombre, 'motrax', 'at');
-    let motraxHtml;
-    if (by) {
+    if (a.estado === 'dado') {
+      const by = csGet(hoy, 'catarsis', a.nombre, 'motrax', 'by');
+      const at = csGet(hoy, 'catarsis', a.nombre, 'motrax', 'at');
       let cuando = '';
       try { cuando = new Date(at).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e) {}
-      motraxHtml = `<span class="cs-motrax-done">💊 Motrax dado por ${escapeHtml(by)} · ${cuando}<button class="cs-motrax-del" data-cs-motrax-del="${escapeHtml(a.nombre)}" title="Borrar registro">✕</button></span>`;
-    } else {
-      motraxHtml = `<span class="cs-alerta-motrax">DAR MOTRAX</span><button class="cs-motrax-btn" data-cs-motrax="${escapeHtml(a.nombre)}">💊 Registrar Motrax dado</button>`;
+      const done = `<span class="cs-motrax-done">💊 Motrax dado por ${escapeHtml(by)} · ${cuando}<button class="cs-motrax-del" data-cs-motrax-del="${escapeHtml(a.nombre)}" title="Borrar registro">✕</button></span>`;
+      return `<div class="cs-alerta-item">✅ <strong>${escapeHtml(a.nombre)}</strong> — ${done}</div>`;
     }
-    return `<div class="cs-alerta-item">⚠️ <strong>${escapeHtml(a.nombre)}</strong> — ${a.dias} días sin catarsis → ${motraxHtml}</div>`;
+    const motraxHtml = `<span class="cs-alerta-motrax">DAR MOTRAX</span><button class="cs-motrax-btn" data-cs-motrax="${escapeHtml(a.nombre)}">💊 Registrar Motrax dado</button>`;
+    const detalle = a.motivo === 'motrax'
+      ? `${a.dias} días sin catarsis desde el último Motrax`
+      : `${a.dias} días seguidos sin catarsis`;
+    return `<div class="cs-alerta-item">⚠️ <strong>${escapeHtml(a.nombre)}</strong> — ${detalle} → ${motraxHtml}</div>`;
   }).join('');
   return `<div class="cs-alertas-catarsis">
-    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (4+ días sin catarsis en la semana en curso)</div>
+    <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (al 4º día seguido sin catarsis → DAR MOTRAX)</div>
     ${items}
   </div>`;
 }
-
 function csMesActual() { return csHoy().slice(0,7); }
 function csMesShift(mes, delta) {
   const p = mes.split('-').map(Number);
