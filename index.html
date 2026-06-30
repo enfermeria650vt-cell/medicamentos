@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-29-12';
+const APP_VERSION = 'v2026-06-30-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -7045,6 +7045,10 @@ function viewNutricion() {
     const d = nutricionState.dieta || {};
     const tipos = ['Normal','Blanda','Líquida','Hipocalórica','Hiposódica','Diabética','Sin lactosa','Sin gluten','Mixta'];
     const tiposOpts = tipos.map(t => `<option value="${t}"${d.tipo===t?' selected':''}>${t}</option>`).join('');
+    const resObjAE = (state.residentes||[]).find(r => r.nombre === sel) || {};
+    const ae = resObjAE.alimEspecial || {};
+    const viasAE = ['Sonda nasogástrica (SNG)','Gastrostomía','Yeyunostomía','Parenteral'];
+    const viasOptsAE = viasAE.map(v => `<option value="${escapeHtml(v)}"${ae.via===v?' selected':''}>${escapeHtml(v)}</option>`).join('');
     content = `
       <div class="hc-form" style="max-width:600px">
         <label>🍽️ Tipo de dieta</label>
@@ -7065,6 +7069,31 @@ function viewNutricion() {
         <div style="margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <button class="btn primary" id="nut-guardar-dieta">💾 Guardar plan de dieta</button>
           ${d.updated ? `<span style="font-size:12px;color:#888">Guardado: ${escapeHtml(d.updated)}${d.updatedBy ? ' · '+escapeHtml(d.updatedBy) : ''}</span>` : ''}
+        </div>
+      </div>
+      <div class="hc-form" style="max-width:600px;margin-top:18px;border:1px solid #d9e2ec;border-radius:10px;padding:16px 18px;background:#FBFDFF">
+        <div style="font-weight:700;font-size:14px;color:#1F4E78">🍶 Alimentación enteral / parenteral</div>
+        <div style="font-size:12px;color:#888;margin:3px 0 6px">Completar solo si el residente recibe alimentación por sonda o vía parenteral. Dejá la vía en "Ninguna" si come por boca.</div>
+        <label>Vía de alimentación</label>
+        <select id="ae-via" style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit">
+          <option value="">— Ninguna / vía oral —</option>
+          ${viasOptsAE}
+        </select>
+        <label>🧪 Fórmula</label>
+        <input type="text" id="ae-formula" placeholder="Ej: Ensure, Glucerna, Nutrison, fórmula casera..." value="${escapeHtml(ae.formula||'')}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+          <div><label>💧 Volumen / día (ml)</label><input type="text" id="ae-volumen" placeholder="Ej: 1500" value="${escapeHtml(ae.volumen||'')}"></div>
+          <div><label>🔥 Calorías / día (kcal)</label><input type="text" id="ae-kcal" placeholder="Ej: 1800" value="${escapeHtml(ae.kcal||'')}"></div>
+          <div><label>🥩 Proteínas / día (g)</label><input type="text" id="ae-prot" placeholder="Ej: 70" value="${escapeHtml(ae.prot||'')}"></div>
+          <div><label>🚰 Agua libre / día (ml)</label><input type="text" id="ae-agua" placeholder="Ej: 500" value="${escapeHtml(ae.agua||'')}"></div>
+          <div><label>⏱️ Velocidad de infusión (ml/h)</label><input type="text" id="ae-vel" placeholder="Ej: 80" value="${escapeHtml(ae.vel||'')}"></div>
+          <div><label>🕐 N° de tomas u horarios</label><input type="text" id="ae-tomas" placeholder="Ej: 4 tomas · 8-12-16-20 hs" value="${escapeHtml(ae.tomas||'')}"></div>
+        </div>
+        <label>📋 Observaciones</label>
+        <textarea id="ae-obs" rows="3" placeholder="Posición, tolerancia, lavados de sonda, aclaraciones...">${escapeHtml(ae.obs||'')}</textarea>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <button class="btn primary" id="nut-guardar-alim">💾 Guardar alimentación especial</button>
+          ${ae.updated ? `<span style="font-size:12px;color:#888">Guardado: ${escapeHtml(ae.updated)}${ae.updatedBy ? ' · '+escapeHtml(ae.updatedBy) : ''}</span>` : ''}
         </div>
       </div>`;
   }
@@ -7250,6 +7279,26 @@ function attachNutricion() {
       } else if(typeof toast==='function') toast('❌ Error al guardar');
     } catch(e) { if(typeof toast==='function') toast('❌ '+e.message); }
     btnGuardarDieta.textContent = '💾 Guardar plan de dieta'; btnGuardarDieta.disabled = false;
+  };
+
+  // Alimentación enteral / parenteral — guardar (en el residente, sin tocar backend Indicaciones)
+  const btnAlim = document.getElementById('nut-guardar-alim');
+  if (btnAlim) btnAlim.onclick = () => {
+    const resObj = (state.residentes||[]).find(r => r.nombre === sel);
+    if (!resObj) { if(typeof toast==='function') toast('Seleccioná un residente'); return; }
+    const g = id => (document.getElementById(id)?.value||'').trim();
+    const via=g('ae-via'), formula=g('ae-formula'), volumen=g('ae-volumen'), kcal=g('ae-kcal'),
+          prot=g('ae-prot'), agua=g('ae-agua'), vel=g('ae-vel'), tomas=g('ae-tomas'), obs=g('ae-obs');
+    const vacio = !via && !formula && !volumen && !kcal && !prot && !agua && !vel && !tomas && !obs;
+    const usuario = getCurrentUser()||'';
+    if (vacio) { delete resObj.alimEspecial; }
+    else { resObj.alimEspecial = { via, formula, volumen, kcal, prot, agua, vel, tomas, obs,
+      updated: new Date().toLocaleDateString('es-AR'), updatedBy: usuario }; }
+    btnAlim.textContent='⏳ Guardando...'; btnAlim.disabled=true;
+    try { saveData(); } catch(e) {}
+    if(typeof logCambio==='function') logCambio('nutricion', 'Alimentación especial '+(vacio?'borrada':'actualizada')+' ('+sel+')'+(via?': '+via:''));
+    if(typeof toast==='function') toast('✅ Alimentación especial guardada');
+    document.getElementById('main').innerHTML = viewNutricion(); attachNutricion();
   };
 
   // Peso — agregar
