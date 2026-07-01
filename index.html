@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-06-30-1';
+const APP_VERSION = 'v2026-07-01-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6741,6 +6741,87 @@ function mostrarNovedades(){
 // INSUMOS — STOCK (funciones helper)
 // =====================================================
 
+// ===== Ciclo mensual de insumos (saldo arrastrado) =====
+const INS_CAMPOS_ST = ['pañal','zalea','aposito','bombacha'];
+const INS_ETS_ST = { pañal:'Pañal', zalea:'Zalea', aposito:'Apósito', bombacha:'Bombacha/Calzoncillo' };
+
+function insHoyISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function insMesActual(){ const d=new Date(); return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0'); }
+function insMesDeISO(iso){ const s=String(iso||''); return s.length>=7 ? s.substring(0,4)+s.substring(5,7) : ''; }
+function insMesSiguiente(mes){ let y=+mes.substring(0,4), m=+mes.substring(4,6); m++; if(m>12){m=1;y++;} return y+String(m).padStart(2,'0'); }
+function insMesAnterior(mes){ let y=+mes.substring(0,4), m=+mes.substring(4,6); m--; if(m<1){m=12;y--;} return y+String(m).padStart(2,'0'); }
+function insMesLabel(mes){ if(!mes||mes.length<6) return mes||''; const y=+mes.substring(0,4), m=+mes.substring(4,6); const s=new Date(y,m-1,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'}); return s.charAt(0).toUpperCase()+s.slice(1); }
+
+// La fecha de recepción se guarda embebida en la observación como "@rec=YYYY-MM-DD | resto"
+// (así no hace falta tocar el backend). Este helper la separa para mostrar/usar.
+function insParseObs(obsRaw){
+  const s=String(obsRaw||''); const m=s.match(/@rec=(\d{4}-\d{2}-\d{2})/);
+  return { rec: m?m[1]:'', obs: s.replace(/@rec=\d{4}-\d{2}-\d{2}\s*\|?\s*/,'').trim() };
+}
+function insArmarObs(fechaISO, obsTexto){
+  const f=(fechaISO && /^\d{4}-\d{2}-\d{2}$/.test(fechaISO)) ? fechaISO : insHoyISO();
+  return '@rec='+f+(obsTexto? ' | '+obsTexto : '');
+}
+
+// Cierres mensuales: por residente se guardan en el objeto residente (se sincroniza con
+// la clave 'residentes', igual que alimEspecial). El depósito general en localStorage.
+function insGetCierres(entityKey){
+  if(entityKey==='__DEPOSITO_GENERAL__'){ try{return JSON.parse(localStorage.getItem('vt_ins_cierres_deposito')||'{}');}catch(e){return {};} }
+  const r=(state.residentes||[]).find(x=>x.nombre===entityKey);
+  return (r && r.insumosCierres) || {};
+}
+function insSetCierre(entityKey, mes, snapshot){
+  if(entityKey==='__DEPOSITO_GENERAL__'){
+    let m={}; try{m=JSON.parse(localStorage.getItem('vt_ins_cierres_deposito')||'{}');}catch(e){}
+    m[mes]=snapshot; localStorage.setItem('vt_ins_cierres_deposito', JSON.stringify(m)); return true;
+  }
+  const r=(state.residentes||[]).find(x=>x.nombre===entityKey);
+  if(!r) return false;
+  if(!r.insumosCierres) r.insumosCierres={};
+  r.insumosCierres[mes]=snapshot; return true;
+}
+// Mes abierto (en curso) de una entidad = mes siguiente al último cierre. null = todavía en modo acumulado.
+function insMesAbierto(entityKey){
+  const c=insGetCierres(entityKey); const ks=Object.keys(c).sort();
+  return ks.length ? insMesSiguiente(ks[ks.length-1]) : null;
+}
+// Saldo inicial de un mes = disponible del último cierre anterior a ese mes.
+function insSaldoInicial(entityKey, mes){
+  const c=insGetCierres(entityKey); const prev=Object.keys(c).filter(k=>k<mes).sort();
+  if(!prev.length) return null;
+  const snap=c[prev[prev.length-1]]; const s={};
+  INS_CAMPOS_ST.forEach(cp=>{ s[cp]=Number((snap[cp]||{}).disponible)||0; });
+  return s;
+}
+function insSumaUsoRow(row, acc){
+  INS_CAMPOS_ST.forEach(cp=>{ ['m','t','n','p'].forEach(tk=>{ acc[cp]+=Number(row[cp+'_'+tk])||0; }); });
+}
+// Ingresos + usado de una entidad para un mes puntual (según fecha de recepción / hoja de uso).
+async function insCalcMensual(url, entityKey, mes){
+  const ing={pañal:0,zalea:0,aposito:0,bombacha:0};
+  try{
+    const jIng=await (await fetch(`${url}?action=getIngresos&residente=${encodeURIComponent(entityKey)}&t=${Date.now()}`)).json();
+    (jIng.ok?(jIng.data||[]):[]).forEach(it=>{
+      const p=insParseObs(it.obs); const recISO=p.rec || String(it.fecha||'').substring(0,10);
+      if(insMesDeISO(recISO)===mes){
+        ing.pañal+=Number(it.pañal)||0; ing.zalea+=Number(it.zalea)||0;
+        ing.aposito+=Number(it.aposito)||0; ing.bombacha+=Number(it.bombacha)||0;
+      }
+    });
+  }catch(e){}
+  const uso={pañal:0,zalea:0,aposito:0,bombacha:0};
+  try{
+    if(entityKey==='__DEPOSITO_GENERAL__'){
+      const jD=await (await fetch(`${url}?action=getDumpInsumos&mes=${mes}&t=${Date.now()}`)).json();
+      (jD.ok?(jD.data||[]):[]).forEach(row=>insSumaUsoRow(row,uso));
+    } else {
+      const jU=await (await fetch(`${url}?action=getInsumos&residente=${encodeURIComponent(entityKey)}&mes=${mes}&t=${Date.now()}`)).json();
+      (jU.ok?(jU.data||[]):[]).forEach(row=>insSumaUsoRow(row,uso));
+    }
+  }catch(e){}
+  return { ing, uso };
+}
+
 async function cargarStockInsumos(res) {
   const url = getIndicUrl();
   if (!url) { toast('Configurá la URL del Web App en ⚙️ Configurar nube'); return; }
@@ -6752,7 +6833,16 @@ async function cargarStockInsumos(res) {
     const j = await r.json();
     if (!j.ok) { cont.innerHTML = `<div class="card" style="color:red">Error: ${escapeHtml(j.error||'')}</div>`; return; }
     insumosState.stockData = j.data;
-    cont.innerHTML = renderStockCards(res, j.data);
+    // ¿Ya se cerró algún mes para esta entidad? Si sí → modo mensual con arrastre. Si no → acumulado (legacy) + aviso.
+    const mesAbierto = insMesAbierto(res);
+    let mensual = null;
+    if (mesAbierto) {
+      const { ing, uso } = await insCalcMensual(url, res, mesAbierto);
+      const saldo = insSaldoInicial(res, mesAbierto) || { pañal:0, zalea:0, aposito:0, bombacha:0 };
+      mensual = { mes: mesAbierto, saldo, ing, uso };
+    }
+    insumosState.stockMensual = mensual;
+    cont.innerHTML = renderStockCards(res, j.data, mensual);
     attachStockListeners(res);
   } catch(e) {
     cont.innerHTML = `<div class="card" style="color:red">Error de conexión. Verificá la URL del Web App.</div>`;
@@ -6763,30 +6853,48 @@ function nombreStock(res) {
   return res === '__DEPOSITO_GENERAL__' ? '🏥 Depósito general' : res;
 }
 
-function renderStockCards(res, data) {
-  res = nombreStock(res);
-  const ets = { pañal:'Pañal', zalea:'Zalea', aposito:'Apósito', bombacha:'Bombacha/Calzoncillo' };
+function renderStockCards(res, data, mensual) {
+  const resNom = nombreStock(res);
+  const ets = INS_ETS_ST;
+  const esMensual = !!mensual;
   let alertasHtml = '';
   const cards = Object.keys(ets).map(campo => {
-    const d = data[campo] || { ingresado:0, usado:0, disponible:0, minimo:0 };
+    const base = data[campo] || { ingresado:0, usado:0, disponible:0, minimo:0 };
+    const minimo = base.minimo || 0;
+    let saldoIni=0, ingMes=0, usoMes=0, disponible;
+    if (esMensual) {
+      saldoIni = Number(mensual.saldo[campo])||0;
+      ingMes   = Number(mensual.ing[campo])||0;
+      usoMes   = Number(mensual.uso[campo])||0;
+      disponible = saldoIni + ingMes - usoMes;
+    } else {
+      disponible = base.disponible;
+    }
     let color = '#1b5e20', bg = '#e8f5e9', icon = '🟢';
-    if (d.disponible <= 0) {
+    if (disponible <= 0) {
       color='#b71c1c'; bg='#ffebee'; icon='🔴';
-      alertasHtml += `<div>⚠️ <b>${ets[campo]}</b>: sin stock (0 disponibles)</div>`;
-    } else if (d.minimo > 0 && d.disponible <= d.minimo) {
+      alertasHtml += `<div>⚠️ <b>${ets[campo]}</b>: ${disponible<0?('debiendo '+Math.abs(disponible)):'sin stock (0 disponibles)'}</div>`;
+    } else if (minimo > 0 && disponible <= minimo) {
       color='#b71c1c'; bg='#ffebee'; icon='🔴';
-      alertasHtml += `<div>⚠️ <b>${ets[campo]}</b>: quedan ${d.disponible} (mínimo: ${d.minimo})</div>`;
-    } else if (d.minimo > 0 && d.disponible <= Math.ceil(d.minimo * 1.3)) {
+      alertasHtml += `<div>⚠️ <b>${ets[campo]}</b>: quedan ${disponible} (mínimo: ${minimo})</div>`;
+    } else if (minimo > 0 && disponible <= Math.ceil(minimo * 1.3)) {
       color='#e65100'; bg='#fff3e0'; icon='🟡';
     }
+    const saldoLbl = saldoIni<0 ? `<b style="color:#b71c1c">${saldoIni} (debía)</b>` : `<b>${saldoIni}</b>`;
+    const detalle = esMensual
+      ? `<div class="ins-stock-row"><span>Saldo mes anterior:</span>${saldoLbl}</div>
+         <div class="ins-stock-row"><span>Ingresó este mes:</span><b>${ingMes}</b></div>
+         <div class="ins-stock-row"><span>Usó este mes:</span><b>${usoMes}</b></div>`
+      : `<div class="ins-stock-row"><span>Ingresado total:</span><b>${base.ingresado}</b></div>
+         <div class="ins-stock-row"><span>Usado total:</span><b>${base.usado}</b></div>`;
+    const dispLbl = disponible<0 ? `debiendo ${Math.abs(disponible)}` : disponible;
     return `<div class="ins-stock-card" style="border-left:5px solid ${color};background:${bg}">
       <div style="font-size:14px;font-weight:700;color:${color};margin-bottom:8px">${icon} ${ets[campo]}</div>
-      <div class="ins-stock-row"><span>Ingresado total:</span><b>${d.ingresado}</b></div>
-      <div class="ins-stock-row"><span>Usado total:</span><b>${d.usado}</b></div>
+      ${detalle}
       <div class="ins-stock-row" style="font-size:15px;border-top:1px solid rgba(0,0,0,.1);margin-top:5px;padding-top:6px">
-        <span>Disponible:</span><b style="color:${color}">${d.disponible}</b>
+        <span>Disponible:</span><b style="color:${color}">${dispLbl}</b>
       </div>
-      ${d.minimo>0?`<div class="ins-stock-row" style="font-size:11px;color:#888;margin-top:2px"><span>Mínimo alerta:</span><span>${d.minimo}</span></div>`:''}
+      ${minimo>0?`<div class="ins-stock-row" style="font-size:11px;color:#888;margin-top:2px"><span>Mínimo alerta:</span><span>${minimo}</span></div>`:''}
     </div>`;
   }).join('');
 
@@ -6797,26 +6905,40 @@ function renderStockCards(res, data) {
     `<div><label>Mín. ${ets[c]}</label><input type="number" class="ins-min-inp" data-campo="${c}" min="0" value="${data[c]?.minimo||0}" style="width:88px"></div>`
   ).join('');
 
+  const tieneCerrados = Object.keys(insGetCierres(res)).length > 0;
+  const encabezado = esMensual
+    ? `<div style="background:#e8f0fe;border:1px solid #a9c7f5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#1a3c6b">
+         📅 Mes en curso: <b>${insMesLabel(mensual.mes)}</b> — el disponible arranca del saldo que quedó del mes anterior.</div>`
+    : `<div style="background:#fff8e1;border:1px solid #ffcc66;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#8a5a00">
+         ℹ️ Todavía no cerraste ningún mes para <b>${escapeHtml(resNom)}</b>. Se muestra el <b>acumulado</b>. Al tocar <b>🔒 Cerrar mes</b>, el disponible de ahora pasará como <b>saldo inicial</b> del mes siguiente.</div>`;
+
   return `
-    ${alertasHtml ? `<div class="ins-stock-alerta">🔔 Stock bajo — ${escapeHtml(res)}:<br>${alertasHtml}</div>` : ''}
+    ${encabezado}
+    ${alertasHtml ? `<div class="ins-stock-alerta">🔔 Stock bajo — ${escapeHtml(resNom)}:<br>${alertasHtml}</div>` : ''}
     <div class="ins-stock-cards">${cards}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
       <button class="btn primary" id="ins-ingreso-btn">📥 Registrar ingreso</button>
       <button class="btn secondary" id="ins-minimos-btn">⚙️ Configurar mínimos</button>
       <button class="btn secondary" id="ins-hist-btn">📚 Ver historial</button>
+      ${tieneCerrados?`<button class="btn secondary" id="ins-cerrados-btn">📅 Ver meses cerrados</button>`:''}
+      <button class="btn" id="ins-cerrarmes-btn" style="background:#8a5a00;color:white">🔒 Cerrar mes e iniciar nuevo</button>
     </div>
     <div id="ins-ing-form" style="display:none">
       <div class="card" style="max-width:560px;margin-top:10px">
-        <h3 style="margin:0 0 12px">📥 Registrar ingreso — ${escapeHtml(res)}</h3>
-        <div class="form-row">${ingForm}</div>
+        <h3 style="margin:0 0 12px">📥 Registrar ingreso — ${escapeHtml(resNom)}</h3>
+        <div class="form-row">
+          <div><label>📅 Fecha recibido</label><input type="date" id="ins-ing-fecha" value="${insHoyISO()}" style="width:150px"></div>
+        </div>
+        <div class="form-row" style="margin-top:8px">${ingForm}</div>
         <div style="margin-top:8px"><label>Observación</label>
-          <input type="text" id="ins-ing-obs" placeholder="ej: entrega farmacia mayo" style="width:100%"></div>
+          <input type="text" id="ins-ing-obs" placeholder="ej: entrega familia" style="width:100%"></div>
         <div style="margin-top:12px;display:flex;gap:8px">
           <button class="btn primary" id="ins-ing-ok">💾 Guardar ingreso</button>
           <button class="btn secondary" id="ins-ing-cancel">Cancelar</button>
         </div>
       </div>
     </div>
+    <div id="ins-cerrados-wrap" style="display:none;margin-top:14px"></div>
     <div id="ins-min-form" style="display:none">
       <div class="card" style="max-width:560px;margin-top:10px">
         <h3 style="margin:0 0 12px">⚙️ Stock mínimo — ${escapeHtml(res)}</h3>
@@ -6849,7 +6971,9 @@ function attachStockListeners(res) {
     const url = getIndicUrl(); if (!url) return;
     const vals = {};
     document.querySelectorAll('.ins-ing-inp').forEach(i => { vals[i.dataset.campo] = Number(i.value)||0; });
-    const obs = document.getElementById('ins-ing-obs')?.value||'';
+    const obsTexto = document.getElementById('ins-ing-obs')?.value||'';
+    const fechaRec = document.getElementById('ins-ing-fecha')?.value || insHoyISO();
+    const obs = insArmarObs(fechaRec, obsTexto);
     if (Object.values(vals).every(v=>v===0)) { toast('Ingresá al menos un producto'); return; }
     const btn = document.getElementById('ins-ing-ok');
     btn.disabled=true; btn.textContent='⏳ Guardando...';
@@ -6907,20 +7031,173 @@ function attachStockListeners(res) {
       const r = await fetch(`${url}?action=getIngresos&residente=${encodeURIComponent(res)}&t=${Date.now()}`);
       const j = await r.json();
       if (!j.ok) { wHist.innerHTML=`<div style="color:red">Error: ${escapeHtml(j.error||'')}</div>`; return; }
-      const filas = (j.data||[]).map(it => `<tr>
-        <td style="font-size:12px">${escapeHtml(String(it.fecha||''))}</td>
+      const filas = (j.data||[]).map(it => {
+        const p = insParseObs(it.obs);
+        const recib = p.rec ? p.rec.split('-').reverse().join('/') : '—';
+        return `<tr>
+        <td style="font-size:12px;font-weight:600">${escapeHtml(recib)}</td>
+        <td style="font-size:11px;color:#8a97a5">${escapeHtml(String(it.fecha||''))}</td>
         <td>${it.pañal||0}</td><td>${it.zalea||0}</td>
         <td>${it.aposito||0}</td><td>${it.bombacha||0}</td>
-        <td style="font-size:11px;color:#6c7a8a">${escapeHtml(it.obs||'')}</td>
-      </tr>`).join('');
+        <td style="font-size:11px;color:#6c7a8a">${escapeHtml(p.obs||'')}</td>
+      </tr>`;}).join('');
       wHist.innerHTML = `
         <h3 style="margin:0 0 10px">📚 Historial de ingresos — ${escapeHtml(nombreStock(res))}</h3>
         <div style="overflow-x:auto"><table class="tabla">
-          <thead><tr><th>Fecha</th><th>Pañal</th><th>Zalea</th><th>Apósito</th><th>Bombacha</th><th>Observación</th></tr></thead>
-          <tbody>${filas||'<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Sin ingresos registrados</td></tr>'}</tbody>
+          <thead><tr><th>Recibido</th><th>Cargado</th><th>Pañal</th><th>Zalea</th><th>Apósito</th><th>Bombacha</th><th>Observación</th></tr></thead>
+          <tbody>${filas||'<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">Sin ingresos registrados</td></tr>'}</tbody>
         </table></div>`;
     } catch(e) { wHist.innerHTML='<div style="color:red">Error de conexión</div>'; }
   });
+
+  // Ver meses cerrados (archivo) de esta entidad
+  const wCerr = document.getElementById('ins-cerrados-wrap');
+  document.getElementById('ins-cerrados-btn')?.addEventListener('click', () => {
+    if (!wCerr) return;
+    if (wCerr.style.display !== 'none') { wCerr.style.display='none'; return; }
+    wCerr.style.display='block';
+    wCerr.innerHTML = renderMesesCerrados(res);
+  });
+
+  // Cerrar mes e iniciar nuevo (TODOS los residentes + depósito)
+  document.getElementById('ins-cerrarmes-btn')?.addEventListener('click', () => cerrarMesInsumos(res));
+}
+
+// Muestra los meses ya cerrados de una entidad, con opción de imprimir.
+function renderMesesCerrados(entityKey) {
+  const c = insGetCierres(entityKey);
+  const meses = Object.keys(c).sort().reverse();
+  if (!meses.length) return '<div style="color:#888;padding:12px">Sin meses cerrados todavía.</div>';
+  const ets = INS_ETS_ST;
+  const bloques = meses.map(mes => {
+    const snap = c[mes];
+    const filas = INS_CAMPOS_ST.map(cp => {
+      const d = snap[cp] || {};
+      const si = Number(d.saldoInicial)||0, ing = Number(d.ingresado)||0, us = Number(d.usado)||0, disp = Number(d.disponible)||0;
+      const dispTxt = disp<0 ? `<b style="color:#b71c1c">debiendo ${Math.abs(disp)}</b>` : `<b>${disp}</b>`;
+      return `<tr><td style="text-align:left">${ets[cp]}</td><td>${si}</td><td>${ing}</td><td>${us}</td><td>${dispTxt}</td></tr>`;
+    }).join('');
+    const meta = snap.__meta || {};
+    return `<div style="margin-bottom:16px">
+      <h4 style="margin:0 0 6px">📅 ${insMesLabel(mes)} ${meta.cerradoPor?`<span style="font-size:11px;color:#888;font-weight:400">— cerrado por ${escapeHtml(meta.cerradoPor)} el ${escapeHtml(meta.cerradoAt||'')}</span>`:''}</h4>
+      <table class="tabla" style="max-width:560px"><thead>
+        <tr><th style="text-align:left">Producto</th><th>Saldo inicial</th><th>Ingresó</th><th>Usó</th><th>Quedó</th></tr>
+      </thead><tbody>${filas}</tbody></table>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="max-width:620px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">📅 Meses cerrados — ${escapeHtml(nombreStock(entityKey))}</h3>
+      <button class="btn small" style="background:#2e7d32" onclick="imprimirMesesCerrados('${entityKey.replace(/'/g,"\\'")}')">🖨 Imprimir</button>
+    </div>
+    ${bloques}
+  </div>`;
+}
+
+function imprimirMesesCerrados(entityKey) {
+  const c = insGetCierres(entityKey);
+  const meses = Object.keys(c).sort().reverse();
+  const ets = INS_ETS_ST;
+  const bloques = meses.map(mes => {
+    const snap = c[mes];
+    const filas = INS_CAMPOS_ST.map(cp => {
+      const d = snap[cp] || {};
+      const disp = Number(d.disponible)||0;
+      return `<tr><td>${ets[cp]}</td><td>${Number(d.saldoInicial)||0}</td><td>${Number(d.ingresado)||0}</td><td>${Number(d.usado)||0}</td><td>${disp<0?('debiendo '+Math.abs(disp)):disp}</td></tr>`;
+    }).join('');
+    return `<h3>${insMesLabel(mes)}</h3><table><thead><tr><th>Producto</th><th>Saldo inicial</th><th>Ingresó</th><th>Usó</th><th>Quedó</th></tr></thead><tbody>${filas}</tbody></table>`;
+  }).join('');
+  const win = window.open('', '_blank', 'width=800,height=950');
+  win.document.write(`<html><head><title>Meses cerrados — ${escapeHtml(nombreStock(entityKey))}</title>
+    <style>body{font-family:Arial,sans-serif;margin:28px;color:#222}h1{font-size:18px}h3{font-size:15px;margin:18px 0 6px}
+    table{border-collapse:collapse;width:100%;max-width:560px;margin-bottom:8px}th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:center}
+    th{background:#eef3fb}td:first-child,th:first-child{text-align:left}</style></head><body>
+    <h1>Insumos — Meses cerrados</h1><p><b>${escapeHtml(nombreStock(entityKey))}</b></p>${bloques}
+    <scr`+`ipt>window.onload=function(){window.print()}</scr`+`ipt></body></html>`);
+  win.document.close();
+}
+
+// Cierra el mes de TODOS los residentes + depósito: guarda un snapshot (saldo inicial,
+// ingresado, usado, disponible) y el disponible pasa como saldo inicial del mes siguiente.
+async function cerrarMesInsumos(resActual) {
+  const url = getIndicUrl();
+  if (!url) { toast('Configurá la URL del Web App en ⚙️ Configurar nube'); return; }
+
+  const entidades = (state.residentes||[]).map(r=>r.nombre);
+  entidades.push('__DEPOSITO_GENERAL__');
+  const algunoCerrado = entidades.some(e=>Object.keys(insGetCierres(e)).length>0);
+  let mesDef;
+  if (algunoCerrado) {
+    const abiertos = entidades.map(e=>insMesAbierto(e)).filter(Boolean).sort();
+    mesDef = abiertos[abiertos.length-1] || insMesActual();
+  } else {
+    mesDef = insMesAnterior(insMesActual());
+  }
+  // opciones: mesDef y algunos alrededor
+  const opciones = [];
+  let base = insMesActual();
+  for (let i=0; i<6; i++) { opciones.push(base); base = insMesAnterior(base); }
+  if (opciones.indexOf(mesDef)<0) opciones.push(mesDef);
+  const optHtml = opciones.sort().reverse().map(m=>`<option value="${m}"${m===mesDef?' selected':''}>${insMesLabel(m)}</option>`).join('');
+
+  // Modal
+  const ov = document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML = `<div style="background:white;border-radius:12px;max-width:460px;width:100%;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.3)">
+    <h3 style="margin:0 0 10px;color:#8a5a00">🔒 Cerrar mes e iniciar nuevo</h3>
+    <p style="font-size:13px;color:#444;margin:0 0 12px">Se archiva el mes elegido para <b>todos los residentes y el depósito</b>. El <b>disponible</b> de cada uno pasa como <b>saldo inicial</b> del mes siguiente (a favor o debiendo). La carga del mes nuevo arranca de cero.</p>
+    <label style="font-size:13px;font-weight:600">Mes que cerrás</label>
+    <select id="ins-cm-mes" class="ins-select" style="width:100%;margin:6px 0 14px">${optHtml}</select>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" id="ins-cm-cancel">Cancelar</button>
+      <button class="btn" id="ins-cm-ok" style="background:#8a5a00;color:white">🔒 Cerrar y archivar</button>
+    </div>
+    <div id="ins-cm-status" style="font-size:12px;color:#666;margin-top:10px"></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const cerrar = ()=>{ try{document.body.removeChild(ov);}catch(e){} };
+  ov.querySelector('#ins-cm-cancel').onclick = cerrar;
+  ov.addEventListener('click', e=>{ if(e.target===ov) cerrar(); });
+
+  ov.querySelector('#ins-cm-ok').onclick = async () => {
+    const mes = ov.querySelector('#ins-cm-mes').value;
+    const st = ov.querySelector('#ins-cm-status');
+    const okBtn = ov.querySelector('#ins-cm-ok'); okBtn.disabled=true; okBtn.textContent='⏳ Cerrando...';
+    const usuario = (typeof getCurrentUser==='function' && getCurrentUser()) || '';
+    const fechaTxt = new Date().toLocaleDateString('es-AR');
+
+    // Acelerar el primer cierre con getAllStock (acumulado de todos los residentes)
+    let allStock = null;
+    if (!algunoCerrado) { try { const j=await (await fetch(`${url}?action=getAllStock&t=${Date.now()}`)).json(); if(j.ok) allStock=j.data; } catch(e){} }
+    const allMap = {}; (allStock||[]).forEach(x=>{ allMap[String(x.residente).toLowerCase()] = x.stock; });
+
+    let n=0;
+    for (const ent of entidades) {
+      st.textContent = `Cerrando ${nombreStock(ent)}... (${n+1}/${entidades.length})`;
+      const primerDeEsta = Object.keys(insGetCierres(ent)).length===0;
+      const snap = {};
+      try {
+        if (primerDeEsta) {
+          // Snapshot del acumulado (transición): disponible actual = saldo que arranca el mes que viene
+          let base = allMap[String(ent).toLowerCase()];
+          if (!base) { const j=await (await fetch(`${url}?action=getStockResumen&residente=${encodeURIComponent(ent)}&t=${Date.now()}`)).json(); base = j.ok?j.data:{}; }
+          INS_CAMPOS_ST.forEach(cp=>{ const d=base[cp]||{ingresado:0,usado:0,disponible:0}; snap[cp]={ saldoInicial:0, ingresado:Number(d.ingresado)||0, usado:Number(d.usado)||0, disponible:Number(d.disponible)||0 }; });
+        } else {
+          const { ing, uso } = await insCalcMensual(url, ent, mes);
+          const saldo = insSaldoInicial(ent, mes) || {pañal:0,zalea:0,aposito:0,bombacha:0};
+          INS_CAMPOS_ST.forEach(cp=>{ const si=Number(saldo[cp])||0, ig=Number(ing[cp])||0, us=Number(uso[cp])||0; snap[cp]={ saldoInicial:si, ingresado:ig, usado:us, disponible:si+ig-us }; });
+        }
+        snap.__meta = { cerradoPor: usuario, cerradoAt: fechaTxt };
+        insSetCierre(ent, mes, snap);
+        n++;
+      } catch(e) { /* seguir con el resto */ }
+    }
+    try { saveData(); } catch(e) {}      // sincroniza los cierres de residentes (clave 'residentes')
+    if (typeof logCambio==='function') logCambio('insumos', `Cierre de mes de insumos: ${insMesLabel(mes)} (${n} entidades). Saldo arrastrado al mes siguiente.`);
+    cerrar();
+    toast(`✅ Mes ${insMesLabel(mes)} cerrado (${n} residentes/depósito). Arranca ${insMesLabel(insMesSiguiente(mes))}.`);
+    cargarStockInsumos(resActual);
+  };
 }
 
 // Menú móvil: abrir/cerrar el panel lateral deslizable
