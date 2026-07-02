@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-01-1';
+const APP_VERSION = 'v2026-07-02-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -3736,6 +3736,23 @@ function eliminarResidente(nombre) {
   navigate('dashboard');
 }
 
+// Las recetas y la historia clinica se guardan POR NOMBRE: al renombrar un residente
+// hay que moverlas al nombre nuevo, si no quedan "huerfanas" y desaparecen de la vista
+// (paso el 28-30 jun con 5 residentes renombrados: 52 recetas invisibles).
+function migrarRecetasNombre(viejo, nuevo) {
+  try {
+    if (state.recetas && state.recetas[viejo]) {
+      state.recetas[nuevo] = (state.recetas[nuevo] || []).concat(state.recetas[viejo]);
+      delete state.recetas[viejo];
+      saveRecetas();
+    }
+    if (state.historiasCli && state.historiasCli[viejo]) {
+      if (!state.historiasCli[nuevo]) state.historiasCli[nuevo] = state.historiasCli[viejo];
+      delete state.historiasCli[viejo];
+      saveHistoriasCli();
+    }
+  } catch (e) { console.error('migrarRecetasNombre', e); }
+}
 function renombrarResidente(nombreActual) {
   if (bloquearSiNoAdmin('renombrar residentes')) return;
   const nuevo = prompt('Nuevo nombre del residente:', nombreActual);
@@ -3749,6 +3766,7 @@ function renombrarResidente(nombreActual) {
   r.nombre = nuevoLimpio;
   logCambio('residente', 'Residente renombrado: ' + nombreActual + ' -> (' + nuevoLimpio + ')');
   csMigrarNombreCS(nombreActual, nuevoLimpio);
+  migrarRecetasNombre(nombreActual, nuevoLimpio);
   saveData();
   saveCS();
   toast('Renombrado: ' + nombreActual + ' a ' + nuevoLimpio);
@@ -4841,6 +4859,7 @@ function csRenombrarResidente(nombreActual) {
   r.nombre = nuevoLimpio;
   logCambio('residente', 'Residente renombrado: ' + nombreActual + ' -> (' + nuevoLimpio + ')');
   csMigrarNombreCS(nombreActual, nuevoLimpio);
+  migrarRecetasNombre(nombreActual, nuevoLimpio);
   if (state.residenteSel === nombreActual) state.residenteSel = nuevoLimpio;
   saveData();
   saveCS();
