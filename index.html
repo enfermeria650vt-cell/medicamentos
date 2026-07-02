@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-02-3';
+const APP_VERSION = 'v2026-07-02-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6799,6 +6799,26 @@ function insSetCierre(entityKey, mes, snapshot){
   if(!r.insumosCierres) r.insumosCierres={};
   r.insumosCierres[mes]=snapshot; return true;
 }
+// Descarte de saldo anterior (datos viejos/de prueba): guarda cuánto RESTAR del saldo
+// derivado para que el arrastre quede en 0 al momento del descarte. Por residente se
+// sincroniza (residente.insumosDescarte via saveData); el depósito queda en localStorage.
+function insGetDescarte(entityKey){
+  if(entityKey==='__DEPOSITO_GENERAL__'){ try{return JSON.parse(localStorage.getItem('vt_ins_descarte_deposito')||'null');}catch(e){return null;} }
+  const r=(state.residentes||[]).find(x=>x.nombre===entityKey);
+  return (r && r.insumosDescarte) || null;
+}
+function insSetDescarte(entityKey, obj){
+  if(entityKey==='__DEPOSITO_GENERAL__'){
+    if(obj===null) localStorage.removeItem('vt_ins_descarte_deposito');
+    else localStorage.setItem('vt_ins_descarte_deposito', JSON.stringify(obj));
+    return true;
+  }
+  const r=(state.residentes||[]).find(x=>x.nombre===entityKey);
+  if(!r) return false;
+  if(obj===null) delete r.insumosDescarte; else r.insumosDescarte=obj;
+  saveData();
+  return true;
+}
 // Mes abierto (en curso) de una entidad = mes siguiente al último cierre. null = todavía en modo acumulado.
 function insMesAbierto(entityKey){
   const c=insGetCierres(entityKey); const ks=Object.keys(c).sort();
@@ -6860,11 +6880,13 @@ async function cargarStockInsumos(res) {
     {
       const { ing, uso } = await insCalcMensual(url, res, mesAbierto);
       const saldo = {};
+      const desc = insGetDescarte(res);
       INS_CAMPOS_ST.forEach(cp => {
         const b = j.data[cp] || {};
         saldo[cp] = (Number(b.disponible)||0) - (Number(ing[cp])||0) + (Number(uso[cp])||0);
+        if (desc) saldo[cp] -= Number(desc[cp])||0;
       });
-      mensual = { mes: mesAbierto, saldo, ing, uso };
+      mensual = { mes: mesAbierto, saldo, ing, uso, descarte: desc || null };
     }
     insumosState.stockMensual = mensual;
     cont.innerHTML = renderStockCards(res, j.data, mensual);
@@ -6924,7 +6946,7 @@ function renderStockCards(res, data, mensual) {
   }).join('');
 
   const ingForm = Object.keys(ets).map(c =>
-    `<div><label>${ets[c]}</label><input type="number" class="ins-ing-inp" data-campo="${c}" min="0" value="0" style="width:88px"></div>`
+    `<div><label>${ets[c]}</label><input type="number" class="ins-ing-inp" data-campo="${c}" value="0" style="width:88px"></div>`
   ).join('');
   const minForm = Object.keys(ets).map(c =>
     `<div><label>Mín. ${ets[c]}</label><input type="number" class="ins-min-inp" data-campo="${c}" min="0" value="${data[c]?.minimo||0}" style="width:88px"></div>`
@@ -6933,7 +6955,7 @@ function renderStockCards(res, data, mensual) {
   const tieneCerrados = Object.keys(insGetCierres(res)).length > 0;
   const encabezado = esMensual
     ? `<div style="background:#e8f0fe;border:1px solid #a9c7f5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#1a3c6b">
-         📅 Mes en curso: <b>${insMesLabel(mensual.mes)}</b> — arranca en 0 y solo se arrastra el saldo del mes anterior (a favor o debiendo).</div>`
+         📅 Mes en curso: <b>${insMesLabel(mensual.mes)}</b> — arranca en 0 y solo se arrastra el saldo del mes anterior (a favor o debiendo).${mensual.descarte?` <span style="color:#b71c1c">🧹 Datos anteriores descartados el ${escapeHtml(String(mensual.descarte.fecha||''))}.</span>`:''}</div>`
     : `<div style="background:#fff8e1;border:1px solid #ffcc66;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#8a5a00">
          ℹ️ Mostrando el <b>acumulado</b> (no se pudo calcular el mes en curso).</div>`;
 
@@ -6947,6 +6969,9 @@ function renderStockCards(res, data, mensual) {
       <button class="btn secondary" id="ins-hist-btn">📚 Ver historial</button>
       ${tieneCerrados?`<button class="btn secondary" id="ins-cerrados-btn">📅 Ver meses cerrados</button>`:''}
       <button class="btn" id="ins-cerrarmes-btn" style="background:#8a5a00;color:white">🔒 Cerrar mes e iniciar nuevo</button>
+      ${esMensual && mensual.descarte
+        ? `<button class="btn secondary" id="ins-descartar-btn">↩️ Restaurar saldo anterior</button>`
+        : `<button class="btn" id="ins-descartar-btn" style="background:#b71c1c;color:white">🧹 Poner saldo anterior en 0</button>`}
     </div>
     <div id="ins-ing-form" style="display:none">
       <div class="card" style="max-width:560px;margin-top:10px">
@@ -6957,6 +6982,8 @@ function renderStockCards(res, data, mensual) {
         <div class="form-row" style="margin-top:8px">${ingForm}</div>
         <div style="margin-top:8px"><label>Observación</label>
           <input type="text" id="ins-ing-obs" placeholder="ej: entrega familia" style="width:100%"></div>
+        <div style="font-size:12px;color:#8a5a00;background:#fff8e1;border:1px solid #ffcc66;border-radius:6px;padding:6px 10px;margin-top:8px">
+          ✏️ <b>Para corregir una carga equivocada</b>: cargá la cantidad en <b>negativo</b> (ej: -70) con la misma fecha, y anotá el motivo en la observación.</div>
         <div style="margin-top:12px;display:flex;gap:8px">
           <button class="btn primary" id="ins-ing-ok">💾 Guardar ingreso</button>
           <button class="btn secondary" id="ins-ing-cancel">Cancelar</button>
@@ -7086,6 +7113,33 @@ function attachStockListeners(res) {
 
   // Cerrar mes e iniciar nuevo (TODOS los residentes + depósito)
   document.getElementById('ins-cerrarmes-btn')?.addEventListener('click', () => cerrarMesInsumos(res));
+
+  // Poner saldo anterior en 0 (descartar datos viejos/de prueba) o restaurarlo
+  document.getElementById('ins-descartar-btn')?.addEventListener('click', () => insDescartarSaldoUI(res));
+}
+
+// Descarta el arrastre actual (queda 0) o lo restaura. Solo afecta la entidad visible.
+function insDescartarSaldoUI(res){
+  if (typeof bloquearSiNoAdmin === 'function' && bloquearSiNoAdmin('corregir el saldo de insumos')) return;
+  const desc = insGetDescarte(res);
+  if (desc) {
+    if (!confirm('¿Restaurar el saldo anterior de ' + nombreStock(res) + '? Vuelve a sumar lo que se había descartado el ' + (desc.fecha||'') + '.')) return;
+    insSetDescarte(res, null);
+    try { logCambio('insumos', 'Insumos: saldo anterior RESTAURADO para ' + nombreStock(res)); } catch(e) {}
+    toast('↩️ Saldo anterior restaurado');
+    cargarStockInsumos(res);
+    return;
+  }
+  const m = insumosState.stockMensual;
+  if (!m || !m.saldo) { toast('Esperá a que termine de cargar el stock'); return; }
+  const det = INS_CAMPOS_ST.map(cp => '  • ' + INS_ETS_ST[cp] + ': ' + (Number(m.saldo[cp])||0)).join('\n');
+  if (!confirm('Se descarta el saldo que venía de meses anteriores (queda en 0) para ' + nombreStock(res) + ':\n\n' + det + '\n\nLo cargado y usado ESTE mes se conserva. Podés deshacerlo con "Restaurar saldo anterior". ¿Continuar?')) return;
+  const obj = { mes: m.mes, fecha: insHoyISO() };
+  INS_CAMPOS_ST.forEach(cp => obj[cp] = Number(m.saldo[cp])||0);
+  insSetDescarte(res, obj);
+  try { logCambio('insumos', 'Insumos: saldo anterior puesto en 0 para ' + nombreStock(res) + ' (descarte de datos viejos/prueba)'); } catch(e) {}
+  toast('✅ Saldo anterior en 0 — este mes queda solo con lo cargado ahora');
+  cargarStockInsumos(res);
 }
 
 // Muestra los meses ya cerrados de una entidad, con opción de imprimir.
