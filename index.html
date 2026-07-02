@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-02-4';
+const APP_VERSION = 'v2026-07-02-5';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2017,7 +2017,7 @@ async function cloudPull(silencioso = false) {
   syncState.running = true;
   actualizarBadgeSync('🔄 Trayendo...');
   try {
-    const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 30000, true);
+    const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
     const json = await r.json();
     if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
 
@@ -6705,7 +6705,7 @@ render = function() {
   if (syncHabilitado()) {
     // Primer pull para ver qué hay en la nube
     try {
-      const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 30000, true);
+      const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
       const j = await r.json();
       // Si la nube está vacía pero tengo datos locales → push
       const remotoVacio = !j.ok || !j.data ||
