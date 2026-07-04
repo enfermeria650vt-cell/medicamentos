@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-02-5';
+const APP_VERSION = 'v2026-07-04-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1903,7 +1903,10 @@ const SYNC_URL_KEY = 'med_geri_sync_url';
 const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzNsNlspZ93MU9ReVk9pH8_gIAhzLS7vX4hyWX2uDcYSXIpSnVkp7ZQsGSl_zw_zI_d9Q/exec'; // URL preconfigurada — auto-conexión sin configuración manual
 // Backend de respaldo (misma planilla, otra "puerta"): si el principal se cae, la app cambia sola.
 const BACKUP_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzau6JaP0UTrVMabAKumz97PgVy3UpNiAXICQBdaLtLslOW24-vdHGVLM6ZSdtHADBSKw/exec';
-const BACKEND_URLS = [DEFAULT_SYNC_URL, BACKUP_SYNC_URL];
+// Backend ESPEJO (proyecto Apps Script INDEPENDIENTE, misma planilla): sobrevive si el
+// proyecto principal entero se corrompe (404 del 24-jun y 4-jul tumbo ambas puertas juntas).
+const MIRROR_SYNC_URL = 'https://script.google.com/macros/s/AKfycbwY6dBONa4b6cJb91LVupxrsjeY_Th_2sjQOXWz0lRGU6nHAeS7_CCWbq3V5gWC7A/exec';
+const BACKEND_URLS = [DEFAULT_SYNC_URL, BACKUP_SYNC_URL, MIRROR_SYNC_URL];
 const ACTIVE_BACKEND_KEY = 'med_geri_active_backend';
 function backendsDisponibles() {
   // Respeta una URL configurada a mano que NO sea de las conocidas (modo avanzado).
