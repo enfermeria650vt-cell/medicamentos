@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-04-1';
+const APP_VERSION = 'v2026-07-04-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1974,6 +1974,9 @@ async function cloudFetchFailover(buildUrl, opts, timeoutMs, race) {
 }
 function getSyncToken() { return (localStorage.getItem('vt_sync_token') || '').trim(); }
 function syncTokenParam() { var t = getSyncToken(); return t ? ('&token=' + encodeURIComponent(t)) : ''; }
+// Fase 2: auto-adopcion de la clave. Mientras el backend este en modo suave, el pull
+// incluye syncToken; si este dispositivo no tiene clave cargada, la guarda solo.
+function adoptarSyncToken(j) { try { if (j && j.ok && j.syncToken && !getSyncToken()) { localStorage.setItem('vt_sync_token', String(j.syncToken).trim()); console.log('Clave de sync adoptada automaticamente'); } } catch (e) {} }
 function setCloudUrl(u) { localStorage.setItem(SYNC_URL_KEY, u); }
 function getLastPull() { return localStorage.getItem(SYNC_LASTPULL_KEY) || ''; }
 function setLastPull(iso) { localStorage.setItem(SYNC_LASTPULL_KEY, iso); }
@@ -2022,6 +2025,7 @@ async function cloudPull(silencioso = false) {
   try {
     const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
     const json = await r.json();
+    adoptarSyncToken(json);
     if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
 
     // Aplicar datos remotos
@@ -6710,6 +6714,7 @@ render = function() {
     try {
       const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
       const j = await r.json();
+      adoptarSyncToken(j);
       // Si la nube está vacía pero tengo datos locales → push
       const remotoVacio = !j.ok || !j.data ||
         ((!Array.isArray(j.data.residentes) || j.data.residentes.length === 0) &&
