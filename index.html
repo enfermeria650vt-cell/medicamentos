@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-04-2';
+const APP_VERSION = 'v2026-07-06-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6220,7 +6220,7 @@ function setFamOverride(campo, val){
 function refrescarFam(){
   const f = insumosState.fam; if (!f) return;
   const c = document.getElementById('ins-fam-contenido');
-  if (c) c.innerHTML = renderInformeFamilia(f.res, f.mes, f.uso, f.stock);
+  if (c) c.innerHTML = renderInformeFamilia(f.res, f.mes, f.uso, f.stock, f.dispMensual);
 }
 function insVariosAdd(res){ const o=insVariosLoad(); if(!Array.isArray(o[res])) o[res]=[]; o[res].push({id:'v'+Date.now(), nombre:'', usoMes:'', disp:''}); insVariosSave(o); refrescarFam(); }
 function insVariosSet(res, id, campo, val){ const o=insVariosLoad(); const arr=o[res]||[]; const it=arr.find(x=>x.id===id); if(it){ it[campo]=val; insVariosSave(o); } }
@@ -6256,17 +6256,34 @@ async function cargarInformeFamilia(res, mes){
       });
     }
     const stock = (jS && jS.ok) ? (jS.data || {}) : {};
-    insumosState.fam = { res, mes, uso, stock };
-    cont.innerHTML = renderInformeFamilia(res, mes, uso, stock);
+    // Disponible = MISMO ciclo mensual que la pestaña Stock (respeta el descarte 🧹),
+    // no el acumulado crudo del backend. Así el Informe familia refleja lo mismo que Stock.
+    const dispMensual = {};
+    try {
+      const mesAb = insMesActual();
+      const { ing, uso: usoMesAb } = await insCalcMensual(url, res, mesAb);
+      const desc = insGetDescarte(res);
+      INS_CAMPOS_ST.forEach(cp => {
+        const b = stock[cp] || {};
+        let saldo = (Number(b.disponible)||0) - (Number(ing[cp])||0) + (Number(usoMesAb[cp])||0);
+        if (desc) saldo -= Number(desc[cp])||0;
+        dispMensual[cp] = saldo + (Number(ing[cp])||0) - (Number(usoMesAb[cp])||0);
+      });
+    } catch(e) {
+      INS_CAMPOS_ST.forEach(cp => { const b = stock[cp] || {}; dispMensual[cp] = (b.disponible != null) ? Number(b.disponible) : null; });
+    }
+    insumosState.fam = { res, mes, uso, stock, dispMensual };
+    cont.innerHTML = renderInformeFamilia(res, mes, uso, stock, dispMensual);
   } catch(e) {
     cont.innerHTML = '<div class="card" style="color:red">Error de conexión. Verificá la URL del Web App.</div>';
   }
 }
-function renderInformeFamilia(res, mes, uso, stock){
+function renderInformeFamilia(res, mes, uso, stock, dispMap){
   const filas = INSUMOS_CAMPOS.map(campo => {
     const auto = Math.round(uso[campo] || 0);
     const usoM = famUsoMostrar(res, mes, campo, auto);
-    const disp = (stock[campo] && stock[campo].disponible != null) ? Number(stock[campo].disponible) : null;
+    const disp = (dispMap && dispMap[campo] != null) ? Number(dispMap[campo])
+               : ((stock[campo] && stock[campo].disponible != null) ? Number(stock[campo].disponible) : null);
     const alcanza = famAlcanzaTxt(disp, usoM);
     return `<tr>
       <td style="font-weight:600">${INS_FAM_LABELS[campo]}</td>
@@ -6317,7 +6334,8 @@ function imprimirInformeInsumosFamilia(){
   const filas = INSUMOS_CAMPOS.map(campo => {
     const auto = Math.round((f.uso[campo])||0);
     const usoM = famUsoMostrar(res, mes, campo, auto);
-    const disp = (f.stock[campo] && f.stock[campo].disponible != null) ? Number(f.stock[campo].disponible) : null;
+    const disp = (f.dispMensual && f.dispMensual[campo] != null) ? Number(f.dispMensual[campo])
+               : ((f.stock[campo] && f.stock[campo].disponible != null) ? Number(f.stock[campo].disponible) : null);
     return `<tr><td class="it">${INS_FAM_LABELS[campo]}</td><td>${usoM}</td><td>${disp!=null?disp:'-'}</td><td>${famAlcanzaTxt(disp,usoM)}</td></tr>`;
   }).join('');
   const varios = insVariosDe(res).filter(v => (v.nombre||'').trim() !== '');
