@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-06-2';
+const APP_VERSION = 'v2026-07-06-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6298,10 +6298,10 @@ function renderInformeFamilia(res, mes, uso, stock, dispMap){
   }).join('');
   const varios = insVariosDe(res);
   const filasV = varios.map(v => `<tr>
-    <td><input type="text" value="${escapeHtml(String(v.nombre||''))}" placeholder="ej: algodón" onchange="insVariosSet('${escapeHtml(res)}','${v.id}','nombre',this.value)" style="width:96%"></td>
-    <td style="text-align:center"><input type="number" min="0" value="${escapeHtml(String(v.usoMes||''))}" onchange="insVariosSet('${escapeHtml(res)}','${v.id}','usoMes',this.value)" style="width:80px;text-align:center"></td>
-    <td style="text-align:center"><input type="number" min="0" value="${escapeHtml(String(v.disp||''))}" onchange="insVariosSet('${escapeHtml(res)}','${v.id}','disp',this.value)" style="width:80px;text-align:center"></td>
-    <td style="text-align:center"><button class="btn small" style="background:#c0392b" onclick="insVariosDel('${escapeHtml(res)}','${v.id}')">🗑</button></td>
+    <td><input type="text" value="${escapeHtml(String(v.nombre||''))}" placeholder="ej: algodón" onchange="insVariosSet('${jsAttr(res)}','${v.id}','nombre',this.value)" style="width:96%"></td>
+    <td style="text-align:center"><input type="number" min="0" value="${escapeHtml(String(v.usoMes||''))}" onchange="insVariosSet('${jsAttr(res)}','${v.id}','usoMes',this.value)" style="width:80px;text-align:center"></td>
+    <td style="text-align:center"><input type="number" min="0" value="${escapeHtml(String(v.disp||''))}" onchange="insVariosSet('${jsAttr(res)}','${v.id}','disp',this.value)" style="width:80px;text-align:center"></td>
+    <td style="text-align:center"><button class="btn small" style="background:#c0392b" onclick="insVariosDel('${jsAttr(res)}','${v.id}')">🗑</button></td>
   </tr>`).join('');
   return `
     <div class="card" style="margin-bottom:14px">
@@ -6321,7 +6321,7 @@ function renderInformeFamilia(res, mes, uso, stock, dispMap){
         <thead><tr><th>Ítem</th><th>Usa por mes</th><th>Disponible</th><th></th></tr></thead>
         <tbody>${filasV || '<tr><td colspan="4" style="text-align:center;color:#888;padding:14px">Sin ítems. Agregá con el botón de abajo.</td></tr>'}</tbody>
       </table></div>
-      <button class="btn small" style="margin-top:10px" onclick="insVariosAdd('${escapeHtml(res)}')">➕ Agregar ítem</button>
+      <button class="btn small" style="margin-top:10px" onclick="insVariosAdd('${jsAttr(res)}')">➕ Agregar ítem</button>
     </div>`;
 }
 function imprimirInformeInsumosFamilia(){
