@@ -1124,7 +1124,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-06-1';
+const APP_VERSION = 'v2026-07-06-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6261,11 +6261,12 @@ async function cargarInformeFamilia(res, mes){
     const dispMensual = {};
     try {
       const mesAb = insMesActual();
-      const { ing, uso: usoMesAb } = await insCalcMensual(url, res, mesAb);
+      const { ing, uso: usoMesAb, ingBorradoTotal } = await insCalcMensual(url, res, mesAb);
       const desc = insGetDescarte(res);
       INS_CAMPOS_ST.forEach(cp => {
         const b = stock[cp] || {};
-        let saldo = (Number(b.disponible)||0) - (Number(ing[cp])||0) + (Number(usoMesAb[cp])||0);
+        const dispBase = (Number(b.disponible)||0) - (Number((ingBorradoTotal||{})[cp])||0);
+        let saldo = dispBase - (Number(ing[cp])||0) + (Number(usoMesAb[cp])||0);
         if (desc) saldo -= Number(desc[cp])||0;
         dispMensual[cp] = saldo + (Number(ing[cp])||0) - (Number(usoMesAb[cp])||0);
       });
@@ -6845,6 +6846,91 @@ function insSetDescarte(entityKey, obj){
   saveData();
   return true;
 }
+
+// Ingresos de insumos ELIMINADOS (borrado lógico de duplicados). Solo el admin.
+// Se guarda por entidad un set de fechas-de-carga (columna "Cargado") a ocultar y descontar.
+// Por residente se sincroniza (residente.insumosIngBorrados via saveData); depósito en localStorage.
+function insGetIngBorrados(entityKey){
+  if(entityKey==='__DEPOSITO_GENERAL__'){ try{return JSON.parse(localStorage.getItem('vt_ins_ingborrados_deposito')||'{}');}catch(e){return {};} }
+  const r=(state.residentes||[]).find(x=>x.nombre===entityKey);
+  return (r && r.insumosIngBorrados) || {};
+}
+function insEsIngBorrado(entityKey, fecha){ return !!insGetIngBorrados(entityKey)[String(fecha)]; }
+function insSetIngBorrado(entityKey, fecha, borrado){
+  const k=String(fecha);
+  if(entityKey==='__DEPOSITO_GENERAL__'){
+    let m={}; try{m=JSON.parse(localStorage.getItem('vt_ins_ingborrados_deposito')||'{}');}catch(e){}
+    if(borrado) m[k]=true; else delete m[k];
+    localStorage.setItem('vt_ins_ingborrados_deposito', JSON.stringify(m)); return true;
+  }
+  const r=(state.residentes||[]).find(x=>x.nombre===entityKey);
+  if(!r) return false;
+  if(!r.insumosIngBorrados) r.insumosIngBorrados={};
+  if(borrado) r.insumosIngBorrados[k]=true; else delete r.insumosIngBorrados[k];
+  saveData();
+  return true;
+}
+async function insBorrarIngreso(res, fecha){
+  if (typeof bloquearSiNoAdmin==='function' && bloquearSiNoAdmin('eliminar ingresos')) return;
+  if(!confirm('¿Eliminar este ingreso cargado el '+fecha+'?\n\nSe descuenta del stock y deja de figurar en el historial. Podés restaurarlo después.')) return;
+  insSetIngBorrado(res, fecha, true);
+  try{ logCambio('insumos', 'Insumos: ingreso ELIMINADO (duplicado) de '+nombreStock(res)+' — cargado '+fecha); }catch(e){}
+  toast('🗑 Ingreso eliminado');
+  await insCargarHistIngresos(res);
+  cargarStockInsumos(res);
+}
+async function insRestaurarIngreso(res, fecha){
+  if (typeof bloquearSiNoAdmin==='function' && bloquearSiNoAdmin('restaurar ingresos')) return;
+  insSetIngBorrado(res, fecha, false);
+  try{ logCambio('insumos', 'Insumos: ingreso RESTAURADO de '+nombreStock(res)+' — cargado '+fecha); }catch(e){}
+  toast('↩️ Ingreso restaurado');
+  await insCargarHistIngresos(res);
+  cargarStockInsumos(res);
+}
+async function insCargarHistIngresos(res){
+  const wHist = document.getElementById('ins-hist-wrap');
+  if(!wHist) return;
+  wHist.style.display='block';
+  wHist.innerHTML='<div style="padding:8px;color:#888">⏳ Cargando historial...</div>';
+  const url = getIndicUrl(); if(!url){ wHist.innerHTML='<div style="color:red">Configurá la URL del Web App</div>'; return; }
+  try{
+    const r = await fetch(`${url}?action=getIngresos&residente=${encodeURIComponent(res)}&t=${Date.now()}`);
+    const j = await r.json();
+    if(!j.ok){ wHist.innerHTML=`<div style="color:red">Error: ${escapeHtml(j.error||'')}</div>`; return; }
+    const admin = (typeof esAdmin==='function') && esAdmin();
+    const filas = (j.data||[]).map(it => {
+      const p = insParseObs(it.obs);
+      const recib = p.rec ? p.rec.split('-').reverse().join('/') : '—';
+      const fechaKey = String(it.fecha||'');
+      const borrado = insEsIngBorrado(res, fechaKey);
+      const estilo = borrado ? 'opacity:.55;text-decoration:line-through' : '';
+      let accion='';
+      if(admin){
+        accion = borrado
+          ? `<td><button class="btn small ins-rest-ing" data-fecha="${escapeHtml(fechaKey)}" style="background:#2e7d32">↩️ Restaurar</button></td>`
+          : `<td><button class="btn small ins-del-ing" data-fecha="${escapeHtml(fechaKey)}" style="background:#c0392b">🗑 Eliminar</button></td>`;
+      }
+      return `<tr style="${estilo}">
+        <td style="font-size:12px;font-weight:600">${escapeHtml(recib)}</td>
+        <td style="font-size:11px;color:#8a97a5">${escapeHtml(fechaKey)}${borrado?' <span style="color:#c0392b;font-weight:600">(eliminado)</span>':''}</td>
+        <td>${it.pañal||0}</td><td>${it.zalea||0}</td>
+        <td>${it.aposito||0}</td><td>${it.bombacha||0}</td>
+        <td style="font-size:11px;color:#6c7a8a">${escapeHtml(p.obs||'')}</td>
+        ${accion}
+      </tr>`;}).join('');
+    const thAcc = admin ? '<th>Acción</th>' : '';
+    const colspan = admin ? 8 : 7;
+    wHist.innerHTML = `
+      <h3 style="margin:0 0 10px">📚 Historial de ingresos — ${escapeHtml(nombreStock(res))}</h3>
+      ${admin?'<p style="font-size:12px;color:#8a5a00;margin:0 0 8px">🔓 Modo admin: podés eliminar ingresos duplicados (se descuentan del stock y se pueden restaurar).</p>':'<p style="font-size:11px;color:#9aa7b4;margin:0 0 8px">Para eliminar ingresos duplicados, ingresá como administrador.</p>'}
+      <div style="overflow-x:auto"><table class="tabla">
+        <thead><tr><th>Recibido</th><th>Cargado</th><th>Pañal</th><th>Zalea</th><th>Apósito</th><th>Bombacha</th><th>Observación</th>${thAcc}</tr></thead>
+        <tbody>${filas||`<tr><td colspan="${colspan}" style="text-align:center;color:#888;padding:20px">Sin ingresos registrados</td></tr>`}</tbody>
+      </table></div>`;
+    wHist.querySelectorAll('.ins-del-ing').forEach(b=> b.addEventListener('click', ()=> insBorrarIngreso(res, b.dataset.fecha)));
+    wHist.querySelectorAll('.ins-rest-ing').forEach(b=> b.addEventListener('click', ()=> insRestaurarIngreso(res, b.dataset.fecha)));
+  }catch(e){ wHist.innerHTML='<div style="color:red">Error de conexión</div>'; }
+}
 // Mes abierto (en curso) de una entidad = mes siguiente al último cierre. null = todavía en modo acumulado.
 function insMesAbierto(entityKey){
   const c=insGetCierres(entityKey); const ks=Object.keys(c).sort();
@@ -6864,9 +6950,16 @@ function insSumaUsoRow(row, acc){
 // Ingresos + usado de una entidad para un mes puntual (según fecha de recepción / hoja de uso).
 async function insCalcMensual(url, entityKey, mes){
   const ing={pañal:0,zalea:0,aposito:0,bombacha:0};
+  const ingBorradoTotal={pañal:0,zalea:0,aposito:0,bombacha:0};
+  const borr=insGetIngBorrados(entityKey);
   try{
     const jIng=await (await fetch(`${url}?action=getIngresos&residente=${encodeURIComponent(entityKey)}&t=${Date.now()}`)).json();
     (jIng.ok?(jIng.data||[]):[]).forEach(it=>{
+      if(borr[String(it.fecha)]){
+        ingBorradoTotal.pañal+=Number(it.pañal)||0; ingBorradoTotal.zalea+=Number(it.zalea)||0;
+        ingBorradoTotal.aposito+=Number(it.aposito)||0; ingBorradoTotal.bombacha+=Number(it.bombacha)||0;
+        return; // ingreso eliminado: no cuenta como ingreso del mes
+      }
       const p=insParseObs(it.obs); const recISO=p.rec || String(it.fecha||'').substring(0,10);
       if(insMesDeISO(recISO)===mes){
         ing.pañal+=Number(it.pañal)||0; ing.zalea+=Number(it.zalea)||0;
@@ -6884,7 +6977,7 @@ async function insCalcMensual(url, entityKey, mes){
       (jU.ok?(jU.data||[]):[]).forEach(row=>insSumaUsoRow(row,uso));
     }
   }catch(e){}
-  return { ing, uso };
+  return { ing, uso, ingBorradoTotal };
 }
 
 async function cargarStockInsumos(res) {
@@ -6904,12 +6997,13 @@ async function cargarStockInsumos(res) {
     const mesAbierto = insMesActual();
     let mensual = null;
     {
-      const { ing, uso } = await insCalcMensual(url, res, mesAbierto);
+      const { ing, uso, ingBorradoTotal } = await insCalcMensual(url, res, mesAbierto);
       const saldo = {};
       const desc = insGetDescarte(res);
       INS_CAMPOS_ST.forEach(cp => {
         const b = j.data[cp] || {};
-        saldo[cp] = (Number(b.disponible)||0) - (Number(ing[cp])||0) + (Number(uso[cp])||0);
+        const dispBase = (Number(b.disponible)||0) - (Number((ingBorradoTotal||{})[cp])||0); // ingresos eliminados no cuentan
+        saldo[cp] = dispBase - (Number(ing[cp])||0) + (Number(uso[cp])||0);
         if (desc) saldo[cp] -= Number(desc[cp])||0;
       });
       mensual = { mes: mesAbierto, saldo, ing, uso, descarte: desc || null };
@@ -7098,34 +7192,11 @@ function attachStockListeners(res) {
     } catch(e) { toast('Error de conexión'); btn.disabled=false; btn.textContent='💾 Guardar mínimos'; }
   });
 
-  // Historial de ingresos
+  // Historial de ingresos (con eliminar duplicados si es admin)
   document.getElementById('ins-hist-btn')?.addEventListener('click', async () => {
     if (!wHist) return;
     if (wHist.style.display !== 'none') { wHist.style.display='none'; return; }
-    wHist.style.display='block';
-    wHist.innerHTML='<div style="padding:8px;color:#888">⏳ Cargando historial...</div>';
-    const url = getIndicUrl(); if (!url) return;
-    try {
-      const r = await fetch(`${url}?action=getIngresos&residente=${encodeURIComponent(res)}&t=${Date.now()}`);
-      const j = await r.json();
-      if (!j.ok) { wHist.innerHTML=`<div style="color:red">Error: ${escapeHtml(j.error||'')}</div>`; return; }
-      const filas = (j.data||[]).map(it => {
-        const p = insParseObs(it.obs);
-        const recib = p.rec ? p.rec.split('-').reverse().join('/') : '—';
-        return `<tr>
-        <td style="font-size:12px;font-weight:600">${escapeHtml(recib)}</td>
-        <td style="font-size:11px;color:#8a97a5">${escapeHtml(String(it.fecha||''))}</td>
-        <td>${it.pañal||0}</td><td>${it.zalea||0}</td>
-        <td>${it.aposito||0}</td><td>${it.bombacha||0}</td>
-        <td style="font-size:11px;color:#6c7a8a">${escapeHtml(p.obs||'')}</td>
-      </tr>`;}).join('');
-      wHist.innerHTML = `
-        <h3 style="margin:0 0 10px">📚 Historial de ingresos — ${escapeHtml(nombreStock(res))}</h3>
-        <div style="overflow-x:auto"><table class="tabla">
-          <thead><tr><th>Recibido</th><th>Cargado</th><th>Pañal</th><th>Zalea</th><th>Apósito</th><th>Bombacha</th><th>Observación</th></tr></thead>
-          <tbody>${filas||'<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">Sin ingresos registrados</td></tr>'}</tbody>
-        </table></div>`;
-    } catch(e) { wHist.innerHTML='<div style="color:red">Error de conexión</div>'; }
+    await insCargarHistIngresos(res);
   });
 
   // Ver meses cerrados (archivo) de esta entidad
