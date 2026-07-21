@@ -860,6 +860,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="evolucion">📈 <span>Evolución semanal</span></div>
     <div class="nav-item" data-view="nutricion">🥗 <span>Nutrición</span></div>
     <div class="nav-item nav-subitem" data-view="menugeneral">📅 <span>Menú</span></div>
+    <div class="nav-item nav-subitem" data-view="tallerista">🎨 <span>Talleristas</span></div>
     <div class="nav-item" data-view="recetas">📝 <span>Recetas</span></div>
     <div class="nav-item" data-view="familiares">👨‍👩‍👧 <span>Familiares</span></div>
     <div class="nav-item" data-view="historiasCli">🏥 <span>Historias clínicas</span></div>
@@ -1124,7 +1125,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-07-06-3';
+const APP_VERSION = 'v2026-07-21-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2620,6 +2621,7 @@ function render() {
   else if (state.view === 'evolucion') { if (_evolSoloMaxi()) { main.innerHTML = viewEvolucion(); attachEvolucion(); } else { main.innerHTML = '<div style=\"padding:40px;color:#6c7a8a;font-size:15px\">📈 La <b>Evolución semanal</b> es una función exclusiva del administrador.</div>'; } return; }
   else if (state.view === 'nutricion') { main.innerHTML = viewNutricion(); attachNutricion(); return; }
   else if (state.view === 'menugeneral') { main.innerHTML = viewMenuGeneral(); attachMenuGeneral(); return; }
+  else if (state.view === 'tallerista') { main.innerHTML = viewTallerista(); attachTallerista(); return; }
   else if (state.view === 'recetas') { main.innerHTML = viewRecetas(); attachRecetas(); return; }
   else if (state.view === 'familiares') { main.innerHTML = viewFamiliares(); attachFamiliares(); return; }
   else if (state.view === 'historiasCli') { main.innerHTML = viewHistoriasCli(); attachHistoriasCli(); return; }
@@ -8228,6 +8230,173 @@ ${tablesHtml}
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+// =====================================================
+// TALLERISTA — Cronograma mensual de actividades
+// Reusa el backend del Menú (get/setNutricionMenu) con residente='TALLERISTA'
+// para sincronizar sin tocar el Apps Script.
+// =====================================================
+let talleristaState = { mes: '', mesData: {} };
+const TALL_DIAS = ['Lun','Mar','Mié','Jue','Vie','Sáb'];
+const TALL_DIAS_FULL = ['LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+
+function viewTallerista() {
+  const url = getIndicUrl();
+  const now = new Date();
+  if (!talleristaState.mes) {
+    talleristaState.mes = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  }
+  const mes = talleristaState.mes;
+  const [mesY, mesM] = mes.split('-').map(Number);
+  const mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const mesLabel = `${mesNombres[mesM-1]} ${mesY}`;
+  const prevMes = new Date(mesY, mesM-2, 1);
+  const nextMes = new Date(mesY, mesM, 1);
+  const prevMesStr = `${prevMes.getFullYear()}-${String(prevMes.getMonth()+1).padStart(2,'0')}`;
+  const nextMesStr = `${nextMes.getFullYear()}-${String(nextMes.getMonth()+1).padStart(2,'0')}`;
+  const mondays = getMondaysOfMonth(mes);
+
+  let weeksHtml = '';
+  mondays.forEach(monday => {
+    const weekDates = Array.from({length:6}, (_,i) => {
+      const d = new Date(monday+'T00:00:00'); d.setDate(d.getDate()+i); return d;
+    });
+    const md = (talleristaState.mesData||{})[monday] || {};
+    const headCells = TALL_DIAS.map((d,i) =>
+      `<th style="padding:6px 4px;border:1px solid #bbb;text-align:center;background:#2E75B6;color:#fff;font-size:12px;width:16.6%">${TALL_DIAS_FULL[i]}<br><span style="font-weight:400;font-size:11px;color:#dce9f7">${weekDates[i].getDate()}/${weekDates[i].getMonth()+1}</span></th>`
+    ).join('');
+    const bodyCells = TALL_DIAS.map((d,i) => {
+      const key = 'd_'+d;
+      const val = md[key]||'';
+      return `<td style="padding:3px;vertical-align:top;border:1px solid #bbb"><textarea class="tall-cell" data-sem="${monday}" data-key="${key}" rows="4" style="width:100%;font-size:12px;padding:4px;border:1px solid #ddd;border-radius:4px;resize:vertical;font-family:inherit;box-sizing:border-box" placeholder="Actividad + horario">${escapeHtml(val)}</textarea></td>`;
+    }).join('');
+    weeksHtml += `
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin-bottom:14px;table-layout:fixed">
+        <thead><tr>${headCells}</tr></thead>
+        <tbody><tr>${bodyCells}</tr></tbody>
+      </table></div>`;
+  });
+
+  return `
+    <div style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+        <h2 style="margin:0;color:#2E75B6;font-size:20px">🎨 Tallerista — Cronograma de actividades</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn secondary" id="tall-guardar">💾 Guardar cronograma</button>
+          <button class="btn primary" id="tall-word">📄 Descargar Word A4</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn secondary" id="tall-prev-mes" data-mes="${prevMesStr}">◀ Mes anterior</button>
+        <strong style="font-size:15px">${mesLabel}</strong>
+        <button class="btn secondary" id="tall-next-mes" data-mes="${nextMesStr}">Mes siguiente ▶</button>
+      </div>
+      ${!url ? '<div style="color:#c00;padding:20px;background:#FFF3F3;border-radius:8px;margin-bottom:16px">⚠️ Configurá la URL de la nube en Ajustes para guardar el cronograma.</div>' : ''}
+      ${Object.keys(talleristaState.mesData).length === 0 && url ? '<div style="text-align:center;padding:40px;color:#888">⏳ Cargando cronograma...</div>' : weeksHtml}
+    </div>`;
+}
+
+function attachTallerista() {
+  const url = getIndicUrl();
+  ['tall-prev-mes','tall-next-mes'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.onclick = () => {
+      talleristaState.mes = btn.dataset.mes;
+      talleristaState.mesData = {};
+      document.getElementById('main').innerHTML = viewTallerista(); attachTallerista();
+      if (url) cargarTallerista();
+    };
+  });
+  const btnG = document.getElementById('tall-guardar');
+  if (btnG) btnG.onclick = async () => {
+    if (!url) { if(typeof toast==='function') toast('Configurá la URL de la nube'); return; }
+    const semanas = {};
+    document.querySelectorAll('.tall-cell').forEach(ta => {
+      const sem = ta.dataset.sem;
+      if (!semanas[sem]) semanas[sem] = {};
+      semanas[sem][ta.dataset.key] = ta.value;
+    });
+    const usuario = getCurrentUser()||'';
+    btnG.textContent = '⏳ Guardando...'; btnG.disabled = true;
+    let ok = true;
+    for (const semana of Object.keys(semanas)) {
+      try {
+        const r = await fetch(`${url}?${new URLSearchParams({action:'setNutricionMenu',semana,residente:'TALLERISTA',data:JSON.stringify(semanas[semana]),usuario})}`);
+        const j = await r.json();
+        if (j.ok) { if (!talleristaState.mesData) talleristaState.mesData = {}; talleristaState.mesData[semana] = semanas[semana]; }
+        else ok = false;
+      } catch(e) { ok = false; }
+    }
+    if(typeof toast==='function') toast(ok ? '✅ Cronograma guardado' : '❌ Error al guardar');
+    btnG.textContent = '💾 Guardar cronograma'; btnG.disabled = false;
+  };
+  const btnW = document.getElementById('tall-word');
+  if (btnW) btnW.onclick = () => exportTalleristaWord();
+  if (url && Object.keys(talleristaState.mesData).length === 0) cargarTallerista();
+}
+
+async function cargarTallerista() {
+  const url = getIndicUrl();
+  if (!url) return;
+  const mes = talleristaState.mes;
+  if (!mes) return;
+  const mondays = getMondaysOfMonth(mes);
+  if (!talleristaState.mesData) talleristaState.mesData = {};
+  for (const semana of mondays) {
+    try {
+      const r = await fetch(`${url}?action=getNutricionMenu&semana=${encodeURIComponent(semana)}&residente=TALLERISTA`);
+      const j = await r.json();
+      talleristaState.mesData[semana] = (j.ok && j.data) ? j.data : {};
+    } catch(e) { talleristaState.mesData[semana] = {}; }
+  }
+  document.getElementById('main').innerHTML = viewTallerista(); attachTallerista();
+}
+
+function exportTalleristaWord() {
+  const mes = talleristaState.mes;
+  if (!mes) return;
+  const [mesY, mesM] = mes.split('-').map(Number);
+  const mesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const mesLabel = `${mesNombres[mesM-1]} ${mesY}`;
+  const mondays = getMondaysOfMonth(mes);
+  const domData = {};
+  document.querySelectorAll('.tall-cell').forEach(ta => {
+    const sem = ta.dataset.sem, key = ta.dataset.key;
+    if (sem && key) { if (!domData[sem]) domData[sem]={}; domData[sem][key]=ta.value; }
+  });
+  let rowsHtml = '';
+  mondays.forEach(monday => {
+    const weekDates = Array.from({length:6}, (_,i) => {
+      const d = new Date(monday+'T00:00:00'); d.setDate(d.getDate()+i); return d;
+    });
+    const md = domData[monday] || (talleristaState.mesData||{})[monday] || {};
+    rowsHtml += `<tr>${TALL_DIAS.map((d,i)=>`<th>${TALL_DIAS_FULL[i]} ${weekDates[i].getDate()}</th>`).join('')}</tr>`;
+    rowsHtml += `<tr>${TALL_DIAS.map(d=>{const val=(md['d_'+d]||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');return `<td>${val}</td>`;}).join('')}</tr>`;
+  });
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>
+  @page WordSection1 { size:29.7cm 21cm; margin:1.5cm; mso-page-orientation:landscape; }
+  div.WordSection1 { page:WordSection1; }
+  body { font-family:Arial,sans-serif; font-size:10pt; }
+  h1 { font-size:15pt; text-align:center; margin-bottom:8pt; }
+  table { width:100%; border-collapse:collapse; font-size:9pt; }
+  th { font-weight:bold; padding:4px; border:1px solid #333; text-align:center; background:#eee; width:16.6%; }
+  td { padding:5px; border:1px solid #333; vertical-align:top; height:48pt; }
+</style>
+</head>
+<body><div class="WordSection1">
+<h1>CRONOGRAMA DE ACTIVIDADES ${mesLabel.toUpperCase()}</h1>
+<table>${rowsHtml}</table>
+</div></body></html>`;
+  const blob = new Blob(['﻿'+html], {type:'application/msword'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Cronograma_Actividades_${mesLabel.replace(/ /g,'_')}.doc`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 
 function getMondaysOfMonth(ym) {
   const [y,m] = ym.split('-').map(Number);
