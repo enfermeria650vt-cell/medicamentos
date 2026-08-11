@@ -1125,7 +1125,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-11-1';
+const APP_VERSION = 'v2026-08-11-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6749,6 +6749,97 @@ render = function() {
 };
 
 // Flujo de inicio: pedir usuario si no hay, después renderizar
+// ===== RECUPERACIÓN AUTOMÁTICA desde el registro de cambios (11-ago-2026) =====
+// Reconstruye casilleros de Control de Signos (desde el 8-ago) y tildes de la semana actual
+// que no llegaron a la nube por el bug de deltas descartados. SOLO RELLENA VACÍOS: nunca
+// pisa un dato existente. Corre tras el pull inicial; si no falta nada, no hace nada.
+const RECU_DESDE = '2026-08-08';
+const RECU_HASTA = '2026-08-18'; // después de esta fecha deja de correr
+async function recuperarDesdeRegistro() {
+  try {
+    const hoy = new Date();
+    const hoyIso = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+    if (hoyIso > RECU_HASTA) return;
+    const last = parseInt(localStorage.getItem('vt_recu_log_ts') || '0', 10);
+    if (Date.now() - last < 6 * 60 * 60 * 1000) return; // máx. 1 vez cada 6h por equipo
+    const url = (typeof getIndicUrl === 'function') ? getIndicUrl() : '';
+    if (!url || !syncHabilitado()) return;
+    const r = await fetch(url + '?action=getHistorial&limit=3000&t=' + Date.now());
+    const j = await r.json();
+    const filas = Array.isArray(j) ? j : ((j && (j.data || j.historial)) || []);
+    if (!Array.isArray(filas) || !filas.length) return;
+    // lunes de la semana actual (para las tildes)
+    const lun = new Date(hoy); const dow = (lun.getDay() + 6) % 7; lun.setDate(lun.getDate() - dow); lun.setHours(0, 0, 0, 0);
+    const norm = function (s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase(); };
+    // índice de meds por residente para mapear nombre → id
+    const medExacto = {}, medsDeRes = {};
+    (state.residentes || []).forEach(function (res) {
+      (res.meds || []).forEach(function (m) {
+        medExacto[norm(res.nombre) + '|' + norm(m.med)] = m.id;
+        (medsDeRes[norm(res.nombre)] = medsDeRes[norm(res.nombre)] || []).push([norm(m.med), m.id]);
+      });
+    });
+    function buscarMed(res, med) {
+      const nm = norm(med);
+      const exact = medExacto[norm(res) + '|' + nm]; if (exact) return exact;
+      const cand = medsDeRes[norm(res)] || [];
+      const pref = cand.filter(function (c) { return c[0].indexOf(nm) === 0 || nm.indexOf(c[0]) === 0; });
+      if (pref.length === 1) return pref[0][1];
+      const cont = cand.filter(function (c) { return c[0].indexOf(nm) >= 0 || nm.indexOf(c[0]) >= 0; });
+      return cont.length === 1 ? cont[0][1] : null;
+    }
+    const reCS = /^(\w+)\s+(\S+)\s+=\s+([\s\S]*?)\s+\(([^()]+)\)\s+-\s+(\d{4}-\d{2}-\d{2})$/;
+    const reAdm = /^(Administró|Desmarcó): ([\s\S]*) \(([^()]+)\) - (\S{3})(?: \[toma (\d+)\])?$/;
+    const DIAS = { 'LUN': 0, 'MAR': 1, 'MIE': 2, 'JUE': 3, 'VIE': 4, 'SAB': 5, 'DOM': 6 };
+    // el log viene de MÁS NUEVO a MÁS VIEJO: la primera aparición de una celda es su última escritura
+    const csFinal = {}, admFinal = {};
+    filas.forEach(function (f) {
+      const det = (f && f.detalle) || '';
+      if (f.accion === 'controlsignos') {
+        const m = reCS.exec(det); if (!m) return;
+        const fecha = m[5]; if (fecha < RECU_DESDE) return;
+        const path = [fecha, m[1], m[4]].concat(m[2].split('.'));
+        const k = path.join('');
+        if (!(k in csFinal)) csFinal[k] = { path: path, valor: m[3] };
+      } else if (f.accion === 'administracion') {
+        const m = reAdm.exec(det); if (!m) return;
+        const p = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(f.fecha || ''); if (!p) return;
+        const ts = new Date(+p[3], +p[2] - 1, +p[1], +p[4], +p[5], +p[6]); ts.setHours(ts.getHours() - 4); // hora del log viene +4h
+        if (ts < lun) return; // solo la semana en curso
+        const dn = norm(m[4]).slice(0, 3); if (!(dn in DIAS)) return;
+        const mid = buscarMed(m[3], m[2]); if (!mid) return;
+        const dosisIdx = m[5] ? (parseInt(m[5], 10) - 1) : 0; // "[toma N]" = índice N-1
+        const key = mid + '_' + DIAS[dn] + (dosisIdx > 0 ? '_' + dosisIdx : '');
+        if (!(key in admFinal)) admFinal[key] = m[1];
+      }
+    });
+    // SOLO RELLENAR VACÍOS (el estado ya quedó mergeado con la nube tras el pull)
+    function getPath(o, path) { for (let i = 0; i < path.length; i++) { if (!o || typeof o !== 'object') return undefined; o = o[path[i]]; } return o; }
+    const setsCS = [];
+    Object.keys(csFinal).forEach(function (k) {
+      const it = csFinal[k];
+      const v = getPath(state.controlSignos || {}, it.path);
+      if (v === undefined || v === null || v === '') setsCS.push([it.path, it.valor]);
+    });
+    const setsSem = [];
+    Object.keys(admFinal).forEach(function (k) {
+      if (admFinal[k] === 'Administró' && state.semanal[k] !== true) setsSem.push([[k], true]);
+    });
+    if (!setsCS.length && !setsSem.length) { localStorage.setItem('vt_recu_log_ts', String(Date.now())); return; }
+    // aplicar LOCAL primero (se ve al instante) y subir en lotes atómicos por la cola secuencial
+    setsCS.forEach(function (p) { try { _setPathLocal(state.controlSignos, p[0], p[1]); } catch (e) {} });
+    setsSem.forEach(function (p) { state.semanal[p[0][0]] = true; });
+    try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch (e) {}
+    try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch (e) {}
+    for (let i = 0; i < setsCS.length; i += 250) await cloudPushDelta('controlSignos', setsCS.slice(i, i + 250), []);
+    if (setsSem.length) await cloudPushDelta('semanal', setsSem, []);
+    localStorage.setItem('vt_recu_log_ts', String(Date.now()));
+    try { render(); } catch (e) {}
+    toast('🩹 Se recuperaron ' + (setsCS.length + setsSem.length) + ' datos desde el registro de cambios', 'success');
+    try { logCambio('sistema', 'Recuperación automática: ' + setsCS.length + ' casilleros + ' + setsSem.length + ' tildes desde el registro de cambios'); } catch (e) {}
+  } catch (e) { console.warn('recuperarDesdeRegistro:', e); }
+}
+
 (async function init() {
   migrarCatarsisTurnos(); // migra datos viejos de catarsis al formato con turnos M/T/N
   if (getSession() || getCurrentUser()) { await pedirClaveEnfermero(); if (!getCurrentUser()) { await pedirUsuario(false); } }
