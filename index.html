@@ -1125,7 +1125,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-10-1';
+const APP_VERSION = 'v2026-08-11-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2245,25 +2245,48 @@ async function flushColaDeltas() {
         fd.append('dels', JSON.stringify(it.dels));
         fd.append('token', getSyncToken());
         fd.append('user', getCurrentUser() || 'anónimo');
-        const r = await cloudFetchFailover(function(base){ return base; }, { method: 'POST', body: fd });
-        const j = await r.json();
-        if (!j.ok) {
-          // Backend que NO soporta pushDelta: antes acá se hacía un push COMPLETO de
-          // controlSignos/semanal, que pisaba lo cargado por otros equipos ("se borra todo").
-          // Ahora NO se sube el objeto entero: descartamos este delta para no trabar la cola.
-          // El dato sigue guardado localmente y se re-sincroniza en el próximo pull o edición.
-          if (/no válida|no reconocida|pushDelta solo/i.test(String(j.error||''))) {
-            console.warn('Backend sin pushDelta: delta descartado para evitar push completo destructivo', it.key);
-            q = leerColaDeltas(); q.shift(); guardarColaDeltas(q);
-            continue;
-          }
-          throw new Error(j.error || 'Respuesta no OK');
+        // Enviar el delta probando cada backend en orden. SOLO aceptamos un backend que
+        // confirme ok:true. Si un backend VIEJO responde HTTP 200 pero ok:false "no reconocida"
+        // (no soporta pushDelta), lo SALTEAMOS y probamos el siguiente — NUNCA descartamos el
+        // delta (antes se perdía el dato en silencio y no llegaba a la nube => "se cargó y no está").
+        // Si ningún backend lo acepta, queda en la cola y se reintenta en el próximo sync.
+        const bases = backendsDisponibles();
+        let j = null, backendOk = null, huboSinPushDelta = false, ultErr = null;
+        for (let bi = 0; bi < bases.length; bi++) {
+          const base = bases[bi];
+          const ctrl = new AbortController();
+          const tid = setTimeout(function(){ try { ctrl.abort(); } catch (e) {} }, 30000);
+          try {
+            const r = await fetch(base, { method: 'POST', body: fd, signal: ctrl.signal });
+            clearTimeout(tid);
+            if (!r || !r.ok) { ultErr = new Error('HTTP ' + (r ? r.status : '?')); continue; }
+            const jj = await r.json();
+            if (jj && jj.ok) { j = jj; backendOk = base; break; }
+            if (jj && /no válida|no reconocida|pushDelta solo/i.test(String(jj.error||''))) {
+              // Backend sin pushDelta: no sirve para escribir. Despegarse de él y seguir.
+              huboSinPushDelta = true;
+              if (localStorage.getItem(ACTIVE_BACKEND_KEY) === base) localStorage.removeItem(ACTIVE_BACKEND_KEY);
+              continue;
+            }
+            ultErr = new Error((jj && jj.error) || 'Respuesta no OK');
+          } catch (e) { clearTimeout(tid); ultErr = e; }
         }
-        ultimo = j;
-        syncState.lastOk = new Date().toISOString(); syncState.lastError = null;
-        // FIX carrera: re-leer la cola ANTES de escribir, para no pisar deltas que se
-        // agregaron mientras se enviaba esta (marcar varias casillas rapido perdia las demas).
-        q = leerColaDeltas(); q.shift(); guardarColaDeltas(q);
+        if (j) {
+          // Éxito real: fijar este backend como activo (sí soporta pushDelta) y sacar el delta de la cola.
+          if (BACKEND_URLS.indexOf(backendOk) !== -1) localStorage.setItem(ACTIVE_BACKEND_KEY, backendOk);
+          ultimo = j;
+          syncState.lastOk = new Date().toISOString(); syncState.lastError = null;
+          // FIX carrera: re-leer la cola ANTES de escribir, para no pisar deltas que se
+          // agregaron mientras se enviaba esta (marcar varias casillas rapido perdia las demas).
+          q = leerColaDeltas(); q.shift(); guardarColaDeltas(q);
+          continue;
+        }
+        // Ningún backend aceptó el delta: NO descartar. Dejarlo en cola y reintentar luego.
+        syncState.lastError = huboSinPushDelta
+          ? 'Ningún backend soporta pushDelta (delta en cola, se reintenta)'
+          : String((ultErr && ultErr.message) || ultErr || 'sin backend');
+        ultimo = { ok: false, error: syncState.lastError, enCola: q.length };
+        break;
       } catch (err) {
         // Sin conexion: queda en cola, se reintenta en el proximo sync de 30s o al volver online
         syncState.lastError = String((err && err.message) || err);
@@ -6736,19 +6759,24 @@ render = function() {
       const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
       const j = await r.json();
       adoptarSyncToken(j);
-      // Si la nube está vacía pero tengo datos locales → push
-      const remotoVacio = !j.ok || !j.data ||
+      // Solo tratamos la nube como "vacía" si el pull fue EXITOSO y realmente vino vacía.
+      // Si el pull FALLÓ (!j.ok, ej. arranque en frío/404/timeout), NO subimos nada: subir el
+      // estado local (a veces el baseline inicial) PISABA la nube — causa de pérdidas repetidas.
+      const pullOk = !!(j && j.ok && j.data);
+      const nubeRealmenteVacia = pullOk &&
         ((!Array.isArray(j.data.residentes) || j.data.residentes.length === 0) &&
          (!j.data.semanal || Object.keys(j.data.semanal||{}).length === 0));
-      const localTieneDatos = (state.residentes && state.residentes.length > 0);
-      if (remotoVacio && localTieneDatos) {
+      // "datos reales" = este equipo tiene un guardado propio (no solo el baseline en memoria).
+      const localTieneDatosReales = !!localStorage.getItem(STORAGE_KEY) && state.residentes && state.residentes.length > 0;
+      if (nubeRealmenteVacia && localTieneDatosReales) {
         toast('☁️ Nube vacía detectada — subiendo tus datos locales por primera vez...', 'success');
         await cloudPush('residentes', state.residentes, true);
         await cloudPush('semanal', state.semanal, true);
         await cloudPush('historial', state.historial, true);
         toast('✅ Datos subidos a la nube', 'success');
       } else {
-        // Comportamiento normal: traer si hay algo
+        // Comportamiento normal: traer lo que haya. Si el pull inicial falló, cloudPull reintenta
+        // con sus protecciones (merge por fecha, no pisa local) — nunca sube baseline.
         await cloudPull(true);
       }
     } catch (e) {
