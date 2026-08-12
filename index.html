@@ -1125,7 +1125,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-11-3';
+const APP_VERSION = 'v2026-08-12-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1907,8 +1907,15 @@ const BACKUP_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzau6JaP0UTrVMa
 // Backend ESPEJO (proyecto Apps Script INDEPENDIENTE, misma planilla): sobrevive si el
 // proyecto principal entero se corrompe (404 del 24-jun y 4-jul tumbo ambas puertas juntas).
 const MIRROR_SYNC_URL = 'https://script.google.com/macros/s/AKfycbwY6dBONa4b6cJb91LVupxrsjeY_Th_2sjQOXWz0lRGU6nHAeS7_CCWbq3V5gWC7A/exec';
-const BACKEND_URLS = [DEFAULT_SYNC_URL, BACKUP_SYNC_URL, MIRROR_SYNC_URL];
+// 11-ago-2026: SOLO PRINCIPAL temporalmente. Diagnóstico del backup nocturno: controlSignos
+// congelado en la nube desde el vie 8-ago 20:59 aunque los pushDelta devolvían ok:true →
+// un backend del failover (respaldo/espejo) ACEPTA escrituras pero NO persiste en la planilla
+// que sirve el principal. Hasta reparar y verificar esos backends, todos los equipos leen y
+// escriben ÚNICAMENTE el principal (única persistencia verificada). Los datos quedan en cola
+// si el principal no responde (nada se pierde). Restaurar el failover triple al arreglarlo.
+const BACKEND_URLS = [DEFAULT_SYNC_URL];
 const ACTIVE_BACKEND_KEY = 'med_geri_active_backend';
+try { localStorage.removeItem(ACTIVE_BACKEND_KEY); } catch (e) {} // despegar a todos del backend impostor
 function backendsDisponibles() {
   // Respeta una URL configurada a mano que NO sea de las conocidas (modo avanzado).
   const custom = localStorage.getItem(SYNC_URL_KEY);
@@ -2274,6 +2281,13 @@ async function flushColaDeltas() {
         if (j) {
           // Éxito real: fijar este backend como activo (sí soporta pushDelta) y sacar el delta de la cola.
           if (BACKEND_URLS.indexOf(backendOk) !== -1) localStorage.setItem(ACTIVE_BACKEND_KEY, backendOk);
+          // Diagnóstico persistencia CS (11-ago): dejar rastro en el registro de qué backend
+          // aceptó los lotes grandes de controlSignos y cuántos bytes quedó midiendo el server.
+          try {
+            if (it.key === 'controlSignos' && (it.sets || []).length >= 10) {
+              logCambio('sistema', 'Δ CS ok: ' + (it.sets || []).length + ' sets → ' + String(backendOk).slice(-30) + ' (' + (j.bytes || '?') + 'b)');
+            }
+          } catch (e) {}
           ultimo = j;
           syncState.lastOk = new Date().toISOString(); syncState.lastError = null;
           // FIX carrera: re-leer la cola ANTES de escribir, para no pisar deltas que se
@@ -2285,6 +2299,14 @@ async function flushColaDeltas() {
         syncState.lastError = huboSinPushDelta
           ? 'Ningún backend soporta pushDelta (delta en cola, se reintenta)'
           : String((ultErr && ultErr.message) || ultErr || 'sin backend');
+        // Diagnóstico persistencia CS (11-ago): si un lote de controlSignos es RECHAZADO,
+        // dejar el motivo en el registro (una vez por sesión) para poder verlo desde afuera.
+        try {
+          if (it.key === 'controlSignos' && !window._csErrLogueado) {
+            window._csErrLogueado = true;
+            logCambio('sistema', 'Δ CS RECHAZADO (queda en cola): ' + syncState.lastError.slice(0, 120));
+          }
+        } catch (e) {}
         ultimo = { ok: false, error: syncState.lastError, enCola: q.length };
         break;
       } catch (err) {
@@ -6840,6 +6862,43 @@ async function recuperarDesdeRegistro() {
   } catch (e) { console.warn('recuperarDesdeRegistro:', e); }
 }
 
+// ===== Poda de mantenimiento (una vez por equipo) =====
+// Archiva del sistema las fechas más VIEJAS de Control de Signos para que el bloque
+// en la nube no supere el tope del backend (~495.000 chars) y vuelva a aceptar cargas.
+// Las fechas podadas siguen en los backups diarios + HISTORIAL. Conserva SIEMPRE los
+// últimos TRIM_CS_KEEP_DIAS días y las claves especiales (_resumenes, etc).
+// Idempotente y seguro entre equipos (borrar una fecha ya borrada no hace nada).
+var TRIM_CS_FLAG = 'vt_trim_cs_v1';
+var TRIM_CS_KEEP_DIAS = 45;
+var TRIM_CS_MIN = 430000; // solo poda si el bloque supera este tamaño
+function trimControlSignosUnaVez() {
+  try {
+    if (localStorage.getItem(TRIM_CS_FLAG)) return;
+    var cs = state.controlSignos || {};
+    var full = '';
+    try { full = JSON.stringify(cs); } catch (e) { full = ''; }
+    if (full.length < TRIM_CS_MIN) { localStorage.setItem(TRIM_CS_FLAG, 'skip'); return; }
+    var hoy = new Date();
+    var cutoff = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - TRIM_CS_KEEP_DIAS);
+    var dels = [];
+    Object.keys(cs).forEach(function (f) {
+      if (!f || f.charAt(0) === '_') return;              // conservar claves especiales
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return;         // solo fechas AAAA-MM-DD
+      var p = f.split('-');
+      var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      if (d < cutoff) dels.push([f]);
+    });
+    if (!dels.length) { localStorage.setItem(TRIM_CS_FLAG, 'skip'); return; }
+    dels.forEach(function (pp) { try { delete cs[pp[0]]; } catch (e) {} });
+    try { localStorage.setItem(CS_KEY, JSON.stringify(cs)); } catch (e) {}
+    // Subir el borrado: el backend re-arma el value YA reducido, que entra bajo el tope.
+    try { cloudPushDelta('controlSignos', [], dels); } catch (e) {}
+    localStorage.setItem(TRIM_CS_FLAG, 'done:' + dels.length + ':' + (new Date().toISOString().slice(0, 10)));
+    try { logCambio('mantenimiento', 'Poda Control de Signos: ' + dels.length + ' fechas viejas archivadas (siguen en los backups). Se conservan los últimos ' + TRIM_CS_KEEP_DIAS + ' días.'); } catch (e) {}
+    try { toast('🧹 Mantenimiento: se liberó espacio en Control de Signos (' + dels.length + ' fechas viejas archivadas). Ya se puede volver a cargar.', 'success'); } catch (e) {}
+  } catch (e) { console.warn('trimControlSignosUnaVez:', e); }
+}
+
 (async function init() {
   migrarCatarsisTurnos(); // migra datos viejos de catarsis al formato con turnos M/T/N
   if (getSession() || getCurrentUser()) { await pedirClaveEnfermero(); if (!getCurrentUser()) { await pedirUsuario(false); } }
@@ -6873,7 +6932,12 @@ async function recuperarDesdeRegistro() {
     } catch (e) {
       console.warn('Error en sync inicial:', e);
     }
+    // Poda de mantenimiento: baja el bloque bajo el tope ANTES de recuperar/guardar
+    try { trimControlSignosUnaVez(); } catch (e) {}
     // Recuperación automática desde el registro de cambios (corre tras el pull inicial)
+    // v4: re-armar UNA vez (la corrida de v3 empujó a un backend que no persistía; ahora
+    // que la app apunta solo al principal, tiene que volver a correr en cada equipo).
+    try { if (localStorage.getItem('vt_recu_arm') !== '4') { localStorage.removeItem('vt_recu_log_ts'); localStorage.setItem('vt_recu_arm', '4'); } } catch (e) {}
     try { setTimeout(function () { recuperarDesdeRegistro(); }, 2500); } catch (e) {}
   }
   try { setTimeout(mostrarNovedades, 1500); } catch (e) {}
