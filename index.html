@@ -1125,7 +1125,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-12-1';
+const APP_VERSION = 'v2026-08-14-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6868,16 +6868,21 @@ async function recuperarDesdeRegistro() {
 // Las fechas podadas siguen en los backups diarios + HISTORIAL. Conserva SIEMPRE los
 // últimos TRIM_CS_KEEP_DIAS días y las claves especiales (_resumenes, etc).
 // Idempotente y seguro entre equipos (borrar una fecha ya borrada no hace nada).
-var TRIM_CS_FLAG = 'vt_trim_cs_v1';
-var TRIM_CS_KEEP_DIAS = 45;
-var TRIM_CS_MIN = 430000; // solo poda si el bloque supera este tamaño
+// v2 (14-ago-2026): BACKSTOP recurrente de umbral ALTO. Tras subir el tope del backend
+// a 1.845.000 (MAX_OVERFLOW_COLS 40), en uso normal esto NUNCA poda: conserva toda la
+// historia. Solo actúa si el bloque se acerca al tope, y aún así deja ~5 meses en la nube
+// (el resto vive en backups diarios + HISTORIAL). Idempotente y seguro entre equipos.
+var TRIM_CS_FLAG = 'vt_trim_cs_v2';
+var TRIM_CS_KEEP_DIAS = 150;
+var TRIM_CS_MIN = 1600000; // solo actúa cerca del tope backend (1.845.000). Antes: 430000 con el tope viejo de 495.000.
 function trimControlSignosUnaVez() {
   try {
-    if (localStorage.getItem(TRIM_CS_FLAG)) return;
     var cs = state.controlSignos || {};
     var full = '';
     try { full = JSON.stringify(cs); } catch (e) { full = ''; }
-    if (full.length < TRIM_CS_MIN) { localStorage.setItem(TRIM_CS_FLAG, 'skip'); return; }
+    if (full.length < TRIM_CS_MIN) return;                       // recurrente: bajo umbral no hace NADA (no marca flag)
+    var hoyIso = new Date().toISOString().slice(0, 10);
+    if (localStorage.getItem(TRIM_CS_FLAG) === hoyIso) return;   // como mucho una poda por día por equipo
     var hoy = new Date();
     var cutoff = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - TRIM_CS_KEEP_DIAS);
     var dels = [];
@@ -6888,14 +6893,14 @@ function trimControlSignosUnaVez() {
       var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
       if (d < cutoff) dels.push([f]);
     });
-    if (!dels.length) { localStorage.setItem(TRIM_CS_FLAG, 'skip'); return; }
+    if (!dels.length) return;
     dels.forEach(function (pp) { try { delete cs[pp[0]]; } catch (e) {} });
     try { localStorage.setItem(CS_KEY, JSON.stringify(cs)); } catch (e) {}
-    // Subir el borrado: el backend re-arma el value YA reducido, que entra bajo el tope.
+    // Subir el borrado: el backend re-arma el value YA reducido.
     try { cloudPushDelta('controlSignos', [], dels); } catch (e) {}
-    localStorage.setItem(TRIM_CS_FLAG, 'done:' + dels.length + ':' + (new Date().toISOString().slice(0, 10)));
-    try { logCambio('mantenimiento', 'Poda Control de Signos: ' + dels.length + ' fechas viejas archivadas (siguen en los backups). Se conservan los últimos ' + TRIM_CS_KEEP_DIAS + ' días.'); } catch (e) {}
-    try { toast('🧹 Mantenimiento: se liberó espacio en Control de Signos (' + dels.length + ' fechas viejas archivadas). Ya se puede volver a cargar.', 'success'); } catch (e) {}
+    localStorage.setItem(TRIM_CS_FLAG, hoyIso);
+    try { logCambio('mantenimiento', 'Poda de seguridad Control de Signos: ' + dels.length + ' fechas antiguas archivadas (siguen en los backups). Se conservan los últimos ' + TRIM_CS_KEEP_DIAS + ' días.'); } catch (e) {}
+    try { toast('🧹 Mantenimiento automático: se archivaron ' + dels.length + ' fechas muy antiguas de Control de Signos (siguen en los backups).', 'success'); } catch (e) {}
   } catch (e) { console.warn('trimControlSignosUnaVez:', e); }
 }
 
