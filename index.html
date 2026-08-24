@@ -701,6 +701,10 @@ input:focus, select:focus, textarea:focus {
 .cs-bano-chip.alto { background:#E74C3C; color:#fff; }
 .cs-bano-chip.medio { background:#F39C12; color:#fff; }
 .cs-bano-chip b { font-weight:800; }
+.cs-banos-ok { background:#E8F5E9; border:1px solid #27AE60; color:#1b5e20; border-radius:8px; padding:7px 12px; margin-bottom:12px; font-size:13px; font-weight:600; }
+.cs-banos-min { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#555; margin-left:auto; }
+.cs-banos-min select { padding:5px 8px; border:1px solid var(--gris-borde); border-radius:6px; font-size:13px; font-family:inherit; }
+.cs-vista-toggle { align-items:center; flex-wrap:wrap; }
 /* Motrax en alertas */
 .cs-motrax-btn { background:#1565C0; color:#fff; border:none; border-radius:5px; padding:4px 10px; cursor:pointer; font-size:12px; font-weight:600; margin-left:6px; }
 .cs-motrax-done { background:#27AE60; color:#fff; border-radius:5px; padding:2px 4px 2px 9px; font-size:12px; font-weight:600; margin-left:6px; display:inline-flex; align-items:center; gap:4px; }
@@ -1141,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-24-1';
+const APP_VERSION = 'v2026-08-24-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -5137,6 +5141,29 @@ function csSeBano(res, fecha) {
     return e === 'general' || e === 'parcial';
   });
 }
+// Mínimo de baños esperados por semana. Lo elige el usuario con el desplegable de la
+// pestaña Baños y queda guardado EN CADA EQUIPO (no se sincroniza: es una preferencia
+// de quien mira la planilla, no un dato del residente).
+const CS_BANOS_MIN_KEY = 'vt_banos_min_semana';
+function csBanosMin() {
+  let v = 2;
+  try { v = parseInt(localStorage.getItem(CS_BANOS_MIN_KEY), 10); } catch (e) {}
+  return (v >= 1 && v <= 7) ? v : 2;
+}
+function csSetBanosMin(v) {
+  try { localStorage.setItem(CS_BANOS_MIN_KEY, String(v)); } catch (e) {}
+  render();
+}
+// Cuántos días de los ÚLTIMOS 7 (hoy incluido) tuvo baño. Ventana móvil: no se
+// reinicia los lunes ni depende de la semana que estés mirando en la grilla.
+function csBanosUlt7(res) {
+  let n = 0, cursor = csHoy();
+  for (let i = 0; i < 7; i++) {
+    if (csSeBano(res, cursor)) n++;
+    cursor = csDiaPrevio(cursor);
+  }
+  return n;
+}
 // Días SEGUIDOS sin baño registrado (de corrido, hacia atrás desde hoy).
 function csDiasSinBano(res) {
   const TOPE = 90;
@@ -5147,24 +5174,23 @@ function csDiasSinBano(res) {
   }
   return diasSin;
 }
-function csBanoTxtDias(sin) {
-  if (sin >= 90) return 'sin registro';
-  return sin + 'd';
-}
 function csAlertasBanos() {
   const pend = [];
   state.residentes.forEach(r => {
-    const sin = csDiasSinBano(r.nombre);
-    if (sin >= 3) pend.push({ nombre: r.nombre, sin: sin });
+    const n = csBanosUlt7(r.nombre);
+    if (n < csBanosMin()) pend.push({ nombre: r.nombre, n: n, sin: csDiasSinBano(r.nombre) });
   });
-  if (!pend.length) return '';
-  pend.sort((a,b) => b.sin - a.sin);
+  if (!pend.length) return '<div class="cs-banos-ok">✅ Todos con ' + csBanosMin() +
+         (csBanosMin() === 1 ? ' baño' : ' baños') + ' o más en los últimos 7 días.</div>';
+  pend.sort((a,b) => (a.n - b.n) || (b.sin - a.sin));
   const chips = pend.map(p =>
-    '<span class="cs-bano-chip ' + (p.sin >= 4 ? 'alto' : 'medio') + '">' +
-    escapeHtml(p.nombre) + ' <b>' + csBanoTxtDias(p.sin) + '</b></span>').join('');
+    '<span class="cs-bano-chip ' + (p.n === 0 ? 'alto' : 'medio') + '" title="' +
+    escapeHtml(p.nombre + ' — último baño: ' + (p.sin >= 90 ? 'sin registro' : 'hace ' + p.sin + ' día' + (p.sin===1?'':'s'))) + '">' +
+    escapeHtml(p.nombre) + ' <b>' + p.n + (p.n === 1 ? ' baño' : ' baños') + '</b></span>').join('');
   const abierto = pend.length <= 6 ? ' open' : '';
-  return '<details class="cs-banos-alertas"' + abierto + '><summary class="cs-alertas-titulo">🚿 Sin baño hace 3 días o más (' +
-         pend.length + ')</summary><div class="cs-bano-chips">' + chips + '</div></details>';
+  return '<details class="cs-banos-alertas"' + abierto + '><summary class="cs-alertas-titulo">🚿 Con menos de ' +
+         csBanosMin() + ' baños en los últimos 7 días (' + pend.length +
+         ')</summary><div class="cs-bano-chips">' + chips + '</div></details>';
 }
 function csTablaBanosSemana() {
   const hoy = csHoy();
@@ -5179,11 +5205,17 @@ function csTablaBanosSemana() {
     h1 += `<th class="cs-dayh${fin}${esHoy?' cs-hoy':''}">${nom[i]}<br>${d.slice(8)}/${d.slice(5,7)}</th>`;
   });
   let rows = '';
+  const semanaActual = (dias.indexOf(hoy) !== -1);
   state.residentes.forEach(r => {
-    const sin = csDiasSinBano(r.nombre);
     let badge = '';
-    if (sin >= 4) badge = `<span class="cs-riesgo alto" title="${sin >= 90 ? 'sin registro de baño' : sin + ' días seguidos sin baño'}">⚠ ${csBanoTxtDias(sin)}</span>`;
-    else if (sin === 3) badge = `<span class="cs-riesgo medio" title="3 días sin baño">3d</span>`;
+    if (semanaActual) {
+      const n = csBanosUlt7(r.nombre);
+      const sin = csDiasSinBano(r.nombre);
+      const tit = 'Últimos 7 días: ' + n + (n === 1 ? ' baño' : ' baños') + ' · último ' +
+                  (sin >= 90 ? 'sin registro' : (sin === 0 ? 'hoy' : 'hace ' + sin + ' día' + (sin===1?'':'s')));
+      if (n === 0) badge = `<span class="cs-riesgo alto" title="${escapeHtml(tit)}">⚠ 0</span>`;
+      else if (n < csBanosMin()) badge = `<span class="cs-riesgo medio" title="${escapeHtml(tit)}">${n}</span>`;
+    }
     let tds = csResNameCell(r.nombre, badge);
     dias.forEach(d => {
       let boxes = '';
@@ -5209,7 +5241,7 @@ function csTablaBanosSemana() {
         <span class="cs-leg"><i style="background:#1565C0"></i>P = parcial</span>
         <span class="cs-leg"><i style="background:#E74C3C"></i>✖ no se bañó</span>
         <span class="cs-leg"><i style="background:#E0E0E0"></i>sin cargar</span>
-        <span style="color:#888">· tocá el casillero para cambiarlo · M/T/N = turno</span>
+        <span style="color:#888">· tocá el casillero para cambiarlo · M/T/N = turno · el aviso mira siempre los últimos 7 días</span>
       </span>
     </div>`;
   return bar + `<table class="cs-tabla semana"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
@@ -5218,28 +5250,32 @@ function csTablaBanosDia(f) {
   const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
   let h1 = '<th class="cs-resname">Residente</th>';
   turnos.forEach(tn => h1 += `<th>Turno ${tn[1]}</th>`);
-  h1 += '<th>Días sin baño (hasta hoy)</th>';
+  h1 += '<th>Baños últimos 7 días</th>';
   let rows = '';
   state.residentes.forEach(r => {
     let tds = csResNameCell(r.nombre);
     turnos.forEach(tn => {
       tds += `<td>${csSelect('bano', f, r.nombre, tn[0], csGet(f,'bano',r.nombre,tn[0]), ['','General','Parcial','No'])}</td>`;
     });
+    const n = csBanosUlt7(r.nombre);
     const sin = csDiasSinBano(r.nombre);
-    const color = sin >= 4 ? '#E74C3C' : (sin === 3 ? '#F39C12' : '#555');
-    const txt = (sin === 0)
-      ? '<span style="color:#27AE60;font-weight:700">Se bañó hoy ✔</span>'
-      : `<span style="color:${color};font-weight:${sin>=3?'700':'400'}">${sin>=90 ? 'sin registro' : 'hace ' + sin + ' día' + (sin===1?'':'s')}</span>`;
-    tds += `<td>${txt}</td>`;
+    const color = n === 0 ? '#E74C3C' : (n < csBanosMin() ? '#F39C12' : '#27AE60');
+    const ult = sin >= 90 ? 'sin registro' : (sin === 0 ? 'hoy' : 'hace ' + sin + 'd');
+    tds += `<td><b style="color:${color}">${n}</b><span style="color:#888;font-size:11px"> · último ${ult}</span></td>`;
     rows += `<tr>${tds}</tr>`;
   });
   return `<table class="cs-tabla"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 function csTablaBanos(f) {
   const vista = state.csBanoVista || 'semana';
+  const min = csBanosMin();
+  const opts = [1,2,3,4,5,6,7].map(v =>
+    `<option value="${v}" ${v===min?'selected':''}>${v} por semana</option>`).join('');
   const toggle = `<div class="cs-vista-toggle">`
     + `<button class="cs-vtbtn ${vista==='semana'?'active':''}" type="button" onclick="state.csBanoVista='semana';render()">📅 Semana</button>`
     + `<button class="cs-vtbtn ${vista==='dia'?'active':''}" type="button" onclick="state.csBanoVista='dia';render()">📄 Día</button>`
+    + `<label class="cs-banos-min" title="Debajo de este número el residente aparece en el aviso de arriba. Se guarda en este equipo.">`
+    + `Avisar si hace menos de: <select onchange="csSetBanosMin(this.value)">${opts}</select></label>`
     + `</div>`;
   if (vista === 'dia') return csAlertasBanos() + toggle + csTablaBanosDia(f);
   return csAlertasBanos() + toggle + csTablaBanosSemana();
