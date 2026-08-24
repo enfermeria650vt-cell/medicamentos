@@ -428,6 +428,7 @@ input:focus, select:focus, textarea:focus {
   .cs-tabla.semana .cs-dayh { min-width: 0 !important; font-size: 8.5px; padding: 2px 0 !important; line-height: 1.05; }
   .cs-tabla.semana .cs-turnos-box { gap: 0; }
   .cs-tabla.semana .cs-tipobox { width: 11px !important; height: 24px; font-size: 8px; border-radius: 2px; padding: 0; }
+  .cs-tabla.semana .cs-banobox { width: 11px !important; height: 24px; font-size: 8px; border-radius: 2px; padding: 0; }
   .cs-tabla.semana .cs-riesgo { font-size: 7px; padding: 0 3px; margin-left: 0; margin-top: 1px; }
 }
 .hidden { display: none !important; }
@@ -685,6 +686,21 @@ input:focus, select:focus, textarea:focus {
 .cs-tipobox.si { background:#27AE60; color:#fff; }
 .cs-tipobox.no { background:#E74C3C; color:#fff; }
 .cs-tipobox:focus { outline:2px solid var(--azul-2); outline-offset:-1px; }
+/* Baños: casilleros por turno (M/T/N) */
+.cs-banobox { width:18px; height:24px; border-radius:3px; border:1px solid #a0a0a0; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; user-select:none; }
+.cs-banobox.vacio { background:#E0E0E0; color:#8a8a8a; }
+.cs-banobox.general { background:#27AE60; }
+.cs-banobox.parcial { background:#1565C0; }
+.cs-banobox.no { background:#E74C3C; }
+.cs-banobox:active { transform:scale(.92); }
+.cs-banos-alertas { background:#FFF3CD; border:2px solid #FF6B00; border-radius:8px; padding:9px 12px; margin-bottom:12px; }
+.cs-banos-alertas > summary { cursor:pointer; margin-bottom:0; }
+.cs-banos-alertas[open] > summary { margin-bottom:8px; }
+.cs-bano-chips { display:flex; flex-wrap:wrap; gap:5px; }
+.cs-bano-chip { font-size:12px; padding:2px 8px; border-radius:11px; white-space:nowrap; }
+.cs-bano-chip.alto { background:#E74C3C; color:#fff; }
+.cs-bano-chip.medio { background:#F39C12; color:#fff; }
+.cs-bano-chip b { font-weight:800; }
 /* Motrax en alertas */
 .cs-motrax-btn { background:#1565C0; color:#fff; border:none; border-radius:5px; padding:4px 10px; cursor:pointer; font-size:12px; font-weight:600; margin-left:6px; }
 .cs-motrax-done { background:#27AE60; color:#fff; border-radius:5px; padding:2px 4px 2px 9px; font-size:12px; font-weight:600; margin-left:6px; display:inline-flex; align-items:center; gap:4px; }
@@ -1125,7 +1141,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-14-1';
+const APP_VERSION = 'v2026-08-24-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4967,9 +4983,9 @@ function csTablaSignos(f) {
 function csTablaHidro(f) {
   const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
   let h1 = '<th class="cs-resname">Residente</th>';
-  turnos.forEach(tn => h1 += `<th colspan="4">Turno ${tn[1]}</th>`);
+  turnos.forEach(tn => h1 += `<th colspan="3">Turno ${tn[1]}</th>`);
   let h2 = '<th class="cs-resname"></th>';
-  turnos.forEach(() => h2 += '<th>Hidrat.<br>Ingreso</th><th>Hidrat.<br>Egreso</th><th>Diuresis</th><th>Baño</th>');
+  turnos.forEach(() => h2 += '<th>Hidrat.<br>Ingreso</th><th>Hidrat.<br>Egreso</th><th>Diuresis</th>');
   let rows = '';
   state.residentes.forEach(r => {
     let tds = csResNameCell(r.nombre);
@@ -4978,7 +4994,6 @@ function csTablaHidro(f) {
       tds += `<td>${csInput('hidro', f, r.nombre, tk+'.ing', csGet(f,'hidro',r.nombre,tk,'ing'))}</td>`;
       tds += `<td>${csInput('hidro', f, r.nombre, tk+'.egr', csGet(f,'hidro',r.nombre,tk,'egr'))}</td>`;
       tds += `<td>${csSelect('hidro', f, r.nombre, tk+'.diu', csGet(f,'hidro',r.nombre,tk,'diu'), ['','Sí','No'])}</td>`;
-      tds += `<td>${csSelect('bano', f, r.nombre, tk, csGet(f,'bano',r.nombre,tk), ['','General','Parcial'])}</td>`;
     });
     rows += `<tr>${tds}</tr>`;
   });
@@ -5096,6 +5111,138 @@ function csSemanaShift(lunISO, deltaSemanas) {
   const d = new Date(p[0], p[1]-1, p[2]);
   d.setDate(d.getDate() + deltaSemanas*7);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+// ============ BAÑOS (pestaña propia) ============
+// Estados de un baño por turno: '' (sin cargar), 'General', 'Parcial', 'No' (no se bañó).
+const CS_BANO_CICLO = ['', 'General', 'Parcial', 'No'];
+function csBanoEstado(v) {
+  const raw = (v == null ? '' : String(v)).trim().toLowerCase();
+  if (raw === '') return 'vacio';
+  if (raw === 'general') return 'general';
+  if (raw === 'parcial') return 'parcial';
+  if (raw === 'no' || raw === 'n' || raw === '-' || raw === 'x') return 'no';
+  return 'general';
+}
+function csBanoLetra(v) {
+  const e = csBanoEstado(v);
+  if (e === 'general') return 'G';
+  if (e === 'parcial') return 'P';
+  if (e === 'no') return '✖';
+  return '';
+}
+// ¿Se bañó (general o parcial) en algún turno de ese día?
+function csSeBano(res, fecha) {
+  return ['m','t','n'].some(t => {
+    const e = csBanoEstado(csGet(fecha,'bano',res,t));
+    return e === 'general' || e === 'parcial';
+  });
+}
+// Días SEGUIDOS sin baño registrado (de corrido, hacia atrás desde hoy).
+function csDiasSinBano(res) {
+  const TOPE = 90;
+  let diasSin = 0, cursor = csHoy(), pasos = 0;
+  while (pasos < TOPE) {
+    if (csSeBano(res, cursor)) break;
+    diasSin++; cursor = csDiaPrevio(cursor); pasos++;
+  }
+  return diasSin;
+}
+function csBanoTxtDias(sin) {
+  if (sin >= 90) return 'sin registro';
+  return sin + 'd';
+}
+function csAlertasBanos() {
+  const pend = [];
+  state.residentes.forEach(r => {
+    const sin = csDiasSinBano(r.nombre);
+    if (sin >= 3) pend.push({ nombre: r.nombre, sin: sin });
+  });
+  if (!pend.length) return '';
+  pend.sort((a,b) => b.sin - a.sin);
+  const chips = pend.map(p =>
+    '<span class="cs-bano-chip ' + (p.sin >= 4 ? 'alto' : 'medio') + '">' +
+    escapeHtml(p.nombre) + ' <b>' + csBanoTxtDias(p.sin) + '</b></span>').join('');
+  const abierto = pend.length <= 6 ? ' open' : '';
+  return '<details class="cs-banos-alertas"' + abierto + '><summary class="cs-alertas-titulo">🚿 Sin baño hace 3 días o más (' +
+         pend.length + ')</summary><div class="cs-bano-chips">' + chips + '</div></details>';
+}
+function csTablaBanosSemana() {
+  const hoy = csHoy();
+  const lun = state.csSemanaLun || csSemanaDias(hoy)[0];
+  const dias = csSemanaDias(lun);
+  const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const turnos = [['m','M'],['t','T'],['n','N']];
+  let h1 = '<th class="cs-resname">Residente</th>';
+  dias.forEach((d, i) => {
+    const esHoy = (d === hoy);
+    const fin = (i >= 5) ? ' cs-finde' : '';
+    h1 += `<th class="cs-dayh${fin}${esHoy?' cs-hoy':''}">${nom[i]}<br>${d.slice(8)}/${d.slice(5,7)}</th>`;
+  });
+  let rows = '';
+  state.residentes.forEach(r => {
+    const sin = csDiasSinBano(r.nombre);
+    let badge = '';
+    if (sin >= 4) badge = `<span class="cs-riesgo alto" title="${sin >= 90 ? 'sin registro de baño' : sin + ' días seguidos sin baño'}">⚠ ${csBanoTxtDias(sin)}</span>`;
+    else if (sin === 3) badge = `<span class="cs-riesgo medio" title="3 días sin baño">3d</span>`;
+    let tds = csResNameCell(r.nombre, badge);
+    dias.forEach(d => {
+      let boxes = '';
+      turnos.forEach(tn => {
+        const v = csGet(d, 'bano', r.nombre, tn[0]);
+        const est = csBanoEstado(v);
+        const letra = csBanoLetra(v) || tn[1];
+        const title = tn[1] + ' ' + csFmtFecha(d) + ' · ' + (v ? v : 'sin cargar') + ' (tocá para cambiar)';
+        boxes += `<div class="cs-banobox ${est}" data-cs-bano="1" data-d="${d}" data-res="${escapeHtml(r.nombre)}" data-t="${tn[0]}" title="${escapeHtml(title)}">${letra}</div>`;
+      });
+      tds += `<td class="cs-daycell"><div class="cs-turnos-box">${boxes}</div></td>`;
+    });
+    rows += `<tr>${tds}</tr>`;
+  });
+  const fmt = iso => iso.slice(8) + '/' + iso.slice(5,7);
+  const bar = `<div class="cs-mes-bar">
+      <button class="cs-mes-nav" type="button" data-cs-sem="${csSemanaShift(lun,-1)}">◀ Semana anterior</button>
+      <span class="cs-mes-tit">Semana del ${fmt(dias[0])} al ${fmt(dias[6])}</span>
+      <button class="cs-mes-nav" type="button" data-cs-sem="${csSemanaShift(lun,1)}">Semana siguiente ▶</button>
+      <button class="cs-mes-nav" type="button" data-cs-sem="${csSemanaDias(hoy)[0]}">Hoy</button>
+      <span class="cs-mes-leyenda">
+        <span class="cs-leg"><i style="background:#27AE60"></i>G = general</span>
+        <span class="cs-leg"><i style="background:#1565C0"></i>P = parcial</span>
+        <span class="cs-leg"><i style="background:#E74C3C"></i>✖ no se bañó</span>
+        <span class="cs-leg"><i style="background:#E0E0E0"></i>sin cargar</span>
+        <span style="color:#888">· tocá el casillero para cambiarlo · M/T/N = turno</span>
+      </span>
+    </div>`;
+  return bar + `<table class="cs-tabla semana"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+function csTablaBanosDia(f) {
+  const turnos = [['m','Mañana'],['t','Tarde'],['n','Noche']];
+  let h1 = '<th class="cs-resname">Residente</th>';
+  turnos.forEach(tn => h1 += `<th>Turno ${tn[1]}</th>`);
+  h1 += '<th>Días sin baño (hasta hoy)</th>';
+  let rows = '';
+  state.residentes.forEach(r => {
+    let tds = csResNameCell(r.nombre);
+    turnos.forEach(tn => {
+      tds += `<td>${csSelect('bano', f, r.nombre, tn[0], csGet(f,'bano',r.nombre,tn[0]), ['','General','Parcial','No'])}</td>`;
+    });
+    const sin = csDiasSinBano(r.nombre);
+    const color = sin >= 4 ? '#E74C3C' : (sin === 3 ? '#F39C12' : '#555');
+    const txt = (sin === 0)
+      ? '<span style="color:#27AE60;font-weight:700">Se bañó hoy ✔</span>'
+      : `<span style="color:${color};font-weight:${sin>=3?'700':'400'}">${sin>=90 ? 'sin registro' : 'hace ' + sin + ' día' + (sin===1?'':'s')}</span>`;
+    tds += `<td>${txt}</td>`;
+    rows += `<tr>${tds}</tr>`;
+  });
+  return `<table class="cs-tabla"><thead><tr>${h1}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+function csTablaBanos(f) {
+  const vista = state.csBanoVista || 'semana';
+  const toggle = `<div class="cs-vista-toggle">`
+    + `<button class="cs-vtbtn ${vista==='semana'?'active':''}" type="button" onclick="state.csBanoVista='semana';render()">📅 Semana</button>`
+    + `<button class="cs-vtbtn ${vista==='dia'?'active':''}" type="button" onclick="state.csBanoVista='dia';render()">📄 Día</button>`
+    + `</div>`;
+  if (vista === 'dia') return csAlertasBanos() + toggle + csTablaBanosDia(f);
+  return csAlertasBanos() + toggle + csTablaBanosSemana();
 }
 function csTablaCatarsisSemana() {
   const hoy = csHoy();
@@ -5303,6 +5450,7 @@ function viewControlSignos() {
   let cont;
   if (sub === 'historial') cont = csHistorialView();
   else if (sub === 'hidro') cont = csTablaHidro(f);
+  else if (sub === 'banos') cont = csTablaBanos(f);
   else if (sub === 'catarsis') cont = csTablaCatarsis(f);
   else cont = csTablaSignos(f);
   const barra = (sub === 'historial') ? '' : `
@@ -5316,7 +5464,8 @@ function viewControlSignos() {
     ${barra}
     <div class="cs-subtabs">
       <div class="cs-subtab ${sub==='signos'?'active':''}" onclick="csVerSubtab('signos')">Signos vitales</div>
-      <div class="cs-subtab ${sub==='hidro'?'active':''}" onclick="csVerSubtab('hidro')">Hidratación y baño</div>
+      <div class="cs-subtab ${sub==='hidro'?'active':''}" onclick="csVerSubtab('hidro')">💧 Hidratación</div>
+      <div class="cs-subtab ${sub==='banos'?'active':''}" onclick="csVerSubtab('banos')">🚿 Baños</div>
       <div class="cs-subtab ${sub==='catarsis'?'active':''}" onclick="csVerSubtab('catarsis')">Catarsis mensual</div>
       <div class="cs-subtab ${sub==='historial'?'active':''}" onclick="csVerSubtab('historial')">📁 Historial</div>
     </div>
@@ -5354,6 +5503,18 @@ function attachListeners() {
       }
     };
     csCont.onclick = (e) => {
+      const banoBox = e.target.closest('[data-cs-bano]');
+      if (banoBox) {
+        const d = banoBox.dataset.d, res = banoBox.dataset.res, t = banoBox.dataset.t;
+        const actual = csGet(d, 'bano', res, t);
+        const idx = CS_BANO_CICLO.indexOf(actual == null ? '' : String(actual));
+        const next = CS_BANO_CICLO[(idx < 0 ? 0 : idx + 1) % CS_BANO_CICLO.length];
+        csSet(d, 'bano', res, t, next);
+        banoBox.classList.remove('vacio','general','parcial','no');
+        banoBox.classList.add(csBanoEstado(next));
+        banoBox.textContent = csBanoLetra(next) || t.toUpperCase();
+        return;
+      }
       const mesBtn = e.target.closest('[data-cs-mes]');
       if (mesBtn) { state.csMes = mesBtn.dataset.csMes; render(); return; }
       const semBtn = e.target.closest('[data-cs-sem]');
