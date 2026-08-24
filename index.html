@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-24-3';
+const APP_VERSION = 'v2026-08-24-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -5392,7 +5392,7 @@ function csHistorialView() {
   const fechas = Object.keys(state.controlSignos).filter(function(f){ return f.charAt(0) !== '_' && csDiaTieneDatos(f); }).sort();
   if (fechas.length === 0) {
     return '<div class="cs-hist-vacio">Todavía no hay planillas cargadas.<br>' +
-           'A medida que cargues datos en Signos vitales, Hidratación o Catarsis, ' +
+           'A medida que cargues datos en Signos vitales, Hidratación o Baños, ' +
            'cada día y cada semana van a aparecer acá archivados para consultarlos.</div>';
   }
   const nom = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
@@ -5418,7 +5418,6 @@ function csHistorialView() {
     html += `<div class="cs-hist-sem">` +
       `<div class="cs-hist-head">` +
         `<span class="cs-hist-tit">Semana del ${csFmtFecha(dias7[0])} al ${csFmtFecha(dias7[6])}</span>` +
-        `<button class="cs-hist-vsem" type="button" data-cs-ir-semana="${lun}">Ver catarsis de la semana</button>` +
       `</div>` +
       `<div class="cs-hist-dias">${chips}</div>` +
     `</div>`;
@@ -5482,12 +5481,14 @@ function csFinalizarTurno(turnoKey) {
 
 function viewControlSignos() {
   const f = state.csFecha || csHoy();
-  const sub = state.csSubtab || 'signos';
+  let sub = state.csSubtab || 'signos';
+  // 24-ago-2026: la pestaña Catarsis se retiró (no la usaban). Si quedó guardada
+  // en el state de una sesión vieja, cae en Signos vitales.
+  if (sub === 'catarsis') sub = 'signos';
   let cont;
   if (sub === 'historial') cont = csHistorialView();
   else if (sub === 'hidro') cont = csTablaHidro(f);
   else if (sub === 'banos') cont = csTablaBanos(f);
-  else if (sub === 'catarsis') cont = csTablaCatarsis(f);
   else cont = csTablaSignos(f);
   const barra = (sub === 'historial') ? '' : `
     <div class="cs-bar">
@@ -5502,7 +5503,6 @@ function viewControlSignos() {
       <div class="cs-subtab ${sub==='signos'?'active':''}" onclick="csVerSubtab('signos')">Signos vitales</div>
       <div class="cs-subtab ${sub==='hidro'?'active':''}" onclick="csVerSubtab('hidro')">💧 Hidratación</div>
       <div class="cs-subtab ${sub==='banos'?'active':''}" onclick="csVerSubtab('banos')">🚿 Baños</div>
-      <div class="cs-subtab ${sub==='catarsis'?'active':''}" onclick="csVerSubtab('catarsis')">Catarsis mensual</div>
       <div class="cs-subtab ${sub==='historial'?'active':''}" onclick="csVerSubtab('historial')">📁 Historial</div>
     </div>
     <div class="cs-tabla-wrap${sub === 'historial' ? '' : ' cs-scroll'}" id="cs-tabla-cont">${cont}</div>
@@ -5579,8 +5579,6 @@ function attachListeners() {
       }
       const irDia = e.target.closest('[data-cs-ir-dia]');
       if (irDia) { state.csFecha = irDia.dataset.csIrDia; state.csSubtab = 'signos'; render(); return; }
-      const irSem = e.target.closest('[data-cs-ir-semana]');
-      if (irSem) { state.csFecha = irSem.dataset.csIrSemana; state.csMes = irSem.dataset.csIrSemana.slice(0,7); state.csSubtab = 'catarsis'; render(); return; }
       const b = e.target.closest('[data-cs-action]');
       if (!b) return;
       const res = b.dataset.csRes;
