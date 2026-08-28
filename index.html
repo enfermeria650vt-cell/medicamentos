@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-24-4';
+const APP_VERSION = 'v2026-08-28-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1927,15 +1927,16 @@ const BACKUP_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzau6JaP0UTrVMa
 // Backend ESPEJO (proyecto Apps Script INDEPENDIENTE, misma planilla): sobrevive si el
 // proyecto principal entero se corrompe (404 del 24-jun y 4-jul tumbo ambas puertas juntas).
 const MIRROR_SYNC_URL = 'https://script.google.com/macros/s/AKfycbwY6dBONa4b6cJb91LVupxrsjeY_Th_2sjQOXWz0lRGU6nHAeS7_CCWbq3V5gWC7A/exec';
-// 11-ago-2026: SOLO PRINCIPAL temporalmente. Diagnóstico del backup nocturno: controlSignos
-// congelado en la nube desde el vie 8-ago 20:59 aunque los pushDelta devolvían ok:true →
-// un backend del failover (respaldo/espejo) ACEPTA escrituras pero NO persiste en la planilla
-// que sirve el principal. Hasta reparar y verificar esos backends, todos los equipos leen y
-// escriben ÚNICAMENTE el principal (única persistencia verificada). Los datos quedan en cola
-// si el principal no responde (nada se pierde). Restaurar el failover triple al arreglarlo.
-const BACKEND_URLS = [DEFAULT_SYNC_URL];
+// 28-ago-2026: FAILOVER TRIPLE RESTAURADO. El "solo principal" del 11-ago se puso porque un
+// backend aceptaba escrituras sin persistirlas; esa causa se corrigió el 26-ago (respaldo V23 y
+// espejo V4, mismo tope de chunks que el principal) y se verificó el 28-ago con una prueba de
+// escritura de punta a punta: se escribió en RESPALDO y en ESPEJO y el dato se leyó en el PULL
+// DEL PRINCIPAL (y después se borró). Los 3 devuelven lo mismo (1218 KB, 22 residentes,
+// controlSignos 587 KB). Además el pull se valida ANTES de aplicarse (defensa 27-ago:
+// pullSospechoso + backends descartados), así que un backend que devuelva datos incompletos se
+// descarta solo. Con los 3 activos, el 404 intermitente de Apps Script deja de cortar el servicio.
+const BACKEND_URLS = [DEFAULT_SYNC_URL, BACKUP_SYNC_URL, MIRROR_SYNC_URL];
 const ACTIVE_BACKEND_KEY = 'med_geri_active_backend';
-try { localStorage.removeItem(ACTIVE_BACKEND_KEY); } catch (e) {} // despegar a todos del backend impostor
 function backendsDisponibles() {
   // Respeta una URL configurada a mano que NO sea de las conocidas (modo avanzado).
   const custom = localStorage.getItem(SYNC_URL_KEY);
@@ -1950,36 +1951,73 @@ function getCloudUrl() { return backendsDisponibles()[0]; }
 // Fetch con timeout + failover automatico entre backends (principal -> respaldo).
 // buildUrl(base) arma la URL final desde cada base /exec. Las escrituras del backend son
 // idempotentes (SET/DEL), asi que reintentar en otro backend NO duplica datos.
-async function cloudFetchFailover(buildUrl, opts, timeoutMs, race) {
+// REINTENTO CON PAUSA (28-ago-2026). Apps Script devuelve 404/5xx esporadicos cuando le entran
+// varios pedidos seguidos sin pausa: verificado ese dia, en una rafaga sin pausa el principal
+// contesto 404,404,200, y con 3s de pausa dio 18/18 en 200. Por eso, antes de dar una operacion
+// por fallida se hace una SEGUNDA VUELTA completa por todos los backends despues de una pausa
+// corta. Las escrituras del backend son idempotentes (SET/DEL), asi que reintentar no duplica.
+async function cloudFetchFailover(buildUrl, opts, timeoutMs, race, excluir) {
+  let err1 = null;
+  const t0 = Date.now();
+  try { return await cloudFetchUnaVuelta(buildUrl, opts, timeoutMs, race, excluir); }
+  catch (e) { err1 = e; }
+  // Solo se reintenta si la 1a vuelta fallo RAPIDO (404/5xx/red). Si consumio los timeouts, la
+  // nube esta realmente caida y reintentar solo dejaria la pantalla colgada mas tiempo: se corta.
+  if (Date.now() - t0 > 20000) throw err1;
+  await new Promise(function (res) { setTimeout(res, 1500); });
+  try { return await cloudFetchUnaVuelta(buildUrl, opts, timeoutMs, race, excluir); }
+  catch (e2) { throw (e2 || err1); }
+}
+async function cloudFetchUnaVuelta(buildUrl, opts, timeoutMs, race, excluir) {
   timeoutMs = timeoutMs || 30000; // 30s: tolera arranque en frio de Apps Script (antes 12s abortaba el 1er pull del dia)
-  const bases = backendsDisponibles();
+  let bases = backendsDisponibles();
+  // 'excluir': backends que ya devolvieron un pull INCOMPLETO en este intento (defensa 27-ago-2026).
+  if (excluir && excluir.length) bases = bases.filter(function (b) { return excluir.indexOf(b) === -1; });
   if (!bases.length) throw new Error('Backend no disponible');
-  // Modo CARRERA (solo lecturas/pull): dispara TODOS los backends en paralelo y usa la 1a respuesta OK.
-  // Evita esperar a un backend lento o con 404 antes de probar el otro. Lecturas idempotentes => seguro.
+  // Modo CARRERA ESCALONADA (solo lecturas/pull). Dispara el 1er backend; larga el siguiente
+  // apenas ese falla, o si tarda mas de HEDGE_MS en contestar. Gana la 1a respuesta OK y se
+  // abortan las demas. 28-ago-2026: antes disparaba los 3 EN PARALELO siempre, lo que triplicaba
+  // la carga sobre Apps Script en cada sync de todos los equipos — justamente la rafaga que le
+  // dispara los 404. Escalonado se conserva la ventaja (no esperar a un backend lento o caido)
+  // sin la rafaga. Lecturas idempotentes => reintentar es seguro.
   if (race && bases.length > 1) {
+    const HEDGE_MS = 4000;
     return await new Promise(function (resolve, reject) {
-      const ctrls = bases.map(function () { return new AbortController(); });
-      const timers = [];
-      let resolved = false, pending = bases.length, lastErrR = null;
-      function failOne(e) {
+      const ctrls = [], timers = [];
+      let resolved = false, lanzados = 0, terminados = 0, lastErrR = null, hedgeTimer = null;
+      function limpiarTimers() { if (hedgeTimer) clearTimeout(hedgeTimer); timers.forEach(function (t) { clearTimeout(t); }); }
+      function fallaUno(e) {
         lastErrR = e || lastErrR;
-        if (--pending <= 0 && !resolved) { timers.forEach(clearTimeout); reject(lastErrR || new Error('Backend no disponible')); }
+        terminados++;
+        if (resolved) return;
+        if (lanzados < bases.length) { lanzar(); return; }
+        if (terminados >= lanzados) { limpiarTimers(); reject(lastErrR || new Error('Backend no disponible')); }
       }
-      bases.forEach(function (base, i) {
-        timers[i] = setTimeout(function () { try { ctrls[i].abort(); } catch (e) {} }, timeoutMs);
-        fetch(buildUrl(base), Object.assign({}, opts || {}, { signal: ctrls[i].signal }))
+      function lanzar() {
+        if (resolved || lanzados >= bases.length) return;
+        const i = lanzados++;
+        const base = bases[i];
+        const ctrl = new AbortController();
+        ctrls[i] = ctrl;
+        timers[i] = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, timeoutMs);
+        if (hedgeTimer) clearTimeout(hedgeTimer);
+        if (lanzados < bases.length) hedgeTimer = setTimeout(function () { lanzar(); }, HEDGE_MS);
+        fetch(buildUrl(base), Object.assign({}, opts || {}, { signal: ctrl.signal }))
           .then(function (r) {
             clearTimeout(timers[i]);
             if (r && r.ok) {
               if (resolved) return;
               resolved = true;
+              limpiarTimers();
               if (BACKEND_URLS.indexOf(base) !== -1) localStorage.setItem(ACTIVE_BACKEND_KEY, base);
-              ctrls.forEach(function (c, j) { if (j !== i) { try { c.abort(); } catch (e) {} } clearTimeout(timers[j]); });
+              try { r._vtBase = base; } catch (e) {} // para saber cual backend contesto (defensa pull incompleto)
+              ctrls.forEach(function (c, j) { if (j !== i && c) { try { c.abort(); } catch (e) {} } });
               resolve(r);
-            } else { failOne(new Error('HTTP ' + (r ? r.status : '?'))); }
+            } else { fallaUno(new Error('HTTP ' + (r ? r.status : '?'))); }
           })
-          .catch(function (e) { clearTimeout(timers[i]); failOne(e); });
-      });
+          .catch(function (e) { clearTimeout(timers[i]); fallaUno(e); });
+      }
+      lanzar();
     });
   }
   // Modo SECUENCIAL (escrituras): principal -> respaldo, con failover.
@@ -1993,6 +2031,7 @@ async function cloudFetchFailover(buildUrl, opts, timeoutMs, race) {
       clearTimeout(id);
       if (r && r.ok) {
         if (BACKEND_URLS.indexOf(base) !== -1) localStorage.setItem(ACTIVE_BACKEND_KEY, base);
+        try { r._vtBase = base; } catch (e) {} // para saber cual backend contesto (defensa pull incompleto)
         return r;
       }
       lastErr = new Error('HTTP ' + (r ? r.status : '?'));
@@ -2045,16 +2084,91 @@ function chequearFechaDispositivo(serverIso) {
   } catch (e) {}
 }
 
+// ===== DEFENSA CONTRA PULLS INCOMPLETOS (27-ago-2026) =====
+// El 26-ago-2026 dos backends respondian 200 OK pero devolvian los signos vitales VACIOS. Un equipo
+// que cayera ahi por failover se quedaba sin datos. Regla: si la nube manda una clave grande VACIA
+// (o con menos del 50% de lo que este equipo ya tiene guardado), NO se aplica NADA de ese pull:
+// queda registrado en el historial de cambios como accion 'sistema' y se prueba el siguiente backend
+// del failover. Si ningun backend trae datos completos, el equipo se queda con lo suyo intacto.
+const PULL_UMBRAL_MIN = 0.5; // menos del 50% de lo local => sospechoso
+function tamanoDato(v) {
+  if (Array.isArray(v)) return v.length;
+  if (v && typeof v === 'object') return Object.keys(v).length;
+  return 0;
+}
+// Devuelve null si el pull viene sano, o un texto explicando por que es sospechoso.
+function pullSospechoso(data) {
+  if (!data || typeof data !== 'object') return 'la respuesta no trajo datos';
+  // OJO: 'semanal' NO entra en la regla del 50% porque cerrar la semana borra cientos de tildes
+  // de forma legitima. Esa clave ya tiene su propia proteccion mas abajo (no aceptar casi vacia).
+  const claves = [
+    ['controlSignos', 'los signos vitales', state.controlSignos],
+    ['residentes',    'los residentes',     state.residentes],
+    ['historial',     'el historial',       state.historial],
+    ['recetas',       'las recetas',        state.recetas],
+    ['historiasCli',  'las historias clinicas', state.historiasCli]
+  ];
+  for (let i = 0; i < claves.length; i++) {
+    const k = claves[i][0], nombre = claves[i][1];
+    const local = tamanoDato(claves[i][2]);
+    if (local === 0) continue;            // no hay nada local que proteger
+    if (data[k] === undefined) continue;  // la nube no mando esa clave: no es un pull incompleto
+    const remoto = tamanoDato(data[k]);
+    if (remoto === 0) return nombre + ' llegaron VACIOS de la nube y este equipo tiene ' + local;
+    if (remoto < local * PULL_UMBRAL_MIN) return nombre + ' llegaron con ' + remoto + ' de ' + local + ' (menos del ' + Math.round(PULL_UMBRAL_MIN * 100) + '%)';
+  }
+  return null;
+}
+let _ultimoAvisoPullIncompleto = 0;
+function registrarPullDescartado(motivo, base) {
+  const cual = base ? (' (backend ...' + String(base).slice(-12) + ')') : '';
+  try { console.warn('Pull DESCARTADO: ' + motivo + cual); } catch (e) {}
+  const ahoraMs = Date.now();
+  if (ahoraMs - _ultimoAvisoPullIncompleto < 30 * 60 * 1000) return; // no repetir el aviso en cada auto-sync
+  _ultimoAvisoPullIncompleto = ahoraMs;
+  try {
+    if (typeof logCambio === 'function') {
+      logCambio('sistema', 'Pull DESCARTADO para proteger los datos: ' + motivo + cual);
+    }
+  } catch (e) {}
+}
+
 async function cloudPull(silencioso = false) {
   if (!syncHabilitado()) return { ok: false, error: 'No configurado' };
   if (syncState.running) return { ok: false, error: 'Ya hay sync en curso' };
   syncState.running = true;
   actualizarBadgeSync('🔄 Trayendo...');
   try {
-    const r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
-    const json = await r.json();
-    adoptarSyncToken(json);
-    if (!json.ok) throw new Error(json.error || 'Respuesta no OK');
+    // Traer el pull y VALIDARLO antes de aplicar nada. Si un backend devuelve datos incompletos,
+    // se descarta ese backend y se prueba el siguiente (defensa 27-ago-2026).
+    let json = null, motivoDescarte = null;
+    const backendsDescartados = [];
+    for (let intento = 0; intento < 3; intento++) {
+      let r;
+      try {
+        r = await cloudFetchFailover(function(base){ return base + '?action=pull&t=' + Date.now() + syncTokenParam(); }, { method: 'GET' }, 45000, true, backendsDescartados); // 45s: Google a veces tarda ~20s+; 30s abortaba pulls que iban a completarse
+      } catch (e) {
+        if (motivoDescarte) break; // no quedan backends sanos: nos quedamos con los datos locales
+        throw e;
+      }
+      const baseUsada = (r && r._vtBase) || null;
+      const j = await r.json();
+      adoptarSyncToken(j);
+      if (!j.ok) throw new Error(j.error || 'Respuesta no OK');
+      const motivo = pullSospechoso(j.data);
+      if (!motivo) { json = j; break; }
+      motivoDescarte = motivo;
+      registrarPullDescartado(motivo, baseUsada);
+      if (!baseUsada) break; // no sabemos que backend contesto: no reintentamos para no repetir el mismo
+      backendsDescartados.push(baseUsada);
+    }
+    if (!json) {
+      const msgDescarte = 'La nube devolvio datos incompletos: ' + (motivoDescarte || 'sin detalle') + '. NO se toco nada de este equipo.';
+      syncState.lastError = msgDescarte;
+      if (!silencioso) toast('\u{1F6E1}\uFE0F ' + msgDescarte, 'error');
+      actualizarBadgeSync();
+      return { ok: false, error: msgDescarte, descartado: true };
+    }
 
     // Aplicar datos remotos
     let cambios = 0;
@@ -2118,7 +2232,11 @@ async function cloudPull(silencioso = false) {
       const remotoObj = json.data.controlSignos;
       const localObj = state.controlSignos || {};
       const merged = {};
-      Object.keys(remotoObj).forEach(function(f){ merged[f] = remotoObj[f]; });
+      Object.keys(remotoObj).forEach(function(f){
+        // Si la nube manda esa FECHA vacia pero este equipo tiene datos cargados ahi, gana lo local.
+        if (tamanoDato(remotoObj[f]) === 0 && tamanoDato(localObj[f]) > 0) { merged[f] = localObj[f]; return; }
+        merged[f] = remotoObj[f];
+      });
       const faltanEnNube = [];
       Object.keys(localObj).forEach(function(f){
         if (!(f in remotoObj)) { merged[f] = localObj[f]; faltanEnNube.push(f); }
