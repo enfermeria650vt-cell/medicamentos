@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-08-28-1';
+const APP_VERSION = 'v2026-09-08-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6794,6 +6794,7 @@ function viewInsumos() {
   });
   totFila += '<td></td></tr>';
 
+  insumosState._renderMes = mesSel;   // que mes esta dibujado en pantalla (para no re-dibujar de gusto)
   const sub = insumosState.sub || 'usodiario';
   // Si ya cargamos datos para este residente+mes, un re-render NO debe esconder la grilla ("el vacio")
   const yaCargado = sub === 'usodiario' && !!resSel && !!mesSel && insumosState._cargadoKey === (resSel + '|' + mesSel);
@@ -6862,6 +6863,17 @@ function viewInsumos() {
 .ins-tabla td.ins-t-m .ins-inp:focus,
 .ins-tabla td.ins-t-t .ins-inp:focus,
 .ins-tabla td.ins-t-n .ins-inp:focus { background:#ffffff; }
+/* 8-sep-2026: avisos de carga sin guardar + columna Dia fija tambien en PC */
+.ins-btn-guardar.ins-pendiente { background:#e65100; box-shadow:0 0 0 2px #ffcc80; }
+.ins-tabla tr.ins-fila-pend td { background:#FFF3E0 !important; }
+.ins-aviso-pend { display:none; background:#e65100; color:#fff; border:none; border-radius:6px; padding:9px 14px; font-size:13px; font-weight:700; cursor:pointer; }
+.ins-aviso-pend:hover { background:#bf360c; }
+.ins-tabla th:first-child, .ins-tabla td:first-child { position:sticky; left:0; z-index:3; }
+.ins-tabla thead th:first-child { z-index:4; background:var(--azul-1); }
+.ins-tabla tbody td:first-child { background:#fff; box-shadow:2px 0 4px rgba(0,0,0,.08); }
+.ins-tabla tbody tr.ins-finde td:first-child { background:#F8F5FF; }
+.ins-tabla tbody tr.ins-fila-pend td:first-child { background:#FFF3E0; }
+.ins-tabla tr.ins-totales td:first-child { background:var(--azul-claro); }
 .btn-sm { padding:4px 10px; font-size:12px; background:var(--azul-2); color:white; border:none; border-radius:4px; cursor:pointer; }
 .btn-sm:hover { background:var(--azul-1); }
 .ins-toast { position:fixed; bottom:24px; right:24px; background:#1a7340; color:white; padding:10px 18px; border-radius:8px; font-size:13px; box-shadow:0 4px 12px rgba(0,0,0,.2); display:none; z-index:9999; }
@@ -6886,6 +6898,7 @@ function viewInsumos() {
     <select class="ins-select" id="ins-res-sel">${resOpts}</select>
     <select class="ins-select" id="ins-mes-sel">${mesOpts.join('')}</select>
     <button class="btn btn-primary" id="ins-btn-cargar">📥 Cargar datos</button>
+    <button class="ins-aviso-pend" id="ins-aviso-pend">💾 Guardar lo que falta</button>
   </div>
   <div id="ins-contenido"${yaCargado ? ' style="display:none"' : ''}>
     <div class="ins-loading">Seleccioná un residente y mes, luego hacé clic en <strong>Cargar datos</strong>.</div>
@@ -6944,114 +6957,241 @@ function attachInsumos() {
   const mesEl = document.getElementById('ins-mes-sel');
   const btnCargar = document.getElementById('ins-btn-cargar');
 
-  async function autoCargarInsumos() {
+  // ================= USO DIARIO · carga segura (fix 8-sep-2026) =================
+  // QUE SE ARREGLO: la vista se recargaba sola desde la nube mientras la enfermera
+  // estaba escribiendo. Al llegar la respuesta se re-dibujaba TODA la tabla:
+  //   - se perdia el foco de la casilla  -> parecia que "no deja escribir"
+  //   - se borraba lo tecleado sin guardar -> "escribo y no se guarda"
+  // Ahora: (1) no se recarga si hay foco o cargas pendientes, (2) los datos que
+  // llegan se PINTAN en los casilleros existentes sin re-dibujar la tabla,
+  // (3) lo pendiente nunca se pisa, (4) si falla la nube se avisa y no se borra nada.
+  if (!insumosState._pend) insumosState._pend = {};
+
+  function insEditando() {
+    const a = document.activeElement;
+    return !!(a && a.classList && a.classList.contains('ins-inp'));
+  }
+  function insPendientes() { return Object.keys(insumosState._pend || {}); }
+  function insDiasPendientes() {
+    const vistos = {}, salida = [];
+    insPendientes().forEach(k => { const d = k.split('|')[0]; if (!vistos[d]) { vistos[d] = 1; salida.push(d); } });
+    return salida.sort((a,b) => Number(a) - Number(b));
+  }
+  function insMarcarPendientes() {
+    const dias = insDiasPendientes();
+    document.querySelectorAll('.ins-btn-guardar').forEach(b => {
+      const hay = dias.indexOf(b.dataset.dia) >= 0;
+      b.classList.toggle('ins-pendiente', hay);
+      const fila = b.closest('tr');
+      if (fila) fila.classList.toggle('ins-fila-pend', hay);
+    });
+    const av = document.getElementById('ins-aviso-pend');
+    if (av) {
+      av.style.display = dias.length ? 'inline-block' : 'none';
+      av.textContent = '💾 Guardar ' + dias.length + (dias.length === 1 ? ' día sin guardar' : ' días sin guardar');
+    }
+  }
+  function insRecalcTotales() {
+    const mes = insumosState.mes || '';
+    if (mes.length < 6) return;
+    const dias = new Date(parseInt(mes.substring(0,4)), parseInt(mes.substring(4,6)), 0).getDate();
+    const celdas = document.querySelectorAll('.ins-totales td strong');
+    INSUMOS_CAMPOS_TURNOS.forEach((c, i) => {
+      let suma = 0;
+      for (let d = 1; d <= dias; d++) {
+        const inp = document.querySelector('.ins-inp[data-dia="' + d + '"][data-campo="' + c + '"]');
+        suma += Number((inp ? inp.value : (insumosState.datos[d] || {})[c]) || 0);
+      }
+      if (celdas[i+1]) celdas[i+1].textContent = suma;
+    });
+  }
+  // Escribe los datos en los casilleros que YA estan en pantalla (sin re-dibujar la tabla):
+  // asi nunca se pierde el foco ni lo que la persona esta tecleando.
+  function insPintarEnGrilla() {
+    const inps = document.querySelectorAll('.ins-inp');
+    if (!inps.length) return false;
+    const pend = insumosState._pend || {};
+    inps.forEach(inp => {
+      const dia = inp.dataset.dia, campo = inp.dataset.campo;
+      if (pend[dia + '|' + campo] !== undefined) return;   // cargado y sin guardar: NO se toca
+      if (inp === document.activeElement) return;           // donde esta escribiendo: NO se toca
+      const fila = insumosState.datos[dia];
+      const v = (fila && fila[campo] !== undefined) ? fila[campo] : '';
+      if (String(inp.value) !== String(v)) inp.value = v;
+    });
+    insRecalcTotales();
+    insMarcarPendientes();
+    return true;
+  }
+  function insConfirmarDescartar() {
+    const dias = insDiasPendientes();
+    if (!dias.length) return true;
+    return confirm('Tenés ' + dias.length + ' día(s) cargados y SIN GUARDAR (día ' + dias.join(', ') + ').\n\n' +
+                   'Si cambiás de residente o de mes se pierden.\n\n¿Seguir igual?');
+  }
+
+  async function autoCargarInsumos(forzado) {
     const res = resEl ? resEl.value : insumosState.residente;
     const mes = mesEl ? mesEl.value : insumosState.mes;
     if (!res || !mes) return;
+    // Si esta escribiendo o tiene cargas sin guardar: NO recargamos (le borraria lo cargado)
+    if (!forzado && (insEditando() || insPendientes().length)) return;
     insumosState.residente = res;
     insumosState.mes = mes;
     const url = getIndicUrl();
-    if (!url) return;
+    if (!url) { toast('❌ Falta configurar la dirección de la nube en Indicaciones médicas.', 'error'); return; }
+    const req = (insumosState._reqId = (insumosState._reqId || 0) + 1);
     if (btnCargar) { btnCargar.textContent = '⏳ Cargando...'; btnCargar.disabled = true; }
+    let ok = false;
     try {
-      const r = await fetch(`${url}?action=getInsumos&residente=${encodeURIComponent(res)}&mes=${mes}`);
+      const r = await fetch(url + '?action=getInsumos&residente=' + encodeURIComponent(res) + '&mes=' + mes + '&t=' + Date.now());
       const j = await r.json();
-      insumosState.datos = {};
-      if (j.ok && Array.isArray(j.data)) {
-        j.data.forEach(row => {
-          const d = {};
-          INSUMOS_CAMPOS_TURNOS.forEach(c => { d[c] = row[c] !== undefined ? row[c] : 0; });
-          insumosState.datos[row.dia] = d;
-        });
-      }
-    } catch(e) { console.error(e); }
+      if (req !== insumosState._reqId) return;   // llego tarde: ya se pidio otro residente/mes
+      if (!j || j.ok !== true || !Array.isArray(j.data)) throw new Error((j && j.error) || 'la nube no devolvió los datos');
+      const nuevos = {};
+      j.data.forEach(row => {
+        const d = {};
+        INSUMOS_CAMPOS_TURNOS.forEach(c => { d[c] = row[c] !== undefined ? row[c] : 0; });
+        nuevos[row.dia] = d;
+      });
+      // Lo que la persona cargo y todavia no guardo MANDA sobre lo que trae la nube
+      const pend = insumosState._pend || {};
+      Object.keys(pend).forEach(k => {
+        const par = k.split('|'), dia = par[0], campo = par[1];
+        if (!nuevos[dia]) nuevos[dia] = {};
+        nuevos[dia][campo] = pend[k];
+      });
+      insumosState.datos = nuevos;
+      ok = true;
+    } catch(e) {
+      console.error(e);
+      if (req !== insumosState._reqId) return;
+      toast('❌ No se pudieron traer los insumos (' + (e.message || 'sin conexión') + '). Tocá "🔄 Reintentar". Lo que hayas cargado NO se borró.', 'error');
+    }
+    if (btnCargar) { btnCargar.textContent = ok ? '📥 Cargar datos' : '🔄 Reintentar'; btnCargar.disabled = false; }
+    const tw0 = document.getElementById('ins-tabla-wrap');
+    const cont0 = document.getElementById('ins-contenido');
+    if (tw0) tw0.style.display = 'block';
+    if (cont0) cont0.style.display = 'none';
+    if (!ok) return;   // no borramos la grilla: queda lo que hubiera en pantalla
     insumosState._cargadoKey = res + '|' + mes;
-    if (btnCargar) { btnCargar.textContent = '📥 Cargar datos'; btnCargar.disabled = false; }
-    insumosState._renderInterno = true; // que attachInsumos no dispare otra carga (evita bucle)
-    const main = document.getElementById('main');
-    main.innerHTML = viewInsumos();
-    attachInsumos();
-    const tw = document.getElementById('ins-tabla-wrap');
-    const contenido = document.getElementById('ins-contenido');
-    if (tw) tw.style.display = 'block';
-    if (contenido) contenido.style.display = 'none';
+    // Solo re-dibujamos si cambio el mes (cambia la cantidad de filas). Si no, pintamos en el lugar.
+    if (insumosState._renderMes !== mes || !document.querySelector('.ins-inp')) {
+      insumosState._renderInterno = true;
+      const main = document.getElementById('main');
+      main.innerHTML = viewInsumos();
+      attachInsumos();
+      const tw = document.getElementById('ins-tabla-wrap');
+      const contenido = document.getElementById('ins-contenido');
+      if (tw) tw.style.display = 'block';
+      if (contenido) contenido.style.display = 'none';
+    } else {
+      insPintarEnGrilla();
+    }
   }
 
-  if (resEl) resEl.onchange = () => { insumosState.residente = resEl.value; insumosState.datos = {}; autoCargarInsumos(); };
-  if (mesEl) mesEl.onchange = () => { insumosState.mes = mesEl.value; insumosState.datos = {}; autoCargarInsumos(); };
+  async function guardarFilaInsumos(dia, btn) {
+    const url = getIndicUrl();
+    if (!url) { alert('Configurá primero la dirección de la nube.'); return false; }
+    const res = insumosState.residente, mes = insumosState.mes;
+    if (!res || !mes) { alert('Seleccioná residente y mes primero.'); return false; }
+    const vals = {};
+    INSUMOS_CAMPOS_TURNOS.forEach(c => {
+      const inp = document.querySelector('.ins-inp[data-dia="' + dia + '"][data-campo="' + c + '"]');
+      vals[c] = inp ? (inp.value || 0) : 0;
+    });
+    insumosState.datos[dia] = vals;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      const params = new URLSearchParams({ action: 'setInsumo', residente: res, mes: mes, dia: dia });
+      INSUMOS_CAMPOS_TURNOS.forEach(c => params.set(c, vals[c]));
+      const resp = await fetch(url + '?' + params.toString());
+      const jr = await resp.json().catch(() => null);
+      const okReal = jr && jr.ok === true && (!jr.data || jr.data.ok !== false);
+      if (!okReal) {
+        const msg = (jr && jr.data && jr.data.error) || (jr && jr.error) || 'no se pudo guardar';
+        if (btn) { btn.disabled = false; btn.textContent = '❌'; setTimeout(() => { btn.textContent = '💾'; }, 3000); }
+        toast('❌ Día ' + dia + ': ' + msg + '. Lo que cargaste sigue en pantalla, volvé a tocar 💾.', 'error');
+        return false;
+      }
+      INSUMOS_CAMPOS_TURNOS.forEach(c => { delete insumosState._pend[dia + '|' + c]; });
+      if (btn) { btn.disabled = false; btn.textContent = '✅'; setTimeout(() => { btn.textContent = '💾'; }, 1500); }
+      insMarcarPendientes();
+      insRecalcTotales();
+      return true;
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.textContent = '❌'; setTimeout(() => { btn.textContent = '💾'; }, 3000); }
+      toast('❌ Sin conexión al guardar el día ' + dia + '. Lo que cargaste NO se borró: reintentá con 💾.', 'error');
+      return false;
+    }
+  }
 
-  if (btnCargar) btnCargar.onclick = autoCargarInsumos;
+  if (resEl) resEl.onchange = () => {
+    if (!insConfirmarDescartar()) { resEl.value = insumosState.residente; return; }
+    insumosState._pend = {};
+    insumosState.residente = resEl.value;
+    insumosState.datos = {};
+    autoCargarInsumos(true);
+  };
+  if (mesEl) mesEl.onchange = () => {
+    if (!insConfirmarDescartar()) { mesEl.value = insumosState.mes; return; }
+    insumosState._pend = {};
+    insumosState.mes = mesEl.value;
+    insumosState.datos = {};
+    autoCargarInsumos(true);
+  };
+  if (btnCargar) btnCargar.onclick = () => autoCargarInsumos(true);
 
-  // Auto-cargar al entrar a la vista: trae datos FRESCOS de la nube (otros dispositivos pueden haber cargado).
-  // El flag _renderInterno evita que el propio re-render de autoCargarInsumos dispare otra carga (bucle).
+  const avisoPend = document.getElementById('ins-aviso-pend');
+  if (avisoPend) avisoPend.onclick = async () => {
+    const dias = insDiasPendientes();
+    if (!dias.length) return;
+    avisoPend.disabled = true;
+    avisoPend.textContent = '⏳ Guardando...';
+    let fallo = 0;
+    for (const d of dias) {
+      const b = document.querySelector('.ins-btn-guardar[data-dia="' + d + '"]');
+      const okF = await guardarFilaInsumos(d, b);
+      if (!okF) fallo++;
+    }
+    avisoPend.disabled = false;
+    insMarcarPendientes();
+    toast(fallo ? ('⚠️ Quedaron ' + fallo + ' día(s) sin guardar. Reintentá.') : '✅ Guardado todo', fallo ? 'error' : 'success');
+  };
+
+  // Auto-cargar al entrar: trae datos frescos (otros equipos pueden haber cargado).
+  // NUNCA se dispara si la persona esta escribiendo o tiene cargas sin guardar.
   const esRenderInterno = insumosState._renderInterno === true;
   insumosState._renderInterno = false;
-  // Usa la seleccion VISIBLE de los dropdowns (al abrir la app ya muestran residente y mes):
-  // asi la grilla carga sola al entrar, sin tener que tocar "Cargar datos".
   const resVis = resEl ? resEl.value : insumosState.residente;
   const mesVis = mesEl ? mesEl.value : insumosState.mes;
-  if (resVis && mesVis && !esRenderInterno) autoCargarInsumos();
+  if (resVis && mesVis && !esRenderInterno && !insEditando() && !insPendientes().length) autoCargarInsumos();
 
-  // Espejar lo tecleado al estado: si algo re-dibuja la vista (sync/render), NO se pierde lo cargado
+  // Espejar lo tecleado al estado + marcarlo como PENDIENTE de guardar
   document.querySelectorAll('.ins-inp').forEach(inp => {
     inp.oninput = () => {
       const d = inp.dataset.dia, campo = inp.dataset.campo;
       if (!insumosState.datos[d]) insumosState.datos[d] = {};
       insumosState.datos[d][campo] = inp.value;
+      insumosState._pend[d + '|' + campo] = inp.value;
+      insMarcarPendientes();
+      insRecalcTotales();
+    };
+    inp.onkeydown = (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        const b = document.querySelector('.ins-btn-guardar[data-dia="' + inp.dataset.dia + '"]');
+        if (b) guardarFilaInsumos(inp.dataset.dia, b);
+      }
     };
   });
 
   // Guardar fila
   document.querySelectorAll('.ins-btn-guardar').forEach(btn => {
-    btn.onclick = async () => {
-      const dia = btn.dataset.dia;
-      const url = getIndicUrl();
-      if (!url) { alert('Configurá primero la URL de la nube.'); return; }
-      const res = insumosState.residente;
-      const mes = insumosState.mes;
-      if (!res || !mes) { alert('Seleccioná residente y mes primero.'); return; }
-      const vals = {};
-      INSUMOS_CAMPOS_TURNOS.forEach(c => {
-        const inp = document.querySelector(`.ins-inp[data-dia="${dia}"][data-campo="${c}"]`);
-        vals[c] = inp ? (inp.value || 0) : 0;
-      });
-      // Guardar en estado local
-      insumosState.datos[dia] = vals;
-      // Guardar en nube
-      btn.textContent = '⏳';
-      try {
-        const params = new URLSearchParams({ action: 'setInsumo', residente: res, mes: mes, dia: dia });
-        INSUMOS_CAMPOS_TURNOS.forEach(c => params.set(c, vals[c]));
-        const resp = await fetch(`${url}?${params.toString()}`);
-        const jr = await resp.json().catch(() => null);
-        const okReal = jr && jr.ok === true && (!jr.data || jr.data.ok !== false);
-        if (!okReal) {
-          btn.textContent = '❌';
-          const msg = (jr && jr.data && jr.data.error) || (jr && jr.error) || 'No se pudo guardar';
-          if (typeof toast === 'function') toast('❌ ' + msg);
-          setTimeout(() => btn.textContent = '💾', 2500);
-          return;
-        }
-        btn.textContent = '✅';
-        setTimeout(() => btn.textContent = '💾', 1500);
-        // Actualizar totales
-        const anio2 = parseInt(mes.substring(0,4));
-        const mesN2 = parseInt(mes.substring(4,6));
-        const diasEnMes2 = new Date(anio2, mesN2, 0).getDate();
-        const totCeldas = document.querySelectorAll('.ins-totales td strong');
-        INSUMOS_CAMPOS_TURNOS.forEach((c, i) => {
-          let suma = 0;
-          for (let d = 1; d <= diasEnMes2; d++) {
-            suma += Number((insumosState.datos[d] || {})[c] || 0);
-          }
-          if (totCeldas[i+1]) totCeldas[i+1].textContent = suma;
-        });
-      } catch(e) {
-        btn.textContent = '❌';
-        setTimeout(() => btn.textContent = '💾', 2000);
-      }
-    };
+    btn.onclick = () => guardarFilaInsumos(btn.dataset.dia, btn);
   });
+
+  insMarcarPendientes();
 }
 
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
