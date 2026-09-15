@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-08-2';
+const APP_VERSION = 'v2026-09-15-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -9150,6 +9150,39 @@ function famKey(f) {
   return (f.nombre + ' ' + f.apellido).trim();
 }
 
+function famFicha(key) {
+  return (state.familiaresLista || []).find(f => famKey(f) === key) || null;
+}
+// Los datos personales viven en la FICHA del familiar; la receta vieja sirve de respaldo.
+function datosFam(key, r) {
+  const f = famFicha(key) || {};
+  r = r || {};
+  const pick = (a, b) => (a !== undefined && a !== null && String(a).trim() !== '') ? a : (b || '');
+  return {
+    obraSocial:     pick(f.obraSocial,     r.obraSocial),
+    obraOtra:       pick(f.obraOtra,       r.obraOtra),
+    nroAfiliado:    pick(f.nroAfiliado,    r.nroAfiliado),
+    dni:            pick(f.dni,            r.dni),
+    fechaNacimiento:pick(f.fechaNacimiento,r.fechaNacimiento),
+    sexo:           pick(f.sexo,           r.sexo),
+    diagnostico:    pick(r.diagnostico,    f.diagnostico)
+  };
+}
+function osTexto(d) {
+  if (!d.obraSocial) return '';
+  return d.obraSocial === 'Otra' ? (d.obraOtra || 'Otra') : d.obraSocial;
+}
+// Última receta cargada del familiar (para precargar la del mes siguiente)
+function ultimaRecetaFam(key) {
+  const arr = (state.recetasFamiliares && state.recetasFamiliares[key]) || [];
+  if (!arr.length) return null;
+  return arr.slice().sort((a,b) => String(a.fechaReceta||'').localeCompare(String(b.fechaReceta||'')))[arr.length-1];
+}
+function hoyISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
 function viewFamiliares() {
   const lista = state.familiaresLista || [];
   const sel = state.familiarSel || (lista.length > 0 ? famKey(lista[0]) : '');
@@ -9165,35 +9198,68 @@ function viewFamiliares() {
   }).join('');
 
   const recetas = sel ? (state.recetasFamiliares[sel] || []) : [];
+  // Ordenadas por fecha: la más nueva arriba, las anteriores quedan como historial.
+  const recetasOrd = recetas.map((r, i) => ({ r, i }))
+    .sort((a, b) => String(b.r.fechaReceta||'').localeCompare(String(a.r.fechaReceta||'')));
 
-  const recetasHtml = recetas.length === 0
-    ? `<div style="padding:40px;text-align:center;color:#6c7a8a">Sin recetas cargadas.<br><br>
+  const d = sel ? datosFam(sel, null) : {};
+  const ficha = sel ? (famFicha(sel) || {}) : {};
+  const tieneFicha = !!(ficha.dni || ficha.obraSocial || ficha.fechaNacimiento || ficha.sexo || ficha.nroAfiliado || ficha.diagnostico);
+
+  const fichaHtml = !sel ? '' : `
+    <div class="card" style="margin-bottom:14px;border-left:4px solid #2E75B6">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <b style="font-size:14px;color:#1F4E78">🪪 Datos del familiar (se cargan una sola vez)</b>
+        <button class="btn secondary" style="font-size:12px;padding:4px 10px" onclick="abrirModalFichaFamiliar('${jsAttr(sel)}')">✏️ Editar datos</button>
+      </div>
+      ${tieneFicha ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">
+        ${d.obraSocial ? `<div><b>Obra social:</b> ${escapeHtml(osTexto(d))}</div>` : ''}
+        ${d.nroAfiliado ? `<div><b>Nº Afiliado:</b> ${escapeHtml(d.nroAfiliado)}</div>` : ''}
+        ${d.dni ? `<div><b>DNI:</b> ${escapeHtml(d.dni)}</div>` : ''}
+        ${d.fechaNacimiento ? `<div><b>Fecha nac.:</b> ${escapeHtml(d.fechaNacimiento)}</div>` : ''}
+        ${d.sexo ? `<div><b>Sexo:</b> ${d.sexo==='M'?'Masculino':'Femenino'}</div>` : ''}
+        ${ficha.diagnostico ? `<div style="grid-column:1/-1"><b>Diagnóstico habitual:</b> ${escapeHtml(ficha.diagnostico)}</div>` : ''}
+      </div>`
+      : `<div style="font-size:13px;color:#6c7a8a">Todavía no cargaste los datos de este familiar. Con <b>✏️ Editar datos</b> los cargás una vez y después cada receta sale sola.</div>`}
+    </div>`;
+
+  const btnNueva = `<div style="text-align:center;margin-top:8px">
+      <button class="btn" onclick="abrirModalNuevaRecetaFam()">+ Agregar receta</button>
+    </div>`;
+
+  const recetasHtml = recetasOrd.length === 0
+    ? `<div style="padding:30px;text-align:center;color:#6c7a8a">Sin recetas cargadas.<br><br>
         <button class="btn" onclick="abrirModalNuevaRecetaFam()">+ Agregar receta</button></div>`
-    : recetas.map((r, idx) => `
-      <div class="card" style="margin-bottom:12px;border-left:4px solid #27AE60">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <b style="font-size:15px">📝 ${escapeHtml(r.nombreHoja||'Receta')}</b>
+    : recetasOrd.map((o, pos) => {
+      const r = o.r, idx = o.i;
+      const dxReceta = (r.diagnostico || '').trim();
+      const dxFicha = (ficha.diagnostico || '').trim();
+      return `
+      <div class="card" style="margin-bottom:12px;border-left:4px solid ${pos===0?'#27AE60':'#b0bec5'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+          <b style="font-size:15px">📝 ${escapeHtml(r.nombreHoja||'Receta')} ${pos===0?'<span style="font-size:11px;background:#27AE60;color:#fff;padding:2px 7px;border-radius:10px;vertical-align:middle">VIGENTE</span>':''}</b>
           <div style="display:flex;gap:6px">
             <button class="btn secondary" style="font-size:12px;padding:4px 10px" onclick="abrirModalEditarRecetaFam('${jsAttr(sel)}',${idx})">✏️</button>
             <button class="btn" style="font-size:12px;padding:4px 10px;background:#e74c3c" onclick="eliminarRecetaFam('${jsAttr(sel)}',${idx})">🗑️</button>
             <button class="btn secondary" style="font-size:12px;padding:4px 10px" onclick="imprimirRecetaFam('${jsAttr(sel)}',${idx})">🖨️</button>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">
-          ${r.obraSocial ? `<div><b>Obra social:</b> ${escapeHtml(r.obraSocial!=='Otra'?r.obraSocial:(r.obraOtra||r.obraSocial))}</div>` : ''}
-          ${r.nroAfiliado ? `<div><b>Nº Afiliado:</b> ${escapeHtml(r.nroAfiliado)}</div>` : ''}
-          ${r.dni ? `<div><b>DNI:</b> ${escapeHtml(r.dni)}</div>` : ''}
-          ${r.fechaNacimiento ? `<div><b>Fecha nac.:</b> ${escapeHtml(r.fechaNacimiento)}</div>` : ''}
-          ${r.sexo ? `<div><b>Sexo:</b> ${r.sexo==='M'?'Masculino':'Femenino'}</div>` : ''}
-          ${r.diagnostico ? `<div style="grid-column:1/-1"><b>Diagnóstico:</b> ${escapeHtml(r.diagnostico)}</div>` : ''}
-        </div>
+        ${dxReceta && dxReceta !== dxFicha ? `<div style="font-size:13px;margin-bottom:4px"><b>Diagnóstico:</b> ${escapeHtml(dxReceta)}</div>` : ''}
         ${(r.medicamentos||[]).length>0?`
-          <div style="margin-top:8px;font-size:12px;font-weight:700;color:#555;text-transform:uppercase">Medicamentos</div>
+          <div style="margin-top:4px;font-size:12px;font-weight:700;color:#555;text-transform:uppercase">Medicamentos</div>
           ${r.medicamentos.map(m=>`<div style="font-size:13px;padding:4px 8px;background:#EBF5FB;border-left:3px solid #27AE60;margin-top:4px;border-radius:4px">💊 ${escapeHtml(m)}</div>`).join('')}`:''}
         ${r.notas?`<div style="margin-top:8px;font-size:13px;color:#666"><b>Notas:</b> ${escapeHtml(r.notas)}</div>`:''}
         ${r.fechaReceta?`<div style="margin-top:8px;font-size:12px;color:#999;text-align:right">📅 ${escapeHtml(r.fechaReceta)}</div>`:''}
-      </div>`).join('') +
-      `<div style="text-align:center;margin-top:8px"><button class="btn" onclick="abrirModalNuevaRecetaFam()">+ Agregar receta</button></div>`;
+      </div>`;
+    }).join('') + btnNueva;
+
+  // Precarga del modal de receta nueva: diagnóstico y medicamentos de la última receta
+  const ult = sel ? ultimaRecetaFam(sel) : null;
+  const preNombre = ult ? (ult.nombreHoja || '') : '';
+  const preDx = ult ? (ult.diagnostico || ficha.diagnostico || '') : (ficha.diagnostico || '');
+  const preMeds = ult ? (ult.medicamentos || []).join('\n') : '';
+  const preNotas = ult ? (ult.notas || '') : '';
 
   return `
   <div style="display:flex;height:100%;gap:0">
@@ -9213,7 +9279,7 @@ function viewFamiliares() {
         : (sel ? `<div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
             <h3 style="margin:0;color:#1F4E78">👤 ${escapeHtml(sel)}</h3>
             <button class="btn" style="background:#e74c3c;font-size:12px;padding:5px 12px" onclick="eliminarFamiliar('${jsAttr(sel)}')">🗑️ Eliminar familiar</button>
-          </div>${recetasHtml}` : recetasHtml)
+          </div>${fichaHtml}${recetasHtml}` : recetasHtml)
       }
     </div>
   </div>
@@ -9232,35 +9298,51 @@ function viewFamiliares() {
     </div>
   </div>
 
-  <div id="modal-nueva-receta-fam" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+  <div id="modal-ficha-familiar" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
     <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto">
-      <h3 style="margin-bottom:16px">Nueva receta — ${escapeHtml(sel)}</h3>
-      <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
-      <input id="nrf-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
+      <h3 style="margin-bottom:6px">🪪 Datos de ${escapeHtml(sel)}</h3>
+      <div style="font-size:12px;color:#6c7a8a;margin-bottom:14px">Se cargan una sola vez. Todas las recetas —viejas y nuevas— usan estos datos.</div>
       <label style="font-size:13px;font-weight:600">Obra social</label>
-      <select id="nrf-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('nrf')">
+      <select id="ff-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('ff')">
         <option value="">Sin obra social</option>
-        <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
+        <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>OSPJN</option><option>Jerarquicos Salud</option><option>Otra</option>
       </select>
-      <input id="nrf-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
+      <input id="ff-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
       <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
-      <input id="nrf-afiliado" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de afiliado">
+      <input id="ff-afiliado" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de afiliado">
       <label style="font-size:13px;font-weight:600">DNI</label>
-      <input id="nrf-dni" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de DNI">
+      <input id="ff-dni" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Número de DNI">
       <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
-      <input id="nrf-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
+      <input id="ff-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
       <label style="font-size:13px;font-weight:600">Sexo</label>
-      <select id="nrf-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
+      <select id="ff-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
         <option value="">— Seleccionar —</option>
         <option value="M">Masculino</option>
         <option value="F">Femenino</option>
       </select>
+      <label style="font-size:13px;font-weight:600">Diagnóstico habitual</label>
+      <input id="ff-dx" class="input-field" style="width:100%;margin:4px 0 14px" placeholder="Ej: HTA">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalFichaFamiliar()">Cancelar</button>
+        <button class="btn" style="background:#27AE60" onclick="guardarFichaFamiliar('${jsAttr(sel)}')">💾 Guardar datos</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-nueva-receta-fam" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto">
+      <h3 style="margin-bottom:6px">Nueva receta — ${escapeHtml(sel)}</h3>
+      <div style="font-size:12px;color:#6c7a8a;margin-bottom:14px">${ult ? 'Viene precargada con la receta anterior: revisá y guardá.' : 'Los datos personales salen de la ficha del familiar.'}</div>
+      <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
+      <input id="nrf-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol" value="${escapeHtml(preNombre)}">
       <label style="font-size:13px;font-weight:600">Diagnóstico</label>
-      <input id="nrf-dx" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: HTA">
+      <input id="nrf-dx" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: HTA" value="${escapeHtml(preDx)}">
       <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
-      <textarea id="nrf-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:80px" placeholder="Ej: Omeprazol 20 mg&#10;GASTROMAX 20"></textarea>
+      <textarea id="nrf-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:100px" placeholder="Ej: Omeprazol 20 mg&#10;GASTROMAX 20">${escapeHtml(preMeds)}</textarea>
+      <label style="font-size:13px;font-weight:600">Notas</label>
+      <input id="nrf-notas" class="input-field" style="width:100%;margin:4px 0 10px" value="${escapeHtml(preNotas)}">
       <label style="font-size:13px;font-weight:600">Fecha receta</label>
-      <input id="nrf-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px">
+      <input id="nrf-fecha" type="date" class="input-field" style="width:100%;margin:4px 0 14px" value="${hoyISO()}">
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button class="btn" style="background:#e0e0e0;color:#333" onclick="cerrarModalNuevaRecetaFam()">Cancelar</button>
         <button class="btn" style="background:#27AE60" onclick="guardarNuevaRecetaFam('${jsAttr(sel)}')">Guardar</button>
@@ -9270,31 +9352,14 @@ function viewFamiliares() {
 
   <div id="modal-editar-receta-fam" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
     <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto">
-      <h3 style="margin-bottom:16px">✏️ Editar receta</h3>
+      <h3 style="margin-bottom:6px">✏️ Editar receta</h3>
+      <div style="font-size:12px;color:#6c7a8a;margin-bottom:14px">Los datos personales se editan en 🪪 Datos del familiar.</div>
       <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
       <input id="erf-nombre" class="input-field" style="width:100%;margin:4px 0 10px">
-      <label style="font-size:13px;font-weight:600">Obra social</label>
-      <select id="erf-os" class="input-field" style="width:100%;margin:4px 0 4px" onchange="toggleOtraOS('erf')">
-        <option value="">Sin obra social</option>
-        <option>IPS</option><option>MEDICUS</option><option>OSDE</option><option>PAMI</option><option>IOMA</option><option>Jerarquicos Salud</option><option>Otra</option>
-      </select>
-      <input id="erf-os-otra" class="input-field" style="width:100%;margin:4px 0 10px;display:none" placeholder="Especificar obra social...">
-      <label style="font-size:13px;font-weight:600">Nº Afiliado</label>
-      <input id="erf-afiliado" class="input-field" style="width:100%;margin:4px 0 10px">
-      <label style="font-size:13px;font-weight:600">DNI</label>
-      <input id="erf-dni" class="input-field" style="width:100%;margin:4px 0 10px">
-      <label style="font-size:13px;font-weight:600">Fecha de nacimiento</label>
-      <input id="erf-fnac" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="dd/mm/aaaa">
-      <label style="font-size:13px;font-weight:600">Sexo</label>
-      <select id="erf-sexo" class="input-field" style="width:100%;margin:4px 0 10px">
-        <option value="">— Seleccionar —</option>
-        <option value="M">Masculino</option>
-        <option value="F">Femenino</option>
-      </select>
       <label style="font-size:13px;font-weight:600">Diagnóstico</label>
       <input id="erf-dx" class="input-field" style="width:100%;margin:4px 0 10px">
       <label style="font-size:13px;font-weight:600">Medicamentos / Indicaciones (uno por línea)</label>
-      <textarea id="erf-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:90px"></textarea>
+      <textarea id="erf-meds" class="input-field" style="width:100%;margin:4px 0 10px;height:100px"></textarea>
       <label style="font-size:13px;font-weight:600">Notas</label>
       <input id="erf-notas" class="input-field" style="width:100%;margin:4px 0 10px">
       <label style="font-size:13px;font-weight:600">Fecha receta</label>
@@ -9337,7 +9402,8 @@ function guardarNuevoFamiliar() {
   saveFamLista();
   cerrarModalNuevoFamiliar();
   render();
-  toast('✅ Familiar agregado');
+  toast('✅ Familiar agregado — cargá sus datos');
+  setTimeout(() => abrirModalFichaFamiliar(key), 120);
 }
 function eliminarFamiliar(key) {
   if (!confirm('¿Eliminar al familiar ' + key + ' y todas sus recetas?')) return;
@@ -9349,6 +9415,50 @@ function eliminarFamiliar(key) {
   saveFamRecetas();
   render();
   toast('🗑️ Familiar eliminado');
+}
+
+function abrirModalFichaFamiliar(key) {
+  const m = document.getElementById('modal-ficha-familiar');
+  if (!m) return;
+  const f = famFicha(key) || {};
+  // Si la ficha está vacía, se precarga con los datos de la última receta cargada.
+  const ult = ultimaRecetaFam(key) || {};
+  const val = (a, b) => (a !== undefined && a !== null && String(a).trim() !== '') ? a : (b || '');
+  const os = document.getElementById('ff-os');
+  const osVal = val(f.obraSocial, ult.obraSocial);
+  const opts = Array.from(os.options).map(o => o.value || o.text);
+  if (opts.includes(osVal)) os.value = osVal;
+  else if (osVal) os.value = 'Otra';
+  else os.value = '';
+  const otraInp = document.getElementById('ff-os-otra');
+  if (os.value === 'Otra') { otraInp.style.display = ''; otraInp.value = val(f.obraOtra, ult.obraOtra) || osVal || ''; }
+  else { otraInp.style.display = 'none'; otraInp.value = ''; }
+  document.getElementById('ff-afiliado').value = val(f.nroAfiliado, ult.nroAfiliado);
+  document.getElementById('ff-dni').value = val(f.dni, ult.dni);
+  document.getElementById('ff-fnac').value = val(f.fechaNacimiento, ult.fechaNacimiento);
+  document.getElementById('ff-sexo').value = val(f.sexo, ult.sexo);
+  document.getElementById('ff-dx').value = val(f.diagnostico, ult.diagnostico);
+  m.style.display = 'flex';
+}
+function cerrarModalFichaFamiliar() {
+  const m = document.getElementById('modal-ficha-familiar');
+  if (m) m.style.display = 'none';
+}
+function guardarFichaFamiliar(key) {
+  const f = famFicha(key);
+  if (!f) { alert('No encontré al familiar'); return; }
+  f.obraSocial      = document.getElementById('ff-os').value;
+  f.obraOtra        = document.getElementById('ff-os-otra').value.trim();
+  f.nroAfiliado     = document.getElementById('ff-afiliado').value.trim();
+  f.dni             = document.getElementById('ff-dni').value.trim();
+  f.fechaNacimiento = document.getElementById('ff-fnac').value.trim();
+  f.sexo            = document.getElementById('ff-sexo').value;
+  f.diagnostico     = document.getElementById('ff-dx').value.trim();
+  logCambio('familiar', 'Datos actualizados: ' + key);
+  saveFamLista();
+  cerrarModalFichaFamiliar();
+  render();
+  toast('✅ Datos guardados');
 }
 
 function abrirModalNuevaRecetaFam() {
@@ -9365,22 +9475,24 @@ function guardarNuevaRecetaFam(key) {
   if (!state.recetasFamiliares) state.recetasFamiliares = {};
   if (!state.recetasFamiliares[key]) state.recetasFamiliares[key] = [];
   const meds = document.getElementById('nrf-meds').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  const d = datosFam(key, null);
   state.recetasFamiliares[key].push({
     id: 'rfam_' + Date.now(),
     nombreHoja: nombre,
-    obraSocial: document.getElementById('nrf-os').value,
-    obraOtra: document.getElementById('nrf-os-otra').value.trim(),
-    nroAfiliado: document.getElementById('nrf-afiliado').value.trim(),
-    dni: document.getElementById('nrf-dni').value.trim(),
-    fechaNacimiento: document.getElementById('nrf-fnac').value.trim(),
-    sexo: document.getElementById('nrf-sexo').value,
+    obraSocial: d.obraSocial,
+    obraOtra: d.obraOtra,
+    nroAfiliado: d.nroAfiliado,
+    dni: d.dni,
+    fechaNacimiento: d.fechaNacimiento,
+    sexo: d.sexo,
     diagnostico: document.getElementById('nrf-dx').value.trim(),
     medicamentos: meds,
-    notas: '',
+    notas: document.getElementById('nrf-notas').value.trim(),
     fechaReceta: document.getElementById('nrf-fecha').value
   });
   logCambio('receta', 'Receta familiar agregada: ' + nombre + ' [' + key + ']');
   saveFamRecetas();
+  cerrarModalNuevaRecetaFam();
   render();
   toast('✅ Receta guardada');
 }
@@ -9390,18 +9502,6 @@ function abrirModalEditarRecetaFam(key, idx) {
   const m = document.getElementById('modal-editar-receta-fam');
   if (!m) return;
   document.getElementById('erf-nombre').value = r.nombreHoja || '';
-  const os = document.getElementById('erf-os');
-  const opts = Array.from(os.options).map(o => o.value);
-  if (opts.includes(r.obraSocial||'')) os.value = r.obraSocial||'';
-  else if (r.obraSocial) os.value = 'Otra';
-  else os.value = '';
-  const otraInp = document.getElementById('erf-os-otra');
-  if (os.value==='Otra') { otraInp.style.display=''; otraInp.value=r.obraOtra||r.obraSocial||''; }
-  else { otraInp.style.display='none'; otraInp.value=''; }
-  document.getElementById('erf-afiliado').value = r.nroAfiliado||'';
-  document.getElementById('erf-dni').value = r.dni||'';
-  document.getElementById('erf-fnac').value = r.fechaNacimiento||'';
-  document.getElementById('erf-sexo').value = r.sexo||'';
   document.getElementById('erf-dx').value = r.diagnostico||'';
   document.getElementById('erf-meds').value = (r.medicamentos||[]).join('\n');
   document.getElementById('erf-notas').value = r.notas||'';
@@ -9418,12 +9518,6 @@ function guardarEdicionRecetaFam(key, idx) {
   if (!nombre) { alert('Ingresá el nombre del medicamento/receta'); return; }
   const r = state.recetasFamiliares[key][idx];
   r.nombreHoja = nombre;
-  r.obraSocial = document.getElementById('erf-os').value;
-  r.obraOtra = document.getElementById('erf-os-otra').value.trim();
-  r.nroAfiliado = document.getElementById('erf-afiliado').value.trim();
-  r.dni = document.getElementById('erf-dni').value.trim();
-  r.fechaNacimiento = document.getElementById('erf-fnac').value.trim();
-  r.sexo = document.getElementById('erf-sexo').value;
   r.diagnostico = document.getElementById('erf-dx').value.trim();
   r.medicamentos = document.getElementById('erf-meds').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
   r.notas = document.getElementById('erf-notas').value.trim();
@@ -9444,6 +9538,7 @@ function eliminarRecetaFam(key, idx) {
 function imprimirRecetaFam(key, idx) {
   const r = state.recetasFamiliares[key]?.[idx];
   if (!r) return;
+  const d = datosFam(key, r);
   const win = window.open('', '_blank', 'width=700,height=900');
   win.document.write(`<!DOCTYPE html><html><head>
   <meta charset="utf-8">
@@ -9489,12 +9584,12 @@ function imprimirRecetaFam(key, idx) {
   <div class="seccion">
     <div class="seccion-titulo">Datos del Paciente</div>
     <div class="fila"><span class="fila-label">Familiar:</span><span class="fila-val"><b>${key}</b></span></div>
-    ${r.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${r.dni}</span></div>` : ''}
-    ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${r.fechaNacimiento}</span></div>` : ''}
-    ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">Edad:</span><span class="fila-val">${r.edad || calcEdadDesde(r.fechaNacimiento) || ''} años</span></div>` : ''}
-    ${r.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${r.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
-    ${r.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${r.obraSocial === 'Otra' ? (r.obraOtra || 'Otra') : r.obraSocial}${r.nroAfiliado ? ' — Nº ' + r.nroAfiliado : ''}</span></div>` : ''}
-    ${r.diagnostico ? `<div class="fila"><span class="fila-label">Diagnóstico:</span><span class="fila-val">${r.diagnostico}</span></div>` : ''}
+    ${d.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${d.dni}</span></div>` : ''}
+    ${d.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${d.fechaNacimiento}</span></div>` : ''}
+    ${d.fechaNacimiento ? `<div class="fila"><span class="fila-label">Edad:</span><span class="fila-val">${calcEdadDesde(d.fechaNacimiento) || ''} años</span></div>` : ''}
+    ${d.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${d.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
+    ${d.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${d.obraSocial === 'Otra' ? (d.obraOtra || 'Otra') : d.obraSocial}${d.nroAfiliado ? ' — Nº ' + d.nroAfiliado : ''}</span></div>` : ''}
+    ${d.diagnostico ? `<div class="fila"><span class="fila-label">Diagnóstico:</span><span class="fila-val">${d.diagnostico}</span></div>` : ''}
     ${r.fechaReceta ? `<div class="fila"><span class="fila-label">Fecha:</span><span class="fila-val">${r.fechaReceta}</span></div>` : ''}
   </div>
   <!-- MEDICAMENTOS -->
