@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-23-1';
+const APP_VERSION = 'v2026-09-23-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2757,6 +2757,7 @@ function usuarioEditando() {
 function render() {
   // Detectar cambio de semana antes de renderizar
   chequearCambioSemana();
+  ordenarResidentesEnMemoria();
 
   // Sidebar
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -2778,7 +2779,7 @@ function render() {
     if (al.atrasadas > 0) badge = `<span class="badge" title="Dosis atrasadas">⏰${al.atrasadas}</span>`;
     else if (al.ahora > 0) badge = `<span class="badge" style="background:#E58E26" title="Dosis en curso">🔔${al.ahora}</span>`;
     else if (res.cri > 0) badge = `<span class="badge">${res.cri}</span>`;
-    return `<div class="nav-item${active}" data-residente="${escapeHtml(r.nombre)}">👤 <span style="font-size:13px">${escapeHtml(r.nombre)}</span>${badge}</div>`;
+    return `<div class="nav-item${active}" data-residente="${escapeHtml(r.nombre)}">👤 <span style="font-size:13px">${escapeHtml(nomRes(r.nombre))}</span>${badge}</div>`;
   }).join('');
   lista.querySelectorAll('.nav-item').forEach(el => {
     el.onclick = () => navigate('residente', el.dataset.residente);
@@ -2825,12 +2826,12 @@ function viewHistoriasCli() {
   const listaHtml = lista.map(r => {
     const tiene = state.historiasCli[r.nombre] && ['diagnostico','antecedentes','medico','obraSocial','alergias','notas'].some(k => (state.historiasCli[r.nombre][k]||'').trim());
     const activo = r.nombre === sel ? ' active' : '';
-    return `<div class="hc-item${activo}" onclick="selHC('${jsAttr(r.nombre)}')">${tiene ? '🟢' : '⚪'} ${escapeHtml(r.nombre)}</div>`;
+    return `<div class="hc-item${activo}" onclick="selHC('${jsAttr(r.nombre)}')">${tiene ? '🟢' : '⚪'} ${escapeHtml(nomRes(r.nombre))}</div>`;
   }).join('');
 
   const camposHtml = sel ? `
     <div class="hc-panel-header">
-      <h2>🏥 ${escapeHtml(sel)}</h2>
+      <h2>🏥 ${escapeHtml(nomRes(sel))}</h2>
     </div>
     <div class="hc-form">
       <label>🩺 Diagnóstico principal</label>
@@ -2984,9 +2985,65 @@ function _tokNomRes(s) {
     .replace(/[^a-z\s]/g, ' ').split(/\s+/)
     .filter(w => w.length > 1 && ['de','del','la','las','los','y'].indexOf(w) < 0);
 }
+// Nombre prolijo y sexo de cada residente (solo para MOSTRAR y ORDENAR:
+// por dentro los datos siguen guardados con el nombre original, no se migra nada).
+// [nombre a mostrar, sexo, apellido clave]
+const RES_CANON = [
+  ["Alicia D'Andrea",'F','andrea'], ['Alicia Luisa Rosso','F','rosso'], ['Ana María Galante','F','galante'],
+  ['Dolores del Carmen Triana','F','dolores'], ['Fernanda Arenas','F','arenas'], ['Germana Boden','F','boden'],
+  ['Haydee Machuca','F','machuca'], ['María Angélica Veinovich','F','veinovich'], ["María Cristina D'Andrea",'F','andrea'],
+  ['María Eugenia López Sosa','F','lopez'], ['María Rosa Campanella','F','campanella'], ['María Teresa Bazterrica','F','bazterrica'],
+  ['Marta Giralt','F','giralt'], ['Nélida Usandivaras','F','usandivaras'], ['Selva Freyre de Plaza','F','freyre'],
+  ['Stella Maris García','F','garcia'],
+  ['Alain Tresca','M','tresca'], ['Carlos Rubio','M','rubio'], ['Eduardo Vallejo','M','vallejo'],
+  ['Héctor Larrahona','M','larrahona'], ['Juan José Vedoya','M','vedoya'], ['Manuel Pecci','M','pecci'],
+  ['Roberto Estanislao Niewolski','M','niewolski']
+];
+function _titleNom(s) {
+  const t = String(s || '').trim().replace(/\s+/g, ' ');
+  if (!t) return t;
+  return t.toLowerCase().split(' ').map((w, i) =>
+    (i > 0 && ['de','del','la','las','los','y'].indexOf(w) >= 0) ? w : w.charAt(0).toUpperCase() + w.slice(1)
+  ).join(' ').replace(/'([a-záéíóúñ])/g, (m, c) => "'" + c.toUpperCase());
+}
+const _perfilCache = new Map();
+function perfilResidente(nombre) {
+  const k = String(nombre || '');
+  if (_perfilCache.has(k)) return _perfilCache.get(k);
+  const t = _tokNomRes(k);
+  let best = null, bs = 0, bc = 0;
+  if (t.length) RES_CANON.forEach(([n, sx, ape]) => {
+    if (t.indexOf(ape) < 0) return;               // el apellido tiene que estar sí o sí
+    const u = _tokNomRes(n);
+    let c = 0; t.forEach(w => { if (u.indexOf(w) >= 0) c++; });
+    if (c < 2) return;
+    const sc = c / Math.min(t.length, u.length);
+    if (sc > bs || (sc === bs && c > bc)) { bs = sc; bc = c; best = { nombre: n, sexo: sx }; }
+  });
+  if (!best) {
+    const nom = _titleNom(k);
+    const pri = (t[0] || '');
+    best = { nombre: nom, sexo: /a$/.test(pri) ? 'F' : 'M' }; // residente nuevo: se deduce por el nombre
+  }
+  _perfilCache.set(k, best);
+  return best;
+}
+function nomRes(n) { return perfilResidente(n).nombre; }
+// Orden: mujeres primero, después varones; dentro de cada grupo, alfabético por nombre y apellido.
+function cmpResidentes(a, b) {
+  const pa = perfilResidente(a), pb = perfilResidente(b);
+  return ((pa.sexo === 'M' ? 1 : 0) - (pb.sexo === 'M' ? 1 : 0)) ||
+    pa.nombre.localeCompare(pb.nombre, 'es', { sensitivity: 'base' });
+}
+function ordenarResidentesEnMemoria() {
+  if (Array.isArray(state.residentes) && state.residentes.length > 1)
+    state.residentes.sort((x, y) => cmpResidentes(x.nombre, y.nombre));
+}
 function posResidente(nombre) {
-  const t = _tokNomRes(nombre);
   const lista = state.residentes || [];
+  const pn = nomRes(nombre);
+  for (let i = 0; i < lista.length; i++) if (nomRes(lista[i].nombre) === pn) return i;
+  const t = _tokNomRes(nombre);
   if (!t.length) return 1e6;
   let best = -1, bestSc = 0, bestC = 0;
   for (let i = 0; i < lista.length; i++) {
@@ -3004,7 +3061,7 @@ function posResidente(nombre) {
 function ordenarComoResidentes(arr, getNombre) {
   const g = getNombre || (x => x);
   return (arr || []).map(x => ({ x, p: posResidente(g(x)), n: String(g(x) || '') }))
-    .sort((a, b) => (a.p - b.p) || a.n.localeCompare(b.n))
+    .sort((a, b) => (a.p - b.p) || cmpResidentes(a.n, b.n))
     .map(o => o.x);
 }
 
@@ -3030,7 +3087,7 @@ function viewDashboard() {
     const cls = s.cri > 0 ? 'tiene-criticos' : (s.aten > 0 ? 'tiene-atencion' : '');
     return `
       <div class="res-card ${cls}" data-residente="${escapeHtml(r.nombre)}">
-        <div class="nombre">👤 ${escapeHtml(r.nombre)}</div>
+        <div class="nombre">👤 ${escapeHtml(nomRes(r.nombre))}</div>
         <div class="info">
           <span>💊 ${s.total} meds</span>
           ${s.cri > 0 ? `<span class="pill critico">🔴 ${s.cri} crít.</span>` : ''}
@@ -3101,7 +3158,7 @@ function panelDosisNoDadas() {
   var filas = lista.map(function (d) {
     var hh = d.atrasoMin >= 120 ? Math.floor(d.atrasoMin / 60) + 'h' : d.atrasoMin + ' min';
     return '<tr><td><span class="pill" style="background:#c0392b;color:#fff">' + d.hora + '</span></td>' +
-      '<td><strong>' + escapeHtml(d.residente) + '</strong></td>' +
+      '<td><strong>' + escapeHtml(nomRes(d.residente)) + '</strong></td>' +
       '<td>' + escapeHtml(d.med) + '</td>' +
       '<td style="color:#c0392b;font-weight:600">' + hh + '</td></tr>';
   }).join('');
@@ -3137,7 +3194,7 @@ function viewAlertas() {
   const filaAlerta = (a) => `
     <tr>
       <td><span class="pill ${a.estado.clase}">${a.estado.label}</span></td>
-      <td><strong>${escapeHtml(a.residente)}</strong></td>
+      <td><strong>${escapeHtml(nomRes(a.residente))}</strong></td>
       <td>${escapeHtml(a.med)}</td>
       <td>${a.stock ?? '—'}</td>
       <td>${a.consumo ?? a.consumoTxt ?? '—'}</td>
@@ -3324,7 +3381,7 @@ function viewStock() {
           const e = estadoMed(m);
           return `
             <tr data-med-id="${m.id}">
-              <td><a href="#" onclick="navigate('residente','${jsAttr(m.residente)}');return false;" style="color:var(--azul-1);text-decoration:none;font-weight:600">${escapeHtml(m.residente)}</a></td>
+              <td><a href="#" onclick="navigate('residente','${jsAttr(m.residente)}');return false;" style="color:var(--azul-1);text-decoration:none;font-weight:600">${escapeHtml(nomRes(m.residente))}</a></td>
               <td>${escapeHtml(m.med)}</td>
               <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" onchange="actualizarStock('${jsAttr(m.residente)}','${jsAttr(m.id)}',this.value)"></td>
               <td>${m.consumo ?? '—'}</td>
@@ -3349,7 +3406,7 @@ function viewIngresos() {
           <label>Residente</label>
           <select id="ing-residente" onchange="onIngresoResidenteChange()">
             <option value="">— Seleccionar —</option>
-            ${state.residentes.map(r => `<option>${escapeHtml(r.nombre)}</option>`).join('')}
+            ${state.residentes.map(r => `<option value="${escapeHtml(r.nombre)}">${escapeHtml(nomRes(r.nombre))}</option>`).join('')}
           </select>
         </div>
         <div>
@@ -3387,7 +3444,7 @@ function viewIngresos() {
       <h3>Últimos ingresos</h3>
       ${(state.semanal.ingresos || []).slice(-10).reverse().map(i => `
         <div style="padding:6px 0;border-bottom:1px solid var(--gris-borde);font-size:13px">
-          <strong>${escapeHtml(i.fecha)}</strong> — ${escapeHtml(i.residente)} | ${escapeHtml(i.medicamento)} → +${i.cantidad}
+          <strong>${escapeHtml(i.fecha)}</strong> — ${escapeHtml(nomRes(i.residente))} | ${escapeHtml(i.medicamento)} → +${i.cantidad}
         </div>
       `).join('') || '<p style="color:#6c7a8a;font-size:13px">Aún no hay ingresos registrados</p>'}
     </div>
@@ -3405,7 +3462,7 @@ function viewResidente() {
   const dis = admin ? '' : 'disabled style="opacity:.5;cursor:not-allowed"';
   return `
     <div class="title-row">
-      <h2>👤 ${escapeHtml(r.nombre)}</h2>
+      <h2>👤 ${escapeHtml(nomRes(r.nombre))}</h2>
       <div class="actions">
         ${admin ? `<button class="edit-name-btn" onclick="renombrarResidente('${nombreEsc}')">✏️ Editar nombre</button>
         <button class="btn icon-only delete" onclick="eliminarResidente('${nombreEsc}')">🗑️ Eliminar residente</button>` : ''}
@@ -3592,7 +3649,7 @@ function viewSemanal() {
         else if (al.ahora > 0) { cls = 'tiene-atencion'; extra = `<span class="pill atencion">🔔 ${al.ahora} ahora</span>`; }
         return `
         <div class="res-card ${cls}" data-residente="${escapeHtml(r.nombre)}" onclick="navigate('residente','${jsAttr(r.nombre)}')">
-          <div class="nombre">👤 ${escapeHtml(r.nombre)}</div>
+          <div class="nombre">👤 ${escapeHtml(nomRes(r.nombre))}</div>
           <div class="info"><span>${r.meds.length} medicamentos</span>${extra}</div>
         </div>`;
       }).join('')}
@@ -3668,7 +3725,7 @@ function viewHistorialDetalle() {
     <div class="subtitle">Cerrada el ${new Date(h.cerradoAt).toLocaleString('es-AR')} — ${h.origen === 'auto' ? 'Cierre automático del sistema' : 'Cierre manual'}</div>
     ${h.residentes.map(r => `
       <div class="card">
-        <h3>👤 ${escapeHtml(r.nombre)}</h3>
+        <h3>👤 ${escapeHtml(nomRes(r.nombre))}</h3>
         <div class="semanal">
           <table>
             <thead>
@@ -4133,7 +4190,7 @@ function abrirDetectarDias() {
   }
   const filasHtml = filas.map((f,i) => `<tr>
       <td style="text-align:center"><input type="checkbox" class="dd-chk" data-i="${i}" checked></td>
-      <td style="font-size:12px">${escapeHtml(f.residente)}</td>
+      <td style="font-size:12px">${escapeHtml(nomRes(f.residente))}</td>
       <td style="font-size:12px"><strong>${escapeHtml(f.med)}</strong><br><span style="color:#6c7a8a">"${escapeHtml(f.txt)}"</span></td>
       <td style="font-size:12px"><span class="chip-dias estatico">${escapeHtml(descDias({dias:f.det}))}</span></td>
     </tr>`).join('');
@@ -4457,7 +4514,7 @@ function pintarIndicacionesList() {
   }
   cont.innerHTML = ordenarComoResidentes(state.indicaciones, it => it.residente).map(it => {
     const active = state.indicacionSel === it.fileId ? ' active' : '';
-    return `<div class="indic-item${active}" data-id="${escapeHtml(it.fileId)}"><div>👤 ${escapeHtml(it.residente)}</div>${indicBadge(it)}</div>`;
+    return `<div class="indic-item${active}" data-id="${escapeHtml(it.fileId)}"><div>👤 ${escapeHtml(nomRes(it.residente))}</div>${indicBadge(it)}</div>`;
   }).join('');
   cont.querySelectorAll('.indic-item').forEach(el => {
     el.onclick = () => abrirIndicacion(el.dataset.id);
@@ -4511,7 +4568,7 @@ function pintarIndicacion(d) {
 
   panel.innerHTML =
     '<div class="indic-detalle-head">' +
-      '<div class="indic-detalle-nombre">👤 ' + escapeHtml(d.residente) + '</div>' +
+      '<div class="indic-detalle-nombre">👤 ' + escapeHtml(nomRes(d.residente)) + '</div>' +
       '<div class="indic-detalle-meta">Última actualización del parte médico: ' + escapeHtml(fecha) + '</div>' +
       (d.modificado ? '<div class="indic-modif-banner">✏ Modificado: <strong>' + escapeHtml(d.modificado) + '</strong>' + (fechaMod ? ' — ' + fechaMod : '') + '</div>' : '') +
     '</div>' +
@@ -4707,7 +4764,7 @@ function rcDiff(d) {
 }
 
 function rcBloqueHTML(b) {
-  let h = '<div class="res-bloque"><div class="res-nombre">👤 ' + escapeHtml(b.nombre) + '</div>';
+  let h = '<div class="res-bloque"><div class="res-nombre">👤 ' + escapeHtml(nomRes(b.nombre)) + '</div>';
   if (b.error) return h + '<div class="res-item">⚠ No se pudo cargar el detalle. Verlo en el sistema.</div></div>';
   if (!b.diff) {
     return h + '<div class="res-item">✏ Modificado: ' + escapeHtml(b.modificado || 'actualizado') + ' — ver indicación completa en el sistema.</div></div>';
@@ -5008,7 +5065,7 @@ function csInput(seccion, f, res, campo, val, wide) {
 function csResNameCell(nombre, extra) {
   const n = escapeHtml(nombre);
   return `<td class="cs-resname"><div class="cs-resrow">` +
-    `<span class="cs-resnombre">${n}</span>` +
+    `<span class="cs-resnombre">${escapeHtml(nomRes(nombre))}</span>` +
     (extra || '') +
     `<span class="cs-resacc">` +
     `<button class="cs-resbtn" type="button" data-cs-action="rename" data-cs-res="${n}" title="Editar nombre">✏️</button>` +
@@ -5207,13 +5264,13 @@ function csAlertasCatarsis() {
       let cuando = '';
       try { cuando = new Date(at).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); } catch(e) {}
       const done = `<span class="cs-motrax-done">💊 Motrax dado por ${escapeHtml(by)} · ${cuando}<button class="cs-motrax-del" data-cs-motrax-del="${escapeHtml(a.nombre)}" title="Borrar registro">✕</button></span>`;
-      return `<div class="cs-alerta-item">✅ <strong>${escapeHtml(a.nombre)}</strong> — ${done}</div>`;
+      return `<div class="cs-alerta-item">✅ <strong>${escapeHtml(nomRes(a.nombre))}</strong> — ${done}</div>`;
     }
     const motraxHtml = `<span class="cs-alerta-motrax">DAR MOTRAX</span><button class="cs-motrax-btn" data-cs-motrax="${escapeHtml(a.nombre)}">💊 Registrar Motrax dado</button>`;
     const detalle = a.motivo === 'motrax'
       ? `${a.dias} días sin catarsis desde el último Motrax`
       : `${a.dias} días seguidos sin catarsis`;
-    return `<div class="cs-alerta-item">⚠️ <strong>${escapeHtml(a.nombre)}</strong> — ${detalle} → ${motraxHtml}</div>`;
+    return `<div class="cs-alerta-item">⚠️ <strong>${escapeHtml(nomRes(a.nombre))}</strong> — ${detalle} → ${motraxHtml}</div>`;
   }).join('');
   return `<div class="cs-alertas-catarsis">
     <div class="cs-alertas-titulo">🚨 ALERTAS DE CATARSIS (al 4º día seguido sin catarsis → DAR MOTRAX)</div>
@@ -5337,7 +5394,7 @@ function csAlertasBanos() {
   const chips = pend.map(p =>
     '<span class="cs-bano-chip ' + (p.n === 0 ? 'alto' : 'medio') + '" title="' +
     escapeHtml(p.nombre + ' — último baño: ' + (p.sin >= 90 ? 'sin registro' : 'hace ' + p.sin + ' día' + (p.sin===1?'':'s'))) + '">' +
-    escapeHtml(p.nombre) + ' <b>' + p.n + (p.n === 1 ? ' baño' : ' baños') + '</b></span>').join('');
+    escapeHtml(nomRes(p.nombre)) + ' <b>' + p.n + (p.n === 1 ? ' baño' : ' baños') + '</b></span>').join('');
   const abierto = pend.length <= 6 ? ' open' : '';
   return '<details class="cs-banos-alertas"' + abierto + '><summary class="cs-alertas-titulo">🚿 Con menos de ' +
          csBanosMin() + ' baños en los últimos 7 días (' + pend.length +
@@ -5602,7 +5659,7 @@ function csResumenNovedades(f) {
       '<div class="cs-resumen-head"><span class="cs-resumen-tit">Turno ' + tn[1] + '</span>' + estado + '</div>';
     if (items.length) {
       html += '<ul class="cs-resumen-lista">' +
-        items.map(function(it){ return '<li><strong>' + escapeHtml(it.nombre) + ':</strong> ' + escapeHtml(it.texto) + '</li>'; }).join('') +
+        items.map(function(it){ return '<li><strong>' + escapeHtml(nomRes(it.nombre)) + ':</strong> ' + escapeHtml(it.texto) + '</li>'; }).join('') +
         '</ul>';
     } else {
       html += '<div class="cs-resumen-vacio">Sin novedades cargadas en este turno.</div>';
@@ -5769,7 +5826,7 @@ function viewRecetas() {
   const listaHtml = residentes.map(n => {
     const cnt = (state.recetas && state.recetas[n]) ? state.recetas[n].length : 0;
     const active = n === sel ? ' style="background:rgba(255,255,255,.15);font-weight:600"' : '';
-    return `<div class="nav-item" data-rec-residente="${escapeHtml(n)}"${active}>👤 <span style="font-size:12px">${escapeHtml(n)}</span>${cnt ? `<span class="badge" style="background:#2E75B6">${cnt}</span>` : ''}</div>`;
+    return `<div class="nav-item" data-rec-residente="${escapeHtml(n)}"${active}>👤 <span style="font-size:12px">${escapeHtml(nomRes(n))}</span>${cnt ? `<span class="badge" style="background:#2E75B6">${cnt}</span>` : ''}</div>`;
   }).join('');
   const recetasHtml = recetas.length === 0
     ? `<div style="padding:40px;text-align:center;color:#6c7a8a">Sin recetas cargadas para este residente.<br><br><button class="btn" onclick="abrirModalNuevaReceta()">+ Agregar receta</button></div>`
@@ -5810,11 +5867,11 @@ function viewRecetas() {
     </div>
     <div id="modal-nueva-receta" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
       <div style="background:white;border-radius:10px;padding:24px;width:460px;max-width:95vw">
-        <h3 style="margin-bottom:16px">Nueva receta — ${escapeHtml(sel)}</h3>
+        <h3 style="margin-bottom:16px">Nueva receta — ${escapeHtml(nomRes(sel))}</h3>
         <label style="font-size:13px;font-weight:600;color:#1F4E78">📋 Cargar datos del residente</label>
         <select id="nr-residente-sel" class="input-field" style="width:100%;margin:4px 0 10px;background:#EAF4FF" onchange="autoCargarDatosResidente('nr')">
           <option value="">— Seleccioná un residente para auto-completar —</option>
-          ${state.residentes.map(r => `<option value="${jsAttr(r.nombre)}">${escapeHtml(r.nombre)}</option>`).join('')}
+          ${state.residentes.map(r => `<option value="${jsAttr(r.nombre)}">${escapeHtml(nomRes(r.nombre))}</option>`).join('')}
         </select>
         <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
         <input id="nr-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
@@ -6348,7 +6405,7 @@ async function evolGenerarTexto(datos) {
 
 function _evolSoloMaxi() { return String(getCurrentUser()||'').trim() === 'Maximiliano Martin'; }
 function viewEvolucion() {
-  const resOpts = state.residentes.map(r => '<option value="'+escapeHtml(r.nombre)+'">'+escapeHtml(r.nombre)+'</option>').join('');
+  const resOpts = state.residentes.map(r => '<option value="'+escapeHtml(r.nombre)+'">'+escapeHtml(nomRes(r.nombre))+'</option>').join('');
   return '<div style="padding:24px">' +
     '<h2 style="color:var(--azul-1)">📈 Evolución semanal</h2>' +
     '<p style="color:#6c7a8a;font-size:13px;margin-bottom:16px">Resume la semana del residente (signos, catarsis, hidratación, adherencia y novedades) y arma un borrador redactado para que el médico revise y firme.</p>' +
@@ -6397,7 +6454,7 @@ function evolRenderResultado(d, texto) {
   const nov = d.novedades.length ? d.novedades.map(n=>'<li>'+escapeHtml(n)+'</li>').join('') : '<li style="color:#aaa">sin novedades</li>';
   return '<div style="background:white;border:1px solid var(--gris-borde);border-radius:8px;padding:18px;max-width:820px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
-      '<h3 style="margin:0;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
+      '<h3 style="margin:0;color:var(--azul-1)">'+escapeHtml(nomRes(d.nombre))+'</h3>' +
       '<button class="btn secondary small" onclick="evolImprimirA4()">🖨 Imprimir hoja A4</button>' +
       '<button class="btn secondary small" onclick="evolDescargarA4()">⬇ Descargar PDF</button>' +
     '</div>' +
@@ -6532,7 +6589,7 @@ async function evolGenerarTodas() {
   const resultados = [];
   for (let i = 0; i < lista.length; i++) {
     const nombre = lista[i].nombre;
-    cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nombre) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
+    cont.innerHTML = '<div style="padding:24px;color:#6c7a8a;font-size:15px">⏳ Generando <b>' + (i+1) + ' de ' + lista.length + '</b> — ' + escapeHtml(nomRes(nombre)) + '…<br><span style="font-size:12px">No cierres esta pantalla.</span></div>';
     let datos, texto = '';
     try { datos = await evolRecolectarCompleto(nombre, desde, hasta, _il, true); } catch(e) { datos = { nombre: nombre, semana: '', dx:'', signos:{}, catarsis:{conCatarsis:0,sinCatarsis:0}, hidratacion:{ingesta:0,egreso:0}, novedades:[], adherenciaTexto:'—' }; }
     texto = await evolGenerarTextoSeguro(datos);
@@ -6547,7 +6604,7 @@ function evolRenderTodas(res) {
   const bloques = res.map((x, i) => {
     const d = x.datos;
     return '<div style="background:white;border:1px solid var(--gris-borde);border-radius:8px;padding:14px;margin-bottom:12px">' +
-      '<h3 style="margin:0 0 2px;color:var(--azul-1)">'+escapeHtml(d.nombre)+'</h3>' +
+      '<h3 style="margin:0 0 2px;color:var(--azul-1)">'+escapeHtml(nomRes(d.nombre))+'</h3>' +
       '<div style="font-size:11px;color:#6c7a8a;margin-bottom:8px">Período '+escapeHtml(d.semana||'')+(d.dx?' · Dx: '+escapeHtml(d.dx):'')+'</div>' +
       '<div style="white-space:pre-wrap;line-height:1.5;font-size:13px">'+escapeHtml(x.texto)+'</div>' +
       '<div style="margin-top:8px;text-align:right"><button class="btn secondary small" onclick="evolDescargarUnoDeTodas('+i+')">⬇ Descargar PDF</button></div>' +
@@ -6785,7 +6842,7 @@ function viewInsumos() {
   }
 
   const resOpts = residentes.map(n =>
-    `<option value="${escapeHtml(n)}"${n===resSel?' selected':''}>${escapeHtml(n)}</option>`
+    `<option value="${escapeHtml(n)}"${n===resSel?' selected':''}>${escapeHtml(nomRes(n))}</option>`
   ).join('');
 
   // Calcular días del mes seleccionado
@@ -8163,7 +8220,7 @@ function viewNutricion() {
 
   const listaHtml = residentes.map(n => {
     const active = n === sel ? ' active' : '';
-    return `<div class="nut-item${active}" onclick="nutricionSelRes('${jsAttr(n)}')" data-nut-res="${escapeHtml(n)}">${n === sel ? '🥗' : '👤'} ${escapeHtml(n)}</div>`;
+    return `<div class="nut-item${active}" onclick="nutricionSelRes('${jsAttr(n)}')" data-nut-res="${escapeHtml(n)}">${n === sel ? '🥗' : '👤'} ${escapeHtml(nomRes(n))}</div>`;
   }).join('');
 
   const tabs = ['dieta','peso','registros','notas'];
@@ -8371,7 +8428,7 @@ function viewNutricion() {
       <div class="nut-right">
         ${sel ? `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-            <h2 style="margin:0;color:#7B1060;font-size:17px">🥗 ${escapeHtml(sel)}</h2>
+            <h2 style="margin:0;color:#7B1060;font-size:17px">🥗 ${escapeHtml(nomRes(sel))}</h2>
           </div>
           <div class="cs-subtabs" style="margin-bottom:14px">${tabsHtml}</div>
           ${content}
@@ -9779,7 +9836,7 @@ function viewIngresosMes() {
   const resF = state.histIngRes || '';
   const lista = ingresosDelMes(ym, resF);
   const cargado = stockCargadoDelMes(ym, resF);
-  const opciones = state.residentes.map(r => `<option value="${escapeHtml(r.nombre)}"${r.nombre===resF?' selected':''}>${escapeHtml(r.nombre)}</option>`).join('');
+  const opciones = state.residentes.map(r => `<option value="${escapeHtml(r.nombre)}"${r.nombre===resF?' selected':''}>${escapeHtml(nomRes(r.nombre))}</option>`).join('');
   const totalUnidades = lista.reduce((a,i) => a + (parseFloat(i.cantidad)||0), 0);
   const filasCarg = cargado.map(c => `<tr>
     <td>${escapeHtml(String(c.residente||''))}</td>
@@ -9910,7 +9967,7 @@ function imprimirPedidoMensual(nombre) {
   const win = window.open('', '_blank', 'width=700,height=900');
   win.document.write(`<!DOCTYPE html><html><head>
   <meta charset="utf-8">
-  <title>Medicamentos ${escapeHtml(tituloMes)} — ${escapeHtml(r.nombre)}</title>
+  <title>Medicamentos ${escapeHtml(tituloMes)} — ${escapeHtml(nomRes(r.nombre))}</title>
   <style>
     @page { size: A5 portrait; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -9925,7 +9982,7 @@ function imprimirPedidoMensual(nombre) {
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style></head><body>
   <div class="titulo">MEDICAMENTOS PARA ${escapeHtml(tituloMes)}</div>
-  <div class="subtitulo">Medicación para: ${escapeHtml(r.nombre)}</div>
+  <div class="subtitulo">Medicación para: ${escapeHtml(nomRes(r.nombre))}</div>
   <table>
     <colgroup><col style="width:28%"><col style="width:12%"><col style="width:26%"><col style="width:18%"><col style="width:16%"></colgroup>
     <thead><tr>
@@ -9972,7 +10029,7 @@ function informeFamilia(nombre) {
   const win = window.open('', '_blank', 'width=800,height=950');
   win.document.write(`<!DOCTYPE html><html><head>
   <meta charset="utf-8">
-  <title>Medicación ${escapeHtml(r.nombre)} — ${escapeHtml(tituloMes)}</title>
+  <title>Medicación ${escapeHtml(nomRes(r.nombre))} — ${escapeHtml(tituloMes)}</title>
   <style>
     @page { size: A4 portrait; margin: 1.5cm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -9992,7 +10049,7 @@ function informeFamilia(nombre) {
   </style></head><body>
   <div class="titulo">Informe de Medicación</div>
   <div class="sub">Mes de ${escapeHtml(tituloMes)}</div>
-  <div class="res">Residente: ${escapeHtml(r.nombre)}</div>
+  <div class="res">Residente: ${escapeHtml(nomRes(r.nombre))}</div>
   <div class="gen">Stock al día ${escapeHtml(fechaHoy)}</div>
   <table>
     <colgroup><col style="width:30%"><col style="width:13%"><col style="width:20%"><col style="width:17%"><col style="width:20%"></colgroup>
