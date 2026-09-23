@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-15-2';
+const APP_VERSION = 'v2026-09-23-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2975,6 +2975,39 @@ function attachHistoriasCli() {
   };
 }
 
+// ============ ORDEN ÚNICO DE RESIDENTES ============
+// Todas las listas de residentes siguen el MISMO orden que la lista principal
+// (state.residentes). Los nombres se emparejan aunque estén escritos distinto
+// (apellido primero, mayúsculas, sin acentos, sin segundo apellido).
+function _tokNomRes(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z\s]/g, ' ').split(/\s+/)
+    .filter(w => w.length > 1 && ['de','del','la','las','los','y'].indexOf(w) < 0);
+}
+function posResidente(nombre) {
+  const t = _tokNomRes(nombre);
+  const lista = state.residentes || [];
+  if (!t.length) return 1e6;
+  let best = -1, bestSc = 0, bestC = 0;
+  for (let i = 0; i < lista.length; i++) {
+    const u = _tokNomRes(lista[i] && lista[i].nombre);
+    if (!u.length) continue;
+    let c = 0; t.forEach(w => { if (u.indexOf(w) >= 0) c++; });
+    const min = Math.min(t.length, u.length);
+    if (c >= 2 || (c === 1 && min === 1)) {
+      const sc = c / min;
+      if (sc > bestSc || (sc === bestSc && c > bestC)) { bestSc = sc; bestC = c; best = i; }
+    }
+  }
+  return best >= 0 ? best : 1e6;
+}
+function ordenarComoResidentes(arr, getNombre) {
+  const g = getNombre || (x => x);
+  return (arr || []).map(x => ({ x, p: posResidente(g(x)), n: String(g(x) || '') }))
+    .sort((a, b) => (a.p - b.p) || a.n.localeCompare(b.n))
+    .map(o => o.x);
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -4422,7 +4455,7 @@ function pintarIndicacionesList() {
     cont.innerHTML = '<div class="indic-loading">Sin indicaciones cargadas.</div>';
     return;
   }
-  cont.innerHTML = state.indicaciones.map(it => {
+  cont.innerHTML = ordenarComoResidentes(state.indicaciones, it => it.residente).map(it => {
     const active = state.indicacionSel === it.fileId ? ' active' : '';
     return `<div class="indic-item${active}" data-id="${escapeHtml(it.fileId)}"><div>👤 ${escapeHtml(it.residente)}</div>${indicBadge(it)}</div>`;
   }).join('');
@@ -4743,8 +4776,8 @@ async function resumenCambiosA4() {
     if (d && (d.evolNueva || d.diagNuevo)) return 1;
     return 2;
   };
-  bloques.sort(function(a, b){ return (rcRank(a) - rcRank(b)) || (a.nombre || '').localeCompare(b.nombre || ''); });
-  sinNovedad.sort(function(a, b){ return (a || '').localeCompare(b || ''); });
+  bloques.sort(function(a, b){ return (rcRank(a) - rcRank(b)) || (posResidente(a.nombre) - posResidente(b.nombre)) || (a.nombre || '').localeCompare(b.nombre || ''); });
+  { const _ord = ordenarComoResidentes(sinNovedad); sinNovedad.length = 0; _ord.forEach(function(x){ sinNovedad.push(x); }); }
 
   const ahora = new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   const cuerpo = bloques.length
@@ -5730,7 +5763,7 @@ let insumosState = { residente: '', mes: '', datos: {}, stockData: null, sub: 'u
 
 // ============ RECETAS ============
 function viewRecetas() {
-  const residentes = state.residentes.map(r => r.nombre).sort();
+  const residentes = state.residentes.map(r => r.nombre); // mismo orden que la lista principal
   const sel = state.recetaResidenteSel || residentes[0] || '';
   const recetas = (state.recetas && state.recetas[sel]) || [];
   const listaHtml = residentes.map(n => {
