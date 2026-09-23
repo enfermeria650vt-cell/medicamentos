@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-23-4';
+const APP_VERSION = 'v2026-09-23-5';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1691,7 +1691,28 @@ function chequearCambioSemana() {
   }
   return false;
 }
-function archivarSemana(lunesISO, origen = 'manual') {
+// Claves de tildes que pertenecen a la SEMANA EN CURSO (tildadas desde el lunes actual,
+// en un día que ya llegó). Si la semana anterior se cierra tarde (ej. el miércoles),
+// estas marcas NO se archivan con la semana vieja ni se borran. (Fix 23-sep-2026:
+// un cierre tardío borró los tildes de lun-mié.)
+function clavesMarcasSemanaEnCurso() {
+  const keep = new Set();
+  const lunesIso = getLunesISO();
+  if (!state.semanal.semanaActualLunes || state.semanal.semanaActualLunes >= lunesIso) return keep;
+  const desde = new Date(lunesIso + 'T00:00:00').getTime();
+  const hoyIdx = diaHoyIdx();
+  state.residentes.forEach(r => r.meds.forEach(m => {
+    const N = dosisDeMed(m.id).length;
+    for (let i = 0; i <= hoyIdx; i++) for (let di = 0; di < N; di++) {
+      const k = claveDosis(m.id, i, di);
+      const at = state.semanal[k + '_at'];
+      if (state.semanal[k] === true && at && new Date(at).getTime() >= desde) keep.add(k);
+    }
+  }));
+  return keep;
+}
+function archivarSemana(lunesISO, origen = 'manual', excluir) {
+  const _excl = excluir || new Set();
   if (!state.historial) state.historial = [];
   // Evitar duplicar la misma semana
   state.historial = state.historial.filter(h => h.semanaLunes !== lunesISO);
@@ -1707,7 +1728,7 @@ function archivarSemana(lunesISO, origen = 'manual') {
         consumo: m.consumo,
         dias: m.dias || null,
         horario: state.semanal[m.id + '_horario'] || '',
-        marcas: [0,1,2,3,4,5,6].map(function(i){ return dosisDeMed(m.id).every(function(_, di){ return state.semanal[claveDosis(m.id, i, di)] === true; }); })
+        marcas: [0,1,2,3,4,5,6].map(function(i){ return dosisDeMed(m.id).every(function(_, di){ const _k = claveDosis(m.id, i, di); return state.semanal[_k] === true && !_excl.has(_k); }); })
       })).filter(m => m.horario || m.marcas.some(x => x))
     })).filter(r => r.meds.length > 0)
   };
@@ -1717,9 +1738,12 @@ function archivarSemana(lunesISO, origen = 'manual') {
   if (state.historial.length > 26) state.historial = state.historial.slice(0, 26);
   saveHist();
 }
-function limpiarMarcasSemanaActual() {
+function limpiarMarcasSemanaActual(preservar) {
   const _borradas = [];
+  const _pres = preservar || new Set();
   Object.keys(state.semanal).forEach(k => {
+    const _base = k.replace(/_(by|at)$/, '');
+    if (_pres.has(_base)) return;
     if (/_[0-6](_[0-9]+)?(_by|_at)?$/.test(k)) { _borradas.push(k); delete state.semanal[k]; }
   });
   cloudSemDel(_borradas);
@@ -1727,11 +1751,13 @@ function limpiarMarcasSemanaActual() {
 function cerrarSemanaManual() {
   if (bloquearSiNoAdmin('cerrar la semana')) return;
   const lunes = state.semanal.semanaActualLunes || getLunesISO();
-  const _resp = prompt('⚠️ ATENCIÓN: vas a CERRAR la semana del ' + formatearLunes(lunes) + '.\n\nSe archiva en Historial y SE BORRAN TODOS LOS TILDES de la semana (de todos los residentes). Los horarios y medicamentos se mantienen.\n\nSi estás seguro, escribí la palabra CERRAR (en mayúsculas):');
+  const _resp = prompt('⚠️ ATENCIÓN: vas a CERRAR la semana del ' + formatearLunes(lunes) + '.\n\nSe archiva en Historial y se borran los tildes de ESA semana (de todos los residentes). Los tildes ya cargados en la semana en curso se CONSERVAN. Los horarios y medicamentos se mantienen.\n\nSi estás seguro, escribí la palabra CERRAR (en mayúsculas):');
   if (_resp === null) return;
   if (_resp.trim().toUpperCase() !== 'CERRAR') { toast('Cancelado: para cerrar la semana hay que escribir CERRAR', 'error'); return; }
-  archivarSemana(lunes, 'manual');
-  limpiarMarcasSemanaActual();
+  const _enCurso = clavesMarcasSemanaEnCurso();
+  archivarSemana(lunes, 'manual', _enCurso);
+  limpiarMarcasSemanaActual(_enCurso);
+  if (_enCurso.size) { try { logCambio('sistema', 'Cierre de semana ' + lunes + ': se conservaron ' + _enCurso.size + ' tildes de la semana en curso'); } catch(e) {} }
   state.semanal.semanaActualLunes = getLunesISO();
   saveSem();
   toast('✅ Semana cerrada y archivada', 'success');
