@@ -1145,7 +1145,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-23-3';
+const APP_VERSION = 'v2026-09-23-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1410,6 +1410,20 @@ function estadoMed(med) {
   if (d <= 7) return { tipo: 'critico', label: '🔴 CRÍTICO', clase: 'critico', dias: d };
   if (d <= 14) return { tipo: 'atencion', label: '🟡 ATENCIÓN', clase: 'atencion', dias: d };
   return { tipo: 'ok', label: '🟢 OK', clase: 'ok', dias: d };
+}
+// Orden de la tabla "Stock y consumo": primero lo que se termina.
+// SIN STOCK → CRÍTICO → ATENCIÓN → OK (por fecha de agotamiento, la más cercana arriba)
+// → Inicia (ingreso futuro) → S.O.S. al final. Se recalcula en cada render,
+// así al cargar stock/consumo/ingreso la fila se reacomoda sola.
+const ORDEN_ESTADO_STOCK = { sinstock: 0, critico: 1, atencion: 2, ok: 3, pendiente: 4, sos: 5 };
+function ordenStockMeds(a, b) {
+  const ea = estadoMed(a), eb = estadoMed(b);
+  const ra = ORDEN_ESTADO_STOCK[ea.tipo] ?? 9, rb = ORDEN_ESTADO_STOCK[eb.tipo] ?? 9;
+  if (ra !== rb) return ra - rb;
+  const fa = fechaAgotamientoDate(a), fb = fechaAgotamientoDate(b);
+  const ta = fa ? fa.getTime() : Infinity, tb = fb ? fb.getTime() : Infinity;
+  if (ta !== tb) return ta - tb;
+  return String(a.med || '').localeCompare(String(b.med || ''), 'es', { sensitivity: 'base' });
 }
 function fechaAgotamiento(med) {
   const agot = fechaAgotamientoDate(med);
@@ -3483,7 +3497,7 @@ function viewResidente() {
           <th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
         </tr></thead>
         <tbody>
-          ${r.meds.length === 0 ? `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados. ${admin ? 'Tocá ➕ Nuevo medicamento.' : ''}</td></tr>` : r.meds.slice().sort((a, b) => ((parseFloat(a.consumo) > 0 ? 0 : 1) - (parseFloat(b.consumo) > 0 ? 0 : 1))).map(m => {
+          ${r.meds.length === 0 ? `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados. ${admin ? 'Tocá ➕ Nuevo medicamento.' : ''}</td></tr>` : r.meds.slice().sort(ordenStockMeds).map(m => {
             const e = estadoMed(m);
             return `
               <tr>
