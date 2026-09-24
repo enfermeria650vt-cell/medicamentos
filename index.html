@@ -596,6 +596,7 @@ input:focus, select:focus, textarea:focus {
   background: var(--azul-1); color: white; font-weight: 600;
 }
 .indic-doc tr:nth-child(even) td { background: #FAFBFD; }
+.indic-doc td.ind-med-comb { vertical-align: middle; background: #fff !important; }
 .indic-input {
   width: 100%; padding: 9px 11px; border: 1px solid var(--gris-borde);
   border-radius: 6px; font-size: 13px; font-family: inherit;
@@ -1145,7 +1146,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-23-5';
+const APP_VERSION = 'v2026-09-24-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4623,6 +4624,7 @@ function pintarIndicacion(d) {
     const colAct = panel.querySelector('.indic-diff-col.actual');
     if (colAnt && colAct) resaltarCambiosDiff(colAnt, colAct);
   }
+  panel.querySelectorAll('.indic-doc').forEach(function(c){ combinarCeldasMedicamentoInd(c); });
 
   // Botón + contenedor para ver TODAS las versiones anteriores archivadas
   const histBtn = document.createElement('button');
@@ -4659,7 +4661,7 @@ async function cargarHistorialIndicacion(fileId, btn, cont) {
           (v.modificado ? ' · cambió: ' + escapeHtml(v.modificado) : '') + '</summary>' +
           '<div class="indic-doc" style="padding:10px 14px">' + (v.html || '<p>(sin contenido)</p>') + '</div></details>';
       }).join('');
-    cont.querySelectorAll('.indic-doc').forEach(function(c){ ordenarTablaIndicacionPorHorario(c); });
+    cont.querySelectorAll('.indic-doc').forEach(function(c){ ordenarTablaIndicacionPorHorario(c); combinarCeldasMedicamentoInd(c); });
     if (btn) btn.style.display = 'none';
   } catch (e) {
     cont.innerHTML = '<div class="indic-error">No se pudo cargar el historial (puede que el backend aún no esté actualizado).</div>';
@@ -4689,8 +4691,12 @@ function resaltarCambiosDiff(colAnt, colAct) {
   function filasComoMap(tabla) {
     const map = {};
     const rows = Array.from(tabla.querySelectorAll('tr')).filter(r => r.querySelector('td'));
+    let madre = '', nCont = 0;
     rows.forEach(function(tr) {
-      const clave = (tr.cells[0] ? diffKey(tr.cells[0].textContent) : '');
+      let clave = (tr.cells[0] ? diffKey(tr.cells[0].textContent) : '');
+      if (clave) { madre = clave; nCont = 0; }
+      else if (madre && esFilaContinuacionInd(tr)) { nCont++; clave = madre + '#' + nCont; }
+      else madre = '';
       if (clave) map[clave] = tr;
     });
     return map;
@@ -4758,13 +4764,20 @@ function rcExtraerDatos(html) {
   const evol = [];
   const tabla = div.querySelector('table');
   if (tabla) {
+    let ultimoMed = null;
     Array.from(tabla.querySelectorAll('tr')).forEach(function(tr) {
       const tds = Array.from(tr.querySelectorAll('td'));
       if (!tds.length) return;
       const limpiar = function(t) { return (t || '').replace(/\s+/g, ' ').trim(); };
       const c0 = limpiar(tds[0].textContent);
-      if (!c0) return;
       const resto = tds.slice(1).map(function(td){ return limpiar(td.textContent); }).filter(Boolean).join(' — ');
+      if (!c0) {
+        // Dosis extra de un medicamento con celda combinada en el Word
+        if (ultimoMed && resto) meds[ultimoMed].lineas.push(resto);
+        else ultimoMed = null;
+        return;
+      }
+      ultimoMed = null;
       // Filas largas o que empiezan con "EVOLUCIÓN" son texto de evolución, no medicamentos
       if (/^evoluci/i.test(c0) || c0.length > 80) {
         evol.push(c0 + (resto ? ' ' + resto : ''));
@@ -4772,6 +4785,7 @@ function rcExtraerDatos(html) {
         const k = diffKey(c0);
         if (!meds[k]) meds[k] = { nombre: c0, lineas: [] };
         meds[k].lineas.push(resto || '(sin detalle)');
+        ultimoMed = k;
       }
     });
   }
@@ -5025,9 +5039,52 @@ function ordenarTablaIndicacionPorHorario(cont) {
     const celda = f.children[colHor];
     return celda ? ordenHorarioStr(celda.textContent || '') : 99999;
   };
-  datos.map((f, i) => ({ f: f, t: tiempo(f), i: i }))
-       .sort((a, b) => (a.t - b.t) || (a.i - b.i))
-       .forEach(o => o.f.parentNode.appendChild(o.f));
+  // Un medicamento con celda combinada en el Word (ej. QUETIAPINA con 3 dosis) llega como
+  // 1 fila con nombre + filas siguientes con el nombre vacío. Se ordenan JUNTAS como bloque
+  // (por su horario más temprano) para que ninguna dosis quede separada de su medicamento.
+  const bloques = [];
+  datos.forEach((f, i) => {
+    if (esFilaContinuacionInd(f) && bloques.length && bloques[bloques.length-1].conNombre) {
+      const b = bloques[bloques.length-1];
+      b.filas.push(f); b.t = Math.min(b.t, tiempo(f));
+    } else {
+      const c0 = f.children[0];
+      bloques.push({ filas: [f], t: tiempo(f), i: i, conNombre: !!(c0 && (c0.textContent || '').trim()) });
+    }
+  });
+  bloques.sort((a, b) => (a.t - b.t) || (a.i - b.i))
+         .forEach(b => b.filas.forEach(f => f.parentNode.appendChild(f)));
+}
+
+// Fila de "continuación": primera celda (medicamento) vacía pero con dosis u horario cargado.
+function esFilaContinuacionInd(f) {
+  const cs = f.children;
+  if (!cs || cs.length < 2) return false;
+  if ((cs[0].textContent || '').trim()) return false;
+  for (let k = 1; k < cs.length; k++) if ((cs[k].textContent || '').trim()) return true;
+  return false;
+}
+
+// Muestra la celda del medicamento COMBINADA sobre todas sus dosis (igual que en el Word).
+// Solo visual; correr DESPUÉS de ordenar y de resaltar diferencias.
+function combinarCeldasMedicamentoInd(cont) {
+  cont.querySelectorAll('table').forEach(function(tabla) {
+    const datos = Array.from(tabla.querySelectorAll('tr')).filter(f => f.querySelector('td'));
+    let madre = null, span = 1;
+    datos.forEach(function(f) {
+      if (madre && esFilaContinuacionInd(f)) {
+        span++;
+        madre.rowSpan = span;
+        madre.classList.add('ind-med-comb');
+        f.removeChild(f.children[0]);
+        f.classList.add('ind-fila-cont');
+      } else {
+        const c0 = f.children[0];
+        madre = (c0 && (c0.textContent || '').trim()) ? c0 : null;
+        span = 1;
+      }
+    });
+  });
 }
 
 // ============ CONTROL DE SIGNOS ============
