@@ -598,6 +598,8 @@ input:focus, select:focus, textarea:focus {
 .indic-doc tr:nth-child(even) td { background: #FAFBFD; }
 .indic-doc td.ind-med-comb { vertical-align: middle; background: #fff !important; }
 .pm-tabla .pm-btn { padding: 4px 8px; font-size: 12px; }
+.pm-toggle { display: inline-flex; gap: 4px; margin-left: 10px; }
+.pm-banner { background: #F1EEFF; border-left: 4px solid #6c5ce7; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
 .pm-tabla td.pm-lleg { white-space: nowrap; }
 .pm-tabla .pm-corta { display: none; }
 @media (max-width: 700px) {
@@ -1164,7 +1166,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-24-4';
+const APP_VERSION = 'v2026-09-24-5';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -3532,13 +3534,14 @@ function viewResidente() {
     <div class="card">
       <div style="display:flex;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
         <h3 style="margin:0">📦 Stock y consumo</h3>
+        ${pmToggleMes()}
         <span class="spacer"></span>
         <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoMensual('${nombreEsc}')">🖨 Imprimir pedido (A5)</button>
         <button class="btn small" style="background:#1F4E78" onclick="imprimirPedidoBlanco()">📄 Hoja en blanco (A5)</button>
         <button class="btn small" style="background:#2e7d32" onclick="informeFamilia('${nombreEsc}')" title="Hoja para la familia con stock, consumo y hasta cuándo alcanza">👪 Informe familia (PDF)</button>
         ${admin ? `<button class="btn small" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Nuevo medicamento</button>` : ''}
       </div>
-      <table class="tabla">
+      ${state.stockVistaProx ? pmTablaResidente(r, admin) : `<table class="tabla">
         <thead><tr>
           <th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
         </tr></thead>
@@ -3563,7 +3566,7 @@ function viewResidente() {
               </tr>`;
           }).join('')}
         </tbody>
-      </table>
+      </table>`}
     </div>
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
@@ -10207,6 +10210,71 @@ function pmImprimirAvisos(todos, nombre) {
   win.document.close();
 }
 
+
+// ---- Stock y consumo del residente: botón para ver/cargar el MES QUE VIENE en la misma tabla ----
+function pmToggleMes() {
+  const h = new Date();
+  const actual = _PM_MESES[h.getMonth()];
+  const prox = pmMesLabel(pmYM());
+  const on = !!state.stockVistaProx;
+  return `<span class="pm-toggle">
+    <button class="btn small ${on ? 'secondary' : ''}" onclick="state.stockVistaProx=false;render()">${escapeHtml(actual)}</button>
+    <button class="btn small ${on ? '' : 'secondary'}" style="${on ? 'background:#6c5ce7' : ''}" onclick="state.stockVistaProx=true;render()">🗓️ ${escapeHtml(prox)}</button>
+  </span>`;
+}
+function pmTablaResidente(r, admin) {
+  const ym = pmYM(), p = ym.split('-').map(Number), fecha1 = ym + '-01';
+  const ddmm = '01/' + String(p[1]).padStart(2, '0') + '/' + p[0];
+  const aR = escapeHtml(JSON.stringify(r.nombre));
+  const filas = (r.meds || []).map(m => {
+    const f = pmFila(m, ym);
+    const stockMes = pmNum(f.sobra + f.lleg);
+    const pseudo = Object.assign({}, m, { stock: stockMes, fechaIngreso: fecha1 });
+    const dias = diasDeStock(pseudo), agot = fechaAgotamientoDate(pseudo);
+    f.stockMes = stockMes; f.dias = dias;
+    f.agot = agot ? String(agot.getDate()).padStart(2, '0') + '/' + String(agot.getMonth() + 1).padStart(2, '0') + '/' + agot.getFullYear() : '—';
+    f.rank = f.nec === null ? 2 : (f.falta > 0 ? 0 : 1);
+    return f;
+  }).sort((a, b) => (a.rank - b.rank) || ((b.falta || 0) - (a.falta || 0)) || String(a.m.med).localeCompare(String(b.m.med), 'es'));
+  const nFaltan = filas.filter(f => f.rank === 0).length;
+  const pend = pmMesPendiente();
+  const puedePasar = hoyMidnight().getTime() >= new Date(p[0], p[1] - 1, 1).getTime();
+  return `
+    <div class="pm-banner">
+      <div><b>🗓️ Estás trabajando ${escapeHtml(pmMesLabel(ym))}.</b> Lo que cargues acá con <b>+ Ingreso</b> es para ${escapeHtml(pmMesLabel(ym).toLowerCase())}: el stock de este mes NO se toca.
+      ${nFaltan ? `<span class="pill critico" style="margin-left:6px">Faltan ${nFaltan} med${nFaltan === 1 ? '' : 's'}</span>` : '<span class="pill ok" style="margin-left:6px">✓ Mes cubierto</span>'}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn small" style="background:#2e7d32" onclick="pmImprimirAvisos(false, ${aR})">🖨 Aviso a la familia (${escapeHtml(pmMesLabel(ym).toLowerCase())})</button>
+        <button class="btn small secondary" onclick="navigate('proxmes')">👥 Ver todos los residentes</button>
+        ${admin && puedePasar ? `<button class="btn small" onclick="pmPasarAStock()">✅ Pasar ${escapeHtml(pmMesLabel(ym))} a stock (todos)</button>` : ''}
+      </div>
+    </div>
+    <table class="tabla pm-tabla-res">
+      <thead><tr>
+        <th>Medicamento</th><th>Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
+      </tr></thead>
+      <tbody>${filas.length ? filas.map(f => {
+        const aM = escapeHtml(JSON.stringify(f.m.id));
+        const est = f.nec === null ? '<span class="pill sos">S.O.S.</span>'
+          : (f.falta > 0 ? `<span class="pill critico">🔴 Falta ${f.falta}</span>` : '<span class="pill ok">🟢 Cubre el mes</span>');
+        return `<tr>
+          <td><strong>${escapeHtml(f.m.med)}</strong></td>
+          <td><b style="font-size:15px">${f.stockMes}</b><br><span style="font-size:11px;color:#6c7a8a">${f.sobra} quedan + ${f.lleg} llegaron</span></td>
+          <td>${f.nec === null ? '—' : escapeHtml(String(f.m.consumo))}</td>
+          <td style="font-size:11px;color:#6c7a8a">${escapeHtml(f.m.consumoTxt || f.m.stockTxt || '')}${descDias(f.m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(f.m))}</span>` : ''}</td>
+          <td>${ddmm}</td>
+          <td>${f.dias ?? '—'}</td>
+          <td>${f.nec === null ? '—' : f.agot}</td>
+          <td>${est}</td>
+          ${admin ? `<td style="white-space:nowrap">
+            <button class="btn small" style="background:#6c5ce7" onclick="pmIngreso(${aR}, ${aM})">+ Ingreso</button>
+            <button class="btn small secondary" title="Corregir lo que llegó" onclick="pmCorregir(${aR}, ${aM})">✏️</button>
+          </td>` : ''}
+        </tr>`;
+      }).join('') : `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.</td></tr>`}</tbody>
+    </table>
+    <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())} = lo que va a quedar del stock actual el ${ddmm} + lo que ya llegó para ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}. "Falta" es lo que hay que pedir para cubrir el mes entero.</p>`;
+}
 function viewIngresosMes() {
   const ym = state.histIngMes || ingMesActual();
   const resF = state.histIngRes || '';
