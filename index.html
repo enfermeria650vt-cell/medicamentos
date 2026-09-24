@@ -1166,7 +1166,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-24-5';
+const APP_VERSION = 'v2026-09-24-6';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -9993,7 +9993,7 @@ function pmMesPendiente() {
   const h = new Date(), actual = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0');
   let pend = null;
   (state.residentes || []).forEach(r => (r.meds || []).forEach(m => {
-    if (m.proxMes && m.proxMes <= actual && typeof m.proxCant === 'number' && m.proxCant > 0 && (!pend || m.proxMes < pend)) pend = m.proxMes;
+    if (m.proxMes && m.proxMes <= actual && ((typeof m.proxCant === 'number' && m.proxCant > 0) || typeof m.proxQueda === 'number') && (!pend || m.proxMes < pend)) pend = m.proxMes;
   }));
   return pend;
 }
@@ -10016,7 +10016,10 @@ function pmCargado(m, ym) { return (m.proxMes === ym && typeof m.proxCant === 'n
 function pmISO(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'); }
 // Unidades del stock ACTUAL que van a quedar el día 1 del mes 'ym' (misma cuenta que "Días"/"Fecha agot." de Stock y consumo:
 // se descuenta el consumo de cada día que corresponde tomarlo, desde la fecha de ingreso hasta el último día del mes anterior).
+function pmQuedaManual(m, ym) { return (m.proxMes === ym && typeof m.proxQueda === 'number') ? m.proxQueda : null; }
 function pmSobrante(m, ym) {
+  const man = pmQuedaManual(m, ym);
+  if (man !== null) return man; // ajustado a mano (ej. se dieron dosis S.O.S. que la cuenta no sabe)
   const stock = typeof m.stock === 'number' ? m.stock : 0;
   if (stock <= 0) return 0;
   if (typeof m.consumo !== 'number' || m.consumo <= 0) return stock; // S.O.S.: no se descuenta
@@ -10035,7 +10038,7 @@ function pmSobrante(m, ym) {
 function pmFila(m, ym) {
   const nec = pmNecesidad(m, ym), lleg = pmCargado(m, ym), sobra = pmSobrante(m, ym);
   const falta = nec === null ? null : pmNum(Math.max(0, nec - sobra - lleg));
-  return { m: m, nec: nec, lleg: lleg, sobra: sobra, falta: falta };
+  return { m: m, nec: nec, lleg: lleg, sobra: sobra, falta: falta, manual: pmQuedaManual(m, ym) !== null };
 }
 function pmResumenResidente(r, ym) {
   let faltan = 0, completos = 0, sos = 0;
@@ -10118,11 +10121,37 @@ function pmSetCant(residente, medId, val, motivo) {
   const n = val === '' ? 0 : parseFloat(String(val).replace(',', '.'));
   if (isNaN(n) || n < 0) { toast('Cantidad inválida', 'error'); render(); return; }
   const antes = pmCargado(m, ym);
+  if (m.proxMes !== ym) { m.proxQueda = null; cloudPushResidenteDelta(m.id, { proxQueda: null }); }
   m.proxMes = ym; m.proxCant = n;
   logCambio('ingreso', `Próximo mes ${pmMesLabel(ym)}: ${m.med} (${residente}) — ${motivo ? motivo + ', ' : ''}ya llegó ${antes} → ${n}`);
   saveData();
   cloudPushResidenteDelta(m.id, { proxMes: ym, proxCant: n });
   toast(`🗓️ ${m.med}: ${n} para ${pmMesLabel(ym).toLowerCase()}`);
+  render();
+}
+// Editar a mano el STOCK del mes que viene (lo que realmente va a haber el día 1).
+// Se guarda como "lo que queda" ajustado; lo que llegó se mantiene aparte. Vacío = volver a la cuenta automática.
+function pmSetStockMes(residente, medId, val) {
+  if (bloquearSiNoAdmin('editar el stock del próximo mes')) { render(); return; }
+  const r = state.residentes.find(x => x.nombre === residente), m = r && r.meds.find(x => x.id === medId);
+  if (!m) return;
+  const ym = pmYM();
+  if (m.proxMes !== ym) { m.proxMes = ym; m.proxCant = 0; }
+  const lleg = pmCargado(m, ym);
+  const antes = pmNum(pmSobrante(m, ym) + lleg);
+  if (String(val).trim() === '') {
+    m.proxQueda = null;
+    logCambio('stock', `Stock ${pmMesLabel(ym)} vuelve a cuenta automática: ${m.med} (${residente})`);
+  } else {
+    const total = parseFloat(String(val).replace(',', '.'));
+    if (isNaN(total) || total < 0) { toast('Cantidad inválida', 'error'); render(); return; }
+    if (total < lleg) { m.proxCant = total; m.proxQueda = 0; }
+    else m.proxQueda = pmNum(total - lleg);
+    logCambio('stock', `Stock ${pmMesLabel(ym)} editado a mano: ${m.med} (${residente}) — ${antes} → ${total}`);
+  }
+  saveData();
+  cloudPushResidenteDelta(m.id, { proxMes: m.proxMes, proxCant: m.proxCant, proxQueda: m.proxQueda });
+  toast(`🗓️ ${m.med}: stock ${pmMesLabel(ym).toLowerCase()} = ${pmNum(pmSobrante(m, ym) + pmCargado(m, ym))}`);
   render();
 }
 function pmIngreso(residente, medId) {
@@ -10150,7 +10179,7 @@ function pmPasarAStock() {
   const fecha = ym + '-01';
   const cambios = [];
   state.residentes.forEach(r => (r.meds || []).forEach(m => {
-    if (m.proxMes === ym && typeof m.proxCant === 'number' && m.proxCant > 0) cambios.push({ r: r, m: m });
+    if (m.proxMes === ym && ((typeof m.proxCant === 'number' && m.proxCant > 0) || typeof m.proxQueda === 'number')) cambios.push({ r: r, m: m });
   }));
   if (!cambios.length) { toast('No hay nada cargado para ' + pmMesLabel(ym).toLowerCase(), 'error'); return; }
   const nRes = new Set(cambios.map(c => c.r.nombre)).size;
@@ -10161,8 +10190,8 @@ function pmPasarAStock() {
   cambios.forEach(c => {
     const antes = c.m.stock;
     const queda = pmSobrante(c.m, ym);
-    c.m.stock = pmNum(queda + c.m.proxCant); c.m.fechaIngreso = fecha; c.m.proxCant = null; c.m.proxMes = null;
-    sets.push([[c.m.id, 'stock'], c.m.stock], [[c.m.id, 'fechaIngreso'], fecha], [[c.m.id, 'proxCant'], null], [[c.m.id, 'proxMes'], null]);
+    c.m.stock = pmNum(queda + (c.m.proxCant || 0)); c.m.fechaIngreso = fecha; c.m.proxCant = null; c.m.proxMes = null; c.m.proxQueda = null;
+    sets.push([[c.m.id, 'stock'], c.m.stock], [[c.m.id, 'fechaIngreso'], fecha], [[c.m.id, 'proxCant'], null], [[c.m.id, 'proxMes'], null], [[c.m.id, 'proxQueda'], null]);
     logCambio('stock', `Pasado a stock (${pmMesLabel(ym)}): ${c.m.med} (${c.r.nombre}) — stock ${antes} → ${c.m.stock} (quedaban ${queda} + llegaron ${c.m.stock - queda}), ingreso ${fecha}`);
   });
   saveData();
@@ -10259,7 +10288,9 @@ function pmTablaResidente(r, admin) {
           : (f.falta > 0 ? `<span class="pill critico">🔴 Falta ${f.falta}</span>` : '<span class="pill ok">🟢 Cubre el mes</span>');
         return `<tr>
           <td><strong>${escapeHtml(f.m.med)}</strong></td>
-          <td><b style="font-size:15px">${f.stockMes}</b><br><span style="font-size:11px;color:#6c7a8a">${f.sobra} quedan + ${f.lleg} llegaron</span></td>
+          <td>${admin
+            ? `<input type="number" value="${f.stockMes}" step="0.5" min="0" onchange="pmSetStockMes(${aR}, ${aM}, this.value)" title="Escribí lo que realmente va a haber el día 1. Borrá para volver a la cuenta automática.">`
+            : `<b style="font-size:15px">${f.stockMes}</b>`}<br><span style="font-size:11px;color:${f.manual ? '#6c5ce7' : '#6c7a8a'}">${f.manual ? '✍️ ajustado · ' : ''}${f.sobra} quedan + ${f.lleg} llegaron</span></td>
           <td>${f.nec === null ? '—' : escapeHtml(String(f.m.consumo))}</td>
           <td style="font-size:11px;color:#6c7a8a">${escapeHtml(f.m.consumoTxt || f.m.stockTxt || '')}${descDias(f.m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(f.m))}</span>` : ''}</td>
           <td>${ddmm}</td>
@@ -10273,7 +10304,7 @@ function pmTablaResidente(r, admin) {
         </tr>`;
       }).join('') : `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.</td></tr>`}</tbody>
     </table>
-    <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())} = lo que va a quedar del stock actual el ${ddmm} + lo que ya llegó para ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}. "Falta" es lo que hay que pedir para cubrir el mes entero.</p>`;
+    <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())} = lo que va a quedar del stock actual el ${ddmm} + lo que ya llegó para ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}. Si no coincide con lo real (por ejemplo, se dieron dosis S.O.S.), escribí el número correcto en el casillero; si lo borrás vuelve a la cuenta automática. "Falta" es lo que hay que pedir para cubrir el mes entero.</p>`;
 }
 function viewIngresosMes() {
   const ym = state.histIngMes || ingMesActual();
