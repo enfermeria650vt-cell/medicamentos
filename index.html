@@ -597,6 +597,13 @@ input:focus, select:focus, textarea:focus {
 }
 .indic-doc tr:nth-child(even) td { background: #FAFBFD; }
 .indic-doc td.ind-med-comb { vertical-align: middle; background: #fff !important; }
+.pm-tabla .pm-inp { width: 90px; }
+@media (max-width: 700px) {
+  .pm-tabla .pm-cons { display: none; }
+  .pm-tabla th, .pm-tabla td { padding: 8px 6px; font-size: 12px; }
+  .pm-tabla .pm-inp { width: 58px; padding: 6px 4px; }
+  .pm-tabla .pill { font-size: 11px; padding: 3px 6px; white-space: nowrap; }
+}
 .indic-doc td.ind-evol { text-align: center; font-weight: 600; padding: 12px 10px; }
 .indic-input {
   width: 100%; padding: 9px 11px; border: 1px solid var(--gris-borde);
@@ -873,6 +880,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="stock">📦 <span>Stock general</span></div>
     <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
     <div class="nav-item" data-view="ingresosMes">📜 <span>Ingresos por mes</span></div>
+    <div class="nav-item" data-view="proxmes">🗓️ <span>Stock próximo mes</span></div>
     <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
     <div class="nav-item" data-view="historial">📚 <span>Historial semanas</span></div>
     <div class="nav-item" data-view="controlsignos">🩺 <span>Control de signos</span></div>
@@ -1147,7 +1155,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-24-2';
+const APP_VERSION = 'v2026-09-24-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2834,6 +2842,7 @@ function render() {
   else if (state.view === 'stock') main.innerHTML = viewStock();
   else if (state.view === 'ingresos') main.innerHTML = viewIngresos();
   else if (state.view === 'ingresosMes') main.innerHTML = viewIngresosMes();
+  else if (state.view === 'proxmes') main.innerHTML = viewProxMes();
   else if (state.view === 'semanal') main.innerHTML = viewSemanal();
   else if (state.view === 'historial') main.innerHTML = viewHistorial();
   else if (state.view === 'historial-cambios') main.innerHTML = viewHistorialCambios();
@@ -9956,6 +9965,189 @@ function fmtFechaISO(iso) {
   if (p.length < 3) return iso;
   return p[2] + '/' + p[1] + '/' + p[0];
 }
+// =====================================================
+// STOCK DEL PRÓXIMO MES (24-sep-2026)
+// Lista aparte para ir juntando la medicación del mes que entra SIN tocar el stock actual.
+// Se guarda en cada medicamento: m.proxMes = 'AAAA-MM' y m.proxCant = cantidad que ya llegó.
+// El día 1 del mes, el administrador toca "Pasar a stock": stock = lo cargado, ingreso = día 1.
+// =====================================================
+const _PM_MESES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+function pmMesSiguienteYM() {
+  const h = new Date(); const d = new Date(h.getFullYear(), h.getMonth() + 1, 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+function pmYM() { return state.proxMesYM || pmMesSiguienteYM(); }
+function pmMesLabel(ym) { const p = ym.split('-').map(Number); return _PM_MESES[p[1] - 1] + ' ' + p[0]; }
+function pmDiasDelMes(ym) { const p = ym.split('-').map(Number); return new Date(p[0], p[1], 0).getDate(); }
+function pmNum(x) { return Math.round(x * 100) / 100; }
+// Unidades que necesita el medicamento en todo el mes (respeta el patrón de días: Lun-Vie, día del mes, etc.)
+function pmNecesidad(m, ym) {
+  if (typeof m.consumo !== 'number' || m.consumo <= 0) return null; // S.O.S. / sin consumo fijo
+  const p = ym.split('-').map(Number), n = pmDiasDelMes(ym);
+  let dias = 0;
+  for (let d = 1; d <= n; d++) {
+    const iso = p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    if (medActivoEnFecha(m, iso)) dias++;
+  }
+  return pmNum(m.consumo * dias);
+}
+function pmCargado(m, ym) { return (m.proxMes === ym && typeof m.proxCant === 'number') ? m.proxCant : 0; }
+function pmFila(m, ym) {
+  const nec = pmNecesidad(m, ym), lleg = pmCargado(m, ym);
+  const falta = nec === null ? null : pmNum(Math.max(0, nec - lleg));
+  return { m: m, nec: nec, lleg: lleg, falta: falta };
+}
+function pmResumenResidente(r, ym) {
+  let faltan = 0, completos = 0, sos = 0;
+  (r.meds || []).forEach(m => { const f = pmFila(m, ym); if (f.nec === null) sos++; else if (f.falta > 0) faltan++; else completos++; });
+  return { faltan: faltan, completos: completos, sos: sos };
+}
+function viewProxMes() {
+  const ym = pmYM();
+  const lista = state.residentes || [];
+  const sel = (state.proxMesSel && lista.find(r => r.nombre === state.proxMesSel)) ? state.proxMesSel : (lista[0] && lista[0].nombre);
+  const r = lista.find(x => x.nombre === sel);
+  const admin = esAdmin();
+  const hoy = hoyMidnight(), p = ym.split('-').map(Number);
+  const puedePasar = hoy.getTime() >= new Date(p[0], p[1] - 1, 1).getTime();
+  const chips = lista.map(x => {
+    const s = pmResumenResidente(x, ym);
+    const color = s.faltan > 0 ? '#C00000' : '#1a7340';
+    const txt = s.faltan > 0 ? ('faltan ' + s.faltan + (s.faltan === 1 ? ' med' : ' meds')) : '✓ completo';
+    return `<button class="btn small ${x.nombre === sel ? '' : 'secondary'}" style="margin:0 6px 6px 0" onclick="pmSelRes(${escapeHtml(JSON.stringify(x.nombre))})">${escapeHtml(nomRes(x.nombre))} <span style="font-weight:700;color:${x.nombre === sel ? '#fff' : color}">· ${txt}</span></button>`;
+  }).join('');
+  let tabla = '<p style="color:#6c7a8a">Elegí un residente.</p>';
+  if (r) {
+    const filas = (r.meds || []).map(m => pmFila(m, ym))
+      .sort((a, b) => ((a.nec === null) - (b.nec === null)) || ((b.falta || 0) > 0) - ((a.falta || 0) > 0) || String(a.m.med).localeCompare(String(b.m.med), 'es'));
+    tabla = `<div style="overflow-x:auto"><table class="tabla pm-tabla">
+      <thead><tr><th>Medicamento</th><th class="pm-cons">Consumo/día</th><th>Necesita</th><th>Ya llegó</th><th>Falta</th></tr></thead>
+      <tbody>${filas.map(f => {
+        const inp = admin
+          ? `<input type="number" inputmode="decimal" min="0" step="any" value="${f.lleg || ''}" placeholder="0" class="pm-inp" onchange="pmSetCant(${escapeHtml(JSON.stringify(r.nombre))}, ${escapeHtml(JSON.stringify(f.m.id))}, this.value)">`
+          : `<span>${f.lleg || 0}</span>`;
+        const falta = f.nec === null ? '<span class="pill sos">S.O.S.</span>'
+          : (f.falta > 0 ? `<span class="pill critico">Falta ${f.falta}</span>` : '<span class="pill ok">✓ Completo</span>');
+        return `<tr><td style="font-weight:600">${escapeHtml(f.m.med)}</td>
+          <td class="pm-cons">${f.nec === null ? '—' : escapeHtml(String(f.m.consumo))}</td>
+          <td>${f.nec === null ? '—' : f.nec}</td><td>${inp}</td><td>${falta}</td></tr>`;
+      }).join('')}</tbody></table></div>`;
+  }
+  return `
+    <h2>🗓️ Stock del próximo mes</h2>
+    <div class="subtitle">Andá cargando lo que va llegando para <b>${escapeHtml(pmMesLabel(ym))}</b>. El stock actual NO se toca. A fin de mes imprimí el aviso para las familias con lo que falta.</div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn secondary small" onclick="pmCambiarMes(-1)">◀</button>
+        <strong style="min-width:150px;text-align:center;font-size:15px">${escapeHtml(pmMesLabel(ym))}</strong>
+        <button class="btn secondary small" onclick="pmCambiarMes(1)">▶</button>
+        <span style="color:#6c7a8a;font-size:12px">${pmDiasDelMes(ym)} días</span>
+        <button class="btn small" style="margin-left:auto;background:#2e7d32" onclick="pmImprimirAvisos(true)">🖨 Avisos de todos los que les falta</button>
+      </div>
+      <div style="margin-bottom:6px">${chips}</div>
+    </div>
+    ${r ? `<div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h3 style="margin:0;font-size:16px;color:#1F4E78">👤 ${escapeHtml(nomRes(r.nombre))}</h3>
+        <button class="btn small" style="margin-left:auto;background:#2e7d32" onclick="pmImprimirAvisos(false, ${escapeHtml(JSON.stringify(r.nombre))})">🖨 Aviso a la familia</button>
+      </div>
+      ${admin ? '' : '<p style="color:#6c7a8a;font-size:12px;margin:0 0 8px">Solo el administrador carga cantidades.</p>'}
+      ${tabla}
+      <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">"Necesita" = consumo por día × días que corresponde tomarlo en ${escapeHtml(pmMesLabel(ym).toLowerCase())}. Lo que sobre de este mes no se descuenta.</p>
+    </div>` : ''}
+    ${admin ? `<div class="card">
+      <h3 style="margin:0 0 6px;font-size:15px;color:#1F4E78">✅ Pasar a stock</h3>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">Desde el 01/${String(p[1]).padStart(2, '0')}: lo cargado acá reemplaza el stock de cada medicamento, con fecha de ingreso 01/${String(p[1]).padStart(2, '0')}/${p[0]}. Solo se tocan los medicamentos que tengan algo cargado.</p>
+      <button class="btn small" ${puedePasar ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'} onclick="pmPasarAStock()">✅ Pasar ${escapeHtml(pmMesLabel(ym))} a stock</button>
+      ${puedePasar ? '' : `<span style="color:#6c7a8a;font-size:12px;margin-left:8px">Disponible desde el 01/${String(p[1]).padStart(2, '0')}/${p[0]}</span>`}
+    </div>` : ''}`;
+}
+function pmSelRes(nombre) { state.proxMesSel = nombre; render(); }
+function pmCambiarMes(delta) {
+  const p = pmYM().split('-').map(Number); const d = new Date(p[0], p[1] - 1 + delta, 1);
+  state.proxMesYM = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); render();
+}
+function pmSetCant(residente, medId, val) {
+  if (bloquearSiNoAdmin('cargar el stock del próximo mes')) { render(); return; }
+  const r = state.residentes.find(x => x.nombre === residente);
+  const m = r && r.meds.find(x => x.id === medId);
+  if (!m) return;
+  const ym = pmYM();
+  const n = val === '' ? 0 : parseFloat(String(val).replace(',', '.'));
+  if (isNaN(n) || n < 0) { toast('Cantidad inválida', 'error'); render(); return; }
+  const antes = pmCargado(m, ym);
+  m.proxMes = ym; m.proxCant = n;
+  logCambio('stock', `Próximo mes ${pmMesLabel(ym)}: ${m.med} (${residente}) — ya llegó ${antes} → ${n}`);
+  saveData();
+  cloudPushResidenteDelta(m.id, { proxMes: ym, proxCant: n });
+  toast(`🗓️ ${m.med}: ${n} para ${pmMesLabel(ym).toLowerCase()}`);
+  render();
+}
+function pmPasarAStock() {
+  if (bloquearSiNoAdmin('pasar el próximo mes a stock')) return;
+  const ym = pmYM(), p = ym.split('-').map(Number);
+  if (hoyMidnight().getTime() < new Date(p[0], p[1] - 1, 1).getTime()) { toast('Recién se puede desde el día 1 del mes', 'error'); return; }
+  const fecha = ym + '-01';
+  const cambios = [];
+  state.residentes.forEach(r => (r.meds || []).forEach(m => {
+    if (m.proxMes === ym && typeof m.proxCant === 'number' && m.proxCant > 0) cambios.push({ r: r, m: m });
+  }));
+  if (!cambios.length) { toast('No hay nada cargado para ' + pmMesLabel(ym).toLowerCase(), 'error'); return; }
+  const resp = prompt('Vas a pasar ' + cambios.length + ' medicamentos de ' + pmMesLabel(ym) + ' al stock.\n\nEl stock de cada uno se REEMPLAZA por lo cargado en "Próximo mes", con fecha de ingreso ' + fecha.split('-').reverse().join('/') + '.\nLos medicamentos sin nada cargado no se tocan.\n\nPara confirmar escribí PASAR:');
+  if (resp === null) return;
+  if (resp.trim().toUpperCase() !== 'PASAR') { toast('Cancelado: hay que escribir PASAR', 'error'); return; }
+  const sets = [];
+  cambios.forEach(c => {
+    const antes = c.m.stock;
+    c.m.stock = c.m.proxCant; c.m.fechaIngreso = fecha; c.m.proxCant = null; c.m.proxMes = null;
+    sets.push([[c.m.id, 'stock'], c.m.stock], [[c.m.id, 'fechaIngreso'], fecha], [[c.m.id, 'proxCant'], null], [[c.m.id, 'proxMes'], null]);
+    logCambio('stock', `Pasado a stock (${pmMesLabel(ym)}): ${c.m.med} (${c.r.nombre}) — ${antes} → ${c.m.stock}, ingreso ${fecha}`);
+  });
+  saveData();
+  cloudPushDelta('residentes', sets, []);
+  toast('✅ ' + cambios.length + ' medicamentos pasados a stock');
+  render();
+}
+// Aviso para la familia: qué medicación falta para el mes que entra. todos=true → una hoja por residente con faltantes.
+function pmImprimirAvisos(todos, nombre) {
+  const ym = pmYM(), p = ym.split('-').map(Number);
+  const lista = todos ? state.residentes : state.residentes.filter(r => r.nombre === nombre);
+  const hojas = [];
+  lista.forEach(r => {
+    const filas = (r.meds || []).map(m => pmFila(m, ym)).filter(f => f.nec !== null && f.falta > 0);
+    if (todos && !filas.length) return;
+    hojas.push(`<div class="hoja">
+      <div class="titulo">MEDICACIÓN PARA ${escapeHtml(pmMesLabel(ym))}</div>
+      <div class="sub">Residente: <b>${escapeHtml(nomRes(r.nombre))}</b></div>
+      ${filas.length ? `<p class="txt">Para cubrir el mes de ${escapeHtml(pmMesLabel(ym).toLowerCase())} falta la siguiente medicación. Les pedimos traerla antes del 01/${String(p[1]).padStart(2, '0')}/${p[0]}.</p>
+      <table><thead><tr><th class="med">Medicamento</th><th>Necesita en el mes</th><th>Ya entregado</th><th>FALTA</th></tr></thead>
+      <tbody>${filas.map(f => `<tr><td class="med">${escapeHtml(f.m.med)}</td><td>${f.nec}</td><td>${f.lleg}</td><td><b>${f.falta}</b></td></tr>`).join('')}</tbody></table>`
+      : '<p class="txt">✓ La medicación del mes está completa. ¡Gracias!</p>'}
+      <div class="pie">Residencia Villa Teresa · ${escapeHtml(new Date().toLocaleDateString('es-AR'))}</div>
+    </div>`);
+  });
+  if (!hojas.length) { toast('Nadie tiene faltantes para ' + pmMesLabel(ym).toLowerCase()); return; }
+  const win = window.open('', '_blank', 'width=700,height=900');
+  if (!win) { toast('El navegador bloqueó la ventana de impresión', 'error'); return; }
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Aviso medicación ${escapeHtml(pmMesLabel(ym))}</title>
+  <style>
+    @page { size: A5 portrait; margin: 1.5cm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #000; }
+    .hoja { page-break-after: always; }
+    .hoja:last-child { page-break-after: auto; }
+    .titulo { text-align: center; font-weight: bold; font-size: 12pt; text-decoration: underline; margin-bottom: 8px; }
+    .sub { text-align: center; font-size: 10pt; margin-bottom: 10px; }
+    .txt { margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #000; padding: 4px 6px; text-align: center; }
+    .med { text-align: left; text-transform: uppercase; }
+    .pie { margin-top: 14px; font-size: 8pt; color: #444; text-align: right; }
+  </style></head><body>${hojas.join('')}
+  <script>window.onload = () => { window.print(); }<\/script></body></html>`);
+  win.document.close();
+}
+
 function viewIngresosMes() {
   const ym = state.histIngMes || ingMesActual();
   const resF = state.histIngRes || '';
