@@ -597,6 +597,7 @@ input:focus, select:focus, textarea:focus {
 }
 .indic-doc tr:nth-child(even) td { background: #FAFBFD; }
 .indic-doc td.ind-med-comb { vertical-align: middle; background: #fff !important; }
+.indic-doc td.ind-evol { text-align: center; font-weight: 600; padding: 12px 10px; }
 .indic-input {
   width: 100%; padding: 9px 11px; border: 1px solid var(--gris-borde);
   border-radius: 6px; font-size: 13px; font-family: inherit;
@@ -1146,7 +1147,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-24-1';
+const APP_VERSION = 'v2026-09-24-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4694,6 +4695,7 @@ function resaltarCambiosDiff(colAnt, colAct) {
     let madre = '', nCont = 0;
     rows.forEach(function(tr) {
       let clave = (tr.cells[0] ? diffKey(tr.cells[0].textContent) : '');
+      if (/^evoluci/.test(clave)) clave = '__evolucion__';
       if (clave) { madre = clave; nCont = 0; }
       else if (madre && esFilaContinuacionInd(tr)) { nCont++; clave = madre + '#' + nCont; }
       else madre = '';
@@ -5037,7 +5039,7 @@ function ordenarTablaIndicacionPorHorario(cont) {
   if (datos.length < 2) return;
   const tiempo = (f) => {
     const celda = f.children[colHor];
-    return celda ? ordenHorarioStr(celda.textContent || '') : 99999;
+    return celda ? horaIndicacionMin(celda.textContent || '') : 99999;
   };
   // Un medicamento con celda combinada en el Word (ej. QUETIAPINA con 3 dosis) llega como
   // 1 fila con nombre + filas siguientes con el nombre vacío. Se ordenan JUNTAS como bloque
@@ -5054,6 +5056,22 @@ function ordenarTablaIndicacionPorHorario(cont) {
   });
   bloques.sort((a, b) => (a.t - b.t) || (a.i - b.i))
          .forEach(b => b.filas.forEach(f => f.parentNode.appendChild(f)));
+}
+
+// Hora (en minutos) de la celda HORARIO de una indicación. Además de "08:00" entiende
+// cómo lo escribe la médica: "07.30 HS", "19.30(PRE CENA)", "07 HS", "8 y 20 HS", "L-M-V 20 HS".
+function horaIndicacionMin(str) {
+  const base = ordenHorarioStr(str);
+  if (base !== 99999) return base;
+  const t = String(str || '');
+  let min = 99999, m;
+  const re1 = /(\d{1,2})\s*[.,:]\s*(\d{2})(?!\d)/g;
+  while ((m = re1.exec(t))) { const h = +m[1], mm = +m[2]; if (h < 24 && mm < 60) min = Math.min(min, h * 60 + mm); }
+  const re2 = /(\d{1,2})\s*(?:y|a|-|,)\s*\d{1,2}\s*hs?\b/gi;
+  while ((m = re2.exec(t))) { const h = +m[1]; if (h < 24) min = Math.min(min, h * 60); }
+  const re3 = /(?<![\d.,:\/]\s*)(?<!c\s*\/\s*)(\d{1,2})\s*hs?\b/gi;  // no toma frecuencias tipo C/ 12 HS
+  while ((m = re3.exec(t))) { const h = +m[1]; if (h < 24) min = Math.min(min, h * 60); }
+  return min;
 }
 
 // Fila de "continuación": primera celda (medicamento) vacía pero con dosis u horario cargado.
@@ -5082,6 +5100,16 @@ function combinarCeldasMedicamentoInd(cont) {
         const c0 = f.children[0];
         madre = (c0 && (c0.textContent || '').trim()) ? c0 : null;
         span = 1;
+        // Fila con texto SOLO en la 1ra celda (evolución, indicaciones sueltas) o fila vacía:
+        // en el Word es una celda combinada a lo ancho → se muestra ocupando toda la fila.
+        const cs = Array.from(f.children);
+        if (c0 && cs.length > 1 && cs.slice(1).every(c => !(c.textContent || '').trim() && c.colSpan === 1) &&
+            !(f.nextElementSibling && esFilaContinuacionInd(f.nextElementSibling))) {
+          c0.colSpan = cs.length;
+          cs.slice(1).forEach(c => f.removeChild(c));
+          if (/^\s*evoluci/i.test(c0.textContent || '')) c0.classList.add('ind-evol');
+          madre = null;
+        }
       }
     });
   });
