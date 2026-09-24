@@ -597,11 +597,20 @@ input:focus, select:focus, textarea:focus {
 }
 .indic-doc tr:nth-child(even) td { background: #FAFBFD; }
 .indic-doc td.ind-med-comb { vertical-align: middle; background: #fff !important; }
-.pm-tabla .pm-inp { width: 90px; }
+.pm-tabla .pm-btn { padding: 4px 8px; font-size: 12px; }
+.pm-tabla td.pm-lleg { white-space: nowrap; }
+.pm-tabla .pm-corta { display: none; }
 @media (max-width: 700px) {
   .pm-tabla .pm-cons { display: none; }
   .pm-tabla th, .pm-tabla td { padding: 8px 6px; font-size: 12px; }
-  .pm-tabla .pm-inp { width: 58px; padding: 6px 4px; }
+  .pm-tabla .pm-btn { padding: 3px 7px; font-size: 12px; }
+  .pm-tabla td.pm-lleg { white-space: nowrap; }
+  .pm-tabla .pm-larga { display: none; }
+  .pm-tabla .pm-corta { display: inline; }
+  .pm-tabla th, .pm-tabla td { padding: 7px 4px; }
+  .pm-tabla th { font-size: 10px; letter-spacing: 0; }
+  .pm-tabla .pm-btn + .pm-btn { padding: 3px 4px; }
+  .pm-tabla td:first-child { max-width: 90px; word-break: break-word; }
   .pm-tabla .pill { font-size: 11px; padding: 3px 6px; white-space: nowrap; }
 }
 .indic-doc td.ind-evol { text-align: center; font-weight: 600; padding: 12px 10px; }
@@ -1155,7 +1164,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-24-3';
+const APP_VERSION = 'v2026-09-24-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -9976,7 +9985,16 @@ function pmMesSiguienteYM() {
   const h = new Date(); const d = new Date(h.getFullYear(), h.getMonth() + 1, 1);
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
-function pmYM() { return state.proxMesYM || pmMesSiguienteYM(); }
+// Mes con cargas que YA empezó (o pasó) y todavía no se pasó a stock → hay que pasarlo.
+function pmMesPendiente() {
+  const h = new Date(), actual = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0');
+  let pend = null;
+  (state.residentes || []).forEach(r => (r.meds || []).forEach(m => {
+    if (m.proxMes && m.proxMes <= actual && typeof m.proxCant === 'number' && m.proxCant > 0 && (!pend || m.proxMes < pend)) pend = m.proxMes;
+  }));
+  return pend;
+}
+function pmYM() { return state.proxMesYM || pmMesPendiente() || pmMesSiguienteYM(); }
 function pmMesLabel(ym) { const p = ym.split('-').map(Number); return _PM_MESES[p[1] - 1] + ' ' + p[0]; }
 function pmDiasDelMes(ym) { const p = ym.split('-').map(Number); return new Date(p[0], p[1], 0).getDate(); }
 function pmNum(x) { return Math.round(x * 100) / 100; }
@@ -9992,10 +10010,29 @@ function pmNecesidad(m, ym) {
   return pmNum(m.consumo * dias);
 }
 function pmCargado(m, ym) { return (m.proxMes === ym && typeof m.proxCant === 'number') ? m.proxCant : 0; }
+function pmISO(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'); }
+// Unidades del stock ACTUAL que van a quedar el día 1 del mes 'ym' (misma cuenta que "Días"/"Fecha agot." de Stock y consumo:
+// se descuenta el consumo de cada día que corresponde tomarlo, desde la fecha de ingreso hasta el último día del mes anterior).
+function pmSobrante(m, ym) {
+  const stock = typeof m.stock === 'number' ? m.stock : 0;
+  if (stock <= 0) return 0;
+  if (typeof m.consumo !== 'number' || m.consumo <= 0) return stock; // S.O.S.: no se descuenta
+  const p = ym.split('-').map(Number);
+  const inicioMes = new Date(p[0], p[1] - 1, 1);
+  let d = m.fechaIngreso ? new Date(m.fechaIngreso + 'T00:00:00') : hoyMidnight();
+  if (isNaN(d.getTime())) d = hoyMidnight();
+  let usado = 0;
+  for (let i = 0; d.getTime() < inicioMes.getTime() && i < 800; i++) {
+    if (medActivoEnFecha(m, pmISO(d))) usado += m.consumo;
+    d.setDate(d.getDate() + 1);
+    if (usado >= stock) return 0;
+  }
+  return pmNum(Math.max(0, stock - usado));
+}
 function pmFila(m, ym) {
-  const nec = pmNecesidad(m, ym), lleg = pmCargado(m, ym);
-  const falta = nec === null ? null : pmNum(Math.max(0, nec - lleg));
-  return { m: m, nec: nec, lleg: lleg, falta: falta };
+  const nec = pmNecesidad(m, ym), lleg = pmCargado(m, ym), sobra = pmSobrante(m, ym);
+  const falta = nec === null ? null : pmNum(Math.max(0, nec - sobra - lleg));
+  return { m: m, nec: nec, lleg: lleg, sobra: sobra, falta: falta };
 }
 function pmResumenResidente(r, ym) {
   let faltan = 0, completos = 0, sos = 0;
@@ -10021,21 +10058,23 @@ function viewProxMes() {
     const filas = (r.meds || []).map(m => pmFila(m, ym))
       .sort((a, b) => ((a.nec === null) - (b.nec === null)) || ((b.falta || 0) > 0) - ((a.falta || 0) > 0) || String(a.m.med).localeCompare(String(b.m.med), 'es'));
     tabla = `<div style="overflow-x:auto"><table class="tabla pm-tabla">
-      <thead><tr><th>Medicamento</th><th class="pm-cons">Consumo/día</th><th>Necesita</th><th>Ya llegó</th><th>Falta</th></tr></thead>
+      <thead><tr><th>Medicamento</th><th class="pm-cons">Consumo/día</th><th>Necesita</th><th><span class="pm-larga">Queda de este mes</span><span class="pm-corta">Queda</span></th><th><span class="pm-larga">Ya llegó</span><span class="pm-corta">Llegó</span></th><th>Falta</th></tr></thead>
       <tbody>${filas.map(f => {
-        const inp = admin
-          ? `<input type="number" inputmode="decimal" min="0" step="any" value="${f.lleg || ''}" placeholder="0" class="pm-inp" onchange="pmSetCant(${escapeHtml(JSON.stringify(r.nombre))}, ${escapeHtml(JSON.stringify(f.m.id))}, this.value)">`
-          : `<span>${f.lleg || 0}</span>`;
+        const aR = escapeHtml(JSON.stringify(r.nombre)), aM = escapeHtml(JSON.stringify(f.m.id));
+        const inp = `<b>${f.lleg || 0}</b>` + (admin
+          ? `<span class="pm-sep"> </span><button class="btn small pm-btn" onclick="pmIngreso(${aR}, ${aM})">+<span class="pm-larga"> Ingreso</span></button> <button class="btn secondary small pm-btn" title="Corregir total" onclick="pmCorregir(${aR}, ${aM})">✏️</button>`
+          : '');
         const falta = f.nec === null ? '<span class="pill sos">S.O.S.</span>'
-          : (f.falta > 0 ? `<span class="pill critico">Falta ${f.falta}</span>` : '<span class="pill ok">✓ Completo</span>');
+          : (f.falta > 0 ? `<span class="pill critico"><span class="pm-larga">Falta </span>${f.falta}</span>` : '<span class="pill ok">✓<span class="pm-larga"> Completo</span></span>');
         return `<tr><td style="font-weight:600">${escapeHtml(f.m.med)}</td>
           <td class="pm-cons">${f.nec === null ? '—' : escapeHtml(String(f.m.consumo))}</td>
-          <td>${f.nec === null ? '—' : f.nec}</td><td>${inp}</td><td>${falta}</td></tr>`;
+          <td>${f.nec === null ? '—' : f.nec}</td><td>${f.sobra}</td><td class="pm-lleg">${inp}</td><td>${falta}</td></tr>`;
       }).join('')}</tbody></table></div>`;
   }
   return `
     <h2>🗓️ Stock del próximo mes</h2>
-    <div class="subtitle">Andá cargando lo que va llegando para <b>${escapeHtml(pmMesLabel(ym))}</b>. El stock actual NO se toca. A fin de mes imprimí el aviso para las familias con lo que falta.</div>
+    <div class="subtitle">Andá cargando lo que va llegando para <b>${escapeHtml(pmMesLabel(ym))}</b> con <b>+ Ingreso</b>. El stock actual NO se toca: el programa ya descuenta lo que sobra de este mes. A fin de mes imprimí el aviso para las familias con lo que falta.</div>
+    ${(() => { const pend = pmMesPendiente(); return (admin && pend && pend !== ym) ? `<div class="card" style="background:#FFF4E5;border-left:4px solid #E58E26"><b>⚠️ ${escapeHtml(pmMesLabel(pend))} ya empezó y lo cargado todavía no se pasó a stock.</b> <button class="btn small" style="margin-left:8px" onclick="state.proxMesYM='${pend}';render()">Ir a ${escapeHtml(pmMesLabel(pend))}</button></div>` : ''; })()}
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn secondary small" onclick="pmCambiarMes(-1)">◀</button>
@@ -10053,11 +10092,11 @@ function viewProxMes() {
       </div>
       ${admin ? '' : '<p style="color:#6c7a8a;font-size:12px;margin:0 0 8px">Solo el administrador carga cantidades.</p>'}
       ${tabla}
-      <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">"Necesita" = consumo por día × días que corresponde tomarlo en ${escapeHtml(pmMesLabel(ym).toLowerCase())}. Lo que sobre de este mes no se descuenta.</p>
+      <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">"Necesita" = consumo por día × días que corresponde tomarlo en ${escapeHtml(pmMesLabel(ym).toLowerCase())}. "Queda de este mes" = lo que el stock actual todavía va a tener el 01/${String(p[1]).padStart(2, '0')} (misma cuenta que Stock y consumo). Falta = Necesita − Queda − Ya llegó.</p>
     </div>` : ''}
     ${admin ? `<div class="card">
       <h3 style="margin:0 0 6px;font-size:15px;color:#1F4E78">✅ Pasar a stock</h3>
-      <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">Desde el 01/${String(p[1]).padStart(2, '0')}: lo cargado acá reemplaza el stock de cada medicamento, con fecha de ingreso 01/${String(p[1]).padStart(2, '0')}/${p[0]}. Solo se tocan los medicamentos que tengan algo cargado.</p>
+      <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">Un solo botón para <b>todos los residentes</b>. Desde el 01/${String(p[1]).padStart(2, '0')}: a cada medicamento con algo cargado le queda stock = lo que quedaba + lo que llegó, con fecha de ingreso 01/${String(p[1]).padStart(2, '0')}/${p[0]}. Los que no tienen nada cargado siguen como están.</p>
       <button class="btn small" ${puedePasar ? '' : 'disabled style="opacity:.5;cursor:not-allowed"'} onclick="pmPasarAStock()">✅ Pasar ${escapeHtml(pmMesLabel(ym))} a stock</button>
       ${puedePasar ? '' : `<span style="color:#6c7a8a;font-size:12px;margin-left:8px">Disponible desde el 01/${String(p[1]).padStart(2, '0')}/${p[0]}</span>`}
     </div>` : ''}`;
@@ -10067,7 +10106,7 @@ function pmCambiarMes(delta) {
   const p = pmYM().split('-').map(Number); const d = new Date(p[0], p[1] - 1 + delta, 1);
   state.proxMesYM = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); render();
 }
-function pmSetCant(residente, medId, val) {
+function pmSetCant(residente, medId, val, motivo) {
   if (bloquearSiNoAdmin('cargar el stock del próximo mes')) { render(); return; }
   const r = state.residentes.find(x => x.nombre === residente);
   const m = r && r.meds.find(x => x.id === medId);
@@ -10077,11 +10116,29 @@ function pmSetCant(residente, medId, val) {
   if (isNaN(n) || n < 0) { toast('Cantidad inválida', 'error'); render(); return; }
   const antes = pmCargado(m, ym);
   m.proxMes = ym; m.proxCant = n;
-  logCambio('stock', `Próximo mes ${pmMesLabel(ym)}: ${m.med} (${residente}) — ya llegó ${antes} → ${n}`);
+  logCambio('ingreso', `Próximo mes ${pmMesLabel(ym)}: ${m.med} (${residente}) — ${motivo ? motivo + ', ' : ''}ya llegó ${antes} → ${n}`);
   saveData();
   cloudPushResidenteDelta(m.id, { proxMes: ym, proxCant: n });
   toast(`🗓️ ${m.med}: ${n} para ${pmMesLabel(ym).toLowerCase()}`);
   render();
+}
+function pmIngreso(residente, medId) {
+  if (bloquearSiNoAdmin('cargar el stock del próximo mes')) return;
+  const r = state.residentes.find(x => x.nombre === residente), m = r && r.meds.find(x => x.id === medId);
+  if (!m) return;
+  const v = prompt('+ Ingreso para ' + pmMesLabel(pmYM()) + '\n' + m.med + ' (' + nomRes(residente) + ')\n\nCantidad que llegó:');
+  if (v === null || String(v).trim() === '') return;
+  const n = parseFloat(String(v).replace(',', '.'));
+  if (isNaN(n) || n <= 0) { toast('Cantidad inválida', 'error'); return; }
+  pmSetCant(residente, medId, pmNum(pmCargado(m, pmYM()) + n), '+' + n);
+}
+function pmCorregir(residente, medId) {
+  if (bloquearSiNoAdmin('cargar el stock del próximo mes')) return;
+  const r = state.residentes.find(x => x.nombre === residente), m = r && r.meds.find(x => x.id === medId);
+  if (!m) return;
+  const v = prompt('Corregir el TOTAL que llegó para ' + pmMesLabel(pmYM()) + '\n' + m.med + ':', String(pmCargado(m, pmYM())));
+  if (v === null) return;
+  pmSetCant(residente, medId, v, 'corrección');
 }
 function pmPasarAStock() {
   if (bloquearSiNoAdmin('pasar el próximo mes a stock')) return;
@@ -10093,15 +10150,17 @@ function pmPasarAStock() {
     if (m.proxMes === ym && typeof m.proxCant === 'number' && m.proxCant > 0) cambios.push({ r: r, m: m });
   }));
   if (!cambios.length) { toast('No hay nada cargado para ' + pmMesLabel(ym).toLowerCase(), 'error'); return; }
-  const resp = prompt('Vas a pasar ' + cambios.length + ' medicamentos de ' + pmMesLabel(ym) + ' al stock.\n\nEl stock de cada uno se REEMPLAZA por lo cargado en "Próximo mes", con fecha de ingreso ' + fecha.split('-').reverse().join('/') + '.\nLos medicamentos sin nada cargado no se tocan.\n\nPara confirmar escribí PASAR:');
+  const nRes = new Set(cambios.map(c => c.r.nombre)).size;
+  const resp = prompt('Vas a pasar ' + pmMesLabel(ym) + ' a stock para TODOS: ' + cambios.length + ' medicamentos de ' + nRes + ' residentes.\n\nCada uno queda con: lo que quedaba del mes anterior + lo que llegó, con fecha de ingreso ' + fecha.split('-').reverse().join('/') + '.\nLos medicamentos sin nada cargado no se tocan.\n\nPara confirmar escribí PASAR:');
   if (resp === null) return;
   if (resp.trim().toUpperCase() !== 'PASAR') { toast('Cancelado: hay que escribir PASAR', 'error'); return; }
   const sets = [];
   cambios.forEach(c => {
     const antes = c.m.stock;
-    c.m.stock = c.m.proxCant; c.m.fechaIngreso = fecha; c.m.proxCant = null; c.m.proxMes = null;
+    const queda = pmSobrante(c.m, ym);
+    c.m.stock = pmNum(queda + c.m.proxCant); c.m.fechaIngreso = fecha; c.m.proxCant = null; c.m.proxMes = null;
     sets.push([[c.m.id, 'stock'], c.m.stock], [[c.m.id, 'fechaIngreso'], fecha], [[c.m.id, 'proxCant'], null], [[c.m.id, 'proxMes'], null]);
-    logCambio('stock', `Pasado a stock (${pmMesLabel(ym)}): ${c.m.med} (${c.r.nombre}) — ${antes} → ${c.m.stock}, ingreso ${fecha}`);
+    logCambio('stock', `Pasado a stock (${pmMesLabel(ym)}): ${c.m.med} (${c.r.nombre}) — stock ${antes} → ${c.m.stock} (quedaban ${queda} + llegaron ${c.m.stock - queda}), ingreso ${fecha}`);
   });
   saveData();
   cloudPushDelta('residentes', sets, []);
@@ -10120,8 +10179,8 @@ function pmImprimirAvisos(todos, nombre) {
       <div class="titulo">MEDICACIÓN PARA ${escapeHtml(pmMesLabel(ym))}</div>
       <div class="sub">Residente: <b>${escapeHtml(nomRes(r.nombre))}</b></div>
       ${filas.length ? `<p class="txt">Para cubrir el mes de ${escapeHtml(pmMesLabel(ym).toLowerCase())} falta la siguiente medicación. Les pedimos traerla antes del 01/${String(p[1]).padStart(2, '0')}/${p[0]}.</p>
-      <table><thead><tr><th class="med">Medicamento</th><th>Necesita en el mes</th><th>Ya entregado</th><th>FALTA</th></tr></thead>
-      <tbody>${filas.map(f => `<tr><td class="med">${escapeHtml(f.m.med)}</td><td>${f.nec}</td><td>${f.lleg}</td><td><b>${f.falta}</b></td></tr>`).join('')}</tbody></table>`
+      <table><thead><tr><th class="med">Medicamento</th><th>Necesita en el mes</th><th>Queda del mes anterior</th><th>Ya entregado</th><th>FALTA</th></tr></thead>
+      <tbody>${filas.map(f => `<tr><td class="med">${escapeHtml(f.m.med)}</td><td>${f.nec}</td><td>${f.sobra}</td><td>${f.lleg}</td><td><b>${f.falta}</b></td></tr>`).join('')}</tbody></table>`
       : '<p class="txt">✓ La medicación del mes está completa. ¡Gracias!</p>'}
       <div class="pie">Residencia Villa Teresa · ${escapeHtml(new Date().toLocaleDateString('es-AR'))}</div>
     </div>`);
