@@ -1174,7 +1174,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-24-7';
+const APP_VERSION = 'v2026-09-30-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -10096,6 +10096,7 @@ function viewProxMes() {
         <button class="btn secondary small" onclick="pmCambiarMes(1)">▶</button>
         <span style="color:#6c7a8a;font-size:12px">${pmDiasDelMes(ym)} días</span>
         <button class="btn small" style="margin-left:auto;background:#2e7d32" onclick="pmImprimirAvisos(true)">🖨 Avisos de todos los que les falta</button>
+        <button class="btn small secondary" onclick="pmCopiarMensaje()">📋 Copiar mensaje</button>
       </div>
       <div style="margin-bottom:6px">${chips}</div>
     </div>
@@ -10103,6 +10104,7 @@ function viewProxMes() {
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <h3 style="margin:0;font-size:16px;color:#1F4E78">👤 ${escapeHtml(nomRes(r.nombre))}</h3>
         <button class="btn small" style="margin-left:auto;background:#2e7d32" onclick="pmImprimirAvisos(false, ${escapeHtml(JSON.stringify(r.nombre))})">🖨 Aviso a la familia</button>
+        <button class="btn small secondary" onclick="pmCopiarMensaje()">📋 Copiar mensaje</button>
       </div>
       ${admin ? '' : '<p style="color:#6c7a8a;font-size:12px;margin:0 0 8px">Solo el administrador carga cantidades.</p>'}
       ${tabla}
@@ -10207,6 +10209,27 @@ function pmPasarAStock() {
   toast('✅ ' + cambios.length + ' medicamentos pasados a stock');
   render();
 }
+// Mensaje para la familia (texto aprobado por Maxi 30-sep-2026): va impreso arriba del aviso y se copia para WhatsApp.
+const PM_MENSAJE_FAMILIA = [
+  'Estimado familiar:',
+  'Les pedimos que respeten el plazo de entrega de los medicamentos. Nuestra prioridad es el bienestar de su ser querido \u{1F499}',
+  'En el cuadro adjunto les pedimos prestar especial atención a la columna "Fecha agot.". Ahí figuran, en orden, las fechas en que se termina cada medicamento. Los primeros de la lista son los más urgentes.',
+  'Si se les complica, avísennos sin problema y vemos juntos cómo resolverlo.',
+  '¡Muchas gracias por acompañarnos en su cuidado! Cualquier duda, estamos acá \u{1F917}',
+  'Equipo de Villa Teresa'
+];
+function pmCopiarMensaje() {
+  const txt = PM_MENSAJE_FAMILIA.slice(0, -1).join('\n\n') + '\n\n_' + PM_MENSAJE_FAMILIA[PM_MENSAJE_FAMILIA.length - 1] + '_';
+  const ok = () => toast('📋 Mensaje copiado: pegalo en WhatsApp junto con el aviso');
+  const viejo = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); ok();
+    } catch (e) { toast('No se pudo copiar el mensaje', 'error'); }
+  };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(ok, viejo); else viejo();
+}
 // Aviso para la familia: qué medicación falta para el mes que entra. todos=true → una hoja por residente con faltantes.
 function pmImprimirAvisos(todos, nombre) {
   const ym = pmYM(), p = ym.split('-').map(Number);
@@ -10219,9 +10242,10 @@ function pmImprimirAvisos(todos, nombre) {
     hojas.push(`<div class="hoja">
       <div class="titulo">MEDICACIÓN PARA ${escapeHtml(pmMesLabel(ym))}</div>
       <div class="sub">Residente: <b>${escapeHtml(nomRes(r.nombre))}</b></div>
+      <div class="msj">${PM_MENSAJE_FAMILIA.slice(0, -1).map(l => `<p>${escapeHtml(l)}</p>`).join('')}<p class="firma">${escapeHtml(PM_MENSAJE_FAMILIA[PM_MENSAJE_FAMILIA.length - 1])}</p></div>
       ${nFalta ? `<p class="txt">Para cubrir el mes de ${escapeHtml(pmMesLabel(ym).toLowerCase())} falta la medicación marcada en color. Les pedimos traerla antes del 01/${String(p[1]).padStart(2, '0')}/${p[0]}.</p>`
       : '<p class="txt">✓ La medicación del mes está completa. ¡Gracias!</p>'}
-      <table><thead><tr><th class="med">Medicamento</th><th>Stock al 01/${String(p[1]).padStart(2, '0')}</th><th>Alcanza hasta</th><th>Estado</th><th>FALTA</th></tr></thead>
+      <table><thead><tr><th class="med">Medicamento</th><th>Stock al 01/${String(p[1]).padStart(2, '0')}</th><th>Fecha agot.</th><th>Estado</th><th>FALTA</th></tr></thead>
       <tbody>${filas.map(f => `<tr class="e-${f.tipo}"><td class="med"><b>${escapeHtml(f.m.med)}</b></td><td><b>${f.stockMes}</b></td><td>${f.agot}</td><td>${PM_ESTADOS[f.tipo].label.replace(/^\S+ /, '')}</td><td><b>${f.falta > 0 ? f.falta : '—'}</b></td></tr>`).join('')}</tbody></table>
       <div class="ley"><span class="e-sinstock">SIN STOCK</span> <span class="e-critico">CRÍTICO (≤7 días)</span> <span class="e-atencion">ATENCIÓN (≤14 días)</span> <span class="e-ok">OK</span></div>
       <div class="pie">Residencia Villa Teresa · ${escapeHtml(new Date().toLocaleDateString('es-AR'))}</div>
@@ -10240,6 +10264,10 @@ function pmImprimirAvisos(todos, nombre) {
     .titulo { text-align: center; font-weight: bold; font-size: 12pt; text-decoration: underline; margin-bottom: 8px; }
     .sub { text-align: center; font-size: 10pt; margin-bottom: 10px; }
     .txt { margin-bottom: 10px; }
+    .msj { border: 1px solid #2e7d32; background: #f1f8f2; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 9pt; line-height: 1.35; }
+    .msj p { margin-bottom: 5px; }
+    .msj p:last-child { margin-bottom: 0; }
+    .msj .firma { font-style: italic; text-align: right; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border: 1px solid #000; padding: 4px 6px; text-align: center; }
     .med { text-align: left; text-transform: uppercase; }
@@ -10302,6 +10330,7 @@ function pmTablaResidente(r, admin) {
       ${nFaltan ? `<span class="pill critico" style="margin-left:6px">Faltan ${nFaltan} med${nFaltan === 1 ? '' : 's'}</span>` : '<span class="pill ok" style="margin-left:6px">✓ Mes cubierto</span>'}</div>
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn small" style="background:#2e7d32" onclick="pmImprimirAvisos(false, ${aR})">🖨 Aviso a la familia (${escapeHtml(pmMesLabel(ym).toLowerCase())})</button>
+        <button class="btn small secondary" onclick="pmCopiarMensaje()">📋 Copiar mensaje para WhatsApp</button>
         <button class="btn small secondary" onclick="navigate('proxmes')">👥 Ver todos los residentes</button>
         ${admin && puedePasar ? `<button class="btn small" onclick="pmPasarAStock()">✅ Pasar ${escapeHtml(pmMesLabel(ym))} a stock (todos)</button>` : ''}
       </div>
