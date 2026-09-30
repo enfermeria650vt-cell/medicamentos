@@ -1174,7 +1174,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-30-1';
+const APP_VERSION = 'v2026-09-30-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6912,6 +6912,7 @@ function renderInformeFamilia(res, mes, uso, stock, dispMap){
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">👪 Informe para la familia — ${escapeHtml(res)}</h3>
         <button class="btn small" style="background:#2e7d32" onclick="imprimirInformeInsumosFamilia()">🖨 Imprimir / PDF</button>
+        <button class="btn small secondary" onclick="pmCopiarMensaje(INS_MENSAJE_FAMILIA)">📋 Copiar mensaje para WhatsApp</button>
       </div>
       <p style="color:#6c7a8a;font-size:13px;margin:0 0 10px">Uso del mes (automático del Uso Diario, editable) y cuánto queda. Editá el número si querés ajustar el promedio.</p>
       <div style="overflow-x:auto"><table class="tabla">
@@ -6928,6 +6929,15 @@ function renderInformeFamilia(res, mes, uso, stock, dispMap){
       <button class="btn small" style="margin-top:10px" onclick="insVariosAdd('${jsAttr(res)}')">➕ Agregar ítem</button>
     </div>`;
 }
+// Mensaje para la familia en Insumos (mismo texto que medicación, adaptado a insumos y a la columna "Le alcanza para").
+const INS_MENSAJE_FAMILIA = [
+  'Estimado familiar:',
+  'Les pedimos que respeten el plazo de entrega de los insumos. Nuestra prioridad es el bienestar de su ser querido \u{1F499}',
+  'En el cuadro adjunto les pedimos prestar especial atención a la columna "Le alcanza para". Ahí figura hasta cuándo alcanza cada insumo, así pueden reponerlo antes de que se termine.',
+  'Si se les complica, avísennos sin problema y vemos juntos cómo resolverlo.',
+  '¡Muchas gracias por acompañarnos en su cuidado! Cualquier duda, estamos acá \u{1F917}',
+  'Equipo de Villa Teresa'
+];
 function imprimirInformeInsumosFamilia(){
   const f = insumosState.fam;
   if (!f) { alert('Primero cargá el informe con "Ver informe".'); return; }
@@ -6963,12 +6973,17 @@ function imprimirInformeInsumosFamilia(){
     td.it { text-align:left; font-weight:bold; }
     tbody tr:nth-child(even){ background:#f2f6fb; }
     .nota { margin-top:16px; font-size:9pt; color:#444; line-height:1.5; }
+    .msj { border:1px solid #2e7d32; background:#f1f8f2; border-radius:6px; padding:10px 12px; margin-bottom:14px; font-size:10.5pt; line-height:1.4; }
+    .msj p { margin-bottom:6px; }
+    .msj p:last-child { margin-bottom:0; }
+    .msj .firma { font-style:italic; text-align:right; }
     @media print { body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
   </style></head><body>
   <div class="titulo">Insumos - Aviso a la familia</div>
   <div class="sub">Mes de ${escapeHtml(tituloMes)}</div>
   <div class="res">Residente: ${escapeHtml(res)}</div>
   <div class="gen">Emitido el ${escapeHtml(fechaHoy)} · Residencia Villa Teresa</div>
+  <div class="msj">${INS_MENSAJE_FAMILIA.slice(0, -1).map(l => '<p>' + escapeHtml(l) + '</p>').join('')}<p class="firma">${escapeHtml(INS_MENSAJE_FAMILIA[INS_MENSAJE_FAMILIA.length - 1])}</p></div>
   <table>
     <colgroup><col style="width:34%"><col style="width:18%"><col style="width:18%"><col style="width:30%"></colgroup>
     <thead><tr><th>Insumo</th><th>Usa por mes</th><th>Disponible</th><th>Le alcanza para</th></tr></thead>
@@ -10218,8 +10233,9 @@ const PM_MENSAJE_FAMILIA = [
   '¡Muchas gracias por acompañarnos en su cuidado! Cualquier duda, estamos acá \u{1F917}',
   'Equipo de Villa Teresa'
 ];
-function pmCopiarMensaje() {
-  const txt = PM_MENSAJE_FAMILIA.slice(0, -1).join('\n\n') + '\n\n_' + PM_MENSAJE_FAMILIA[PM_MENSAJE_FAMILIA.length - 1] + '_';
+function pmCopiarMensaje(lineas) {
+  const L = Array.isArray(lineas) ? lineas : PM_MENSAJE_FAMILIA;
+  const txt = L.slice(0, -1).join('\n\n') + '\n\n_' + L[L.length - 1] + '_';
   const ok = () => toast('📋 Mensaje copiado: pegalo en WhatsApp junto con el aviso');
   const viejo = () => {
     try {
