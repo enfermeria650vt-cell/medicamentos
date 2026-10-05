@@ -1174,7 +1174,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-09-30-2';
+const APP_VERSION = 'v2026-10-05-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -6001,7 +6001,7 @@ function viewRecetas() {
           ${r.diagnostico ? `<div><b>Diagnóstico:</b> ${escapeHtml(r.diagnostico)}</div>` : ''}
           ${r.dni ? `<div><b>DNI:</b> ${escapeHtml(r.dni)}</div>` : ''}
           ${r.fechaNacimiento ? `<div><b>F. Nac:</b> ${escapeHtml(r.fechaNacimiento)}</div>` : ''}
-          ${(r.edad || calcEdadDesde(r.fechaNacimiento)) ? `<div><b>Edad:</b> ${escapeHtml(r.edad || calcEdadDesde(r.fechaNacimiento))} años</div>` : ''}
+          ${edadReceta(r) ? `<div><b>Edad:</b> ${escapeHtml(edadReceta(r))} años</div>` : ''}
           ${r.fechaReceta ? `<div><b>Fecha receta:</b> ${escapeHtml(r.fechaReceta)}</div>` : ''}
         </div>
         <div style="background:#F5F7FA;border-radius:6px;padding:10px">
@@ -6137,6 +6137,11 @@ function calcEdadDesde(fnac) {
   if (hoy.getMonth() < m || (hoy.getMonth() === m && hoy.getDate() < d)) edad--;
   return edad > 0 ? String(edad) : '';
 }
+// Edad SIEMPRE calculada con la fecha de nacimiento (la guardada queda solo de respaldo si no hay F. Nac válida)
+function edadReceta(r) {
+  if (!r) return '';
+  return calcEdadDesde(r.fechaNacimiento) || r.edad || '';
+}
 function calcularEdad(prefix) {
   const fnac = (document.getElementById(prefix + '-fnac') || {}).value || '';
   const edadEl = document.getElementById(prefix + '-edad');
@@ -6170,7 +6175,7 @@ function autoCargarDatosResidente(prefix) {
   if (sexoEl && datos.sexo) sexoEl.value = datos.sexo;
   // Calcular edad
   const edadEl = document.getElementById(prefix + '-edad');
-  if (edadEl) edadEl.value = datos.edad || calcEdadDesde(datos.fechaNacimiento) || '';
+  if (edadEl) edadEl.value = edadReceta(datos);
   toast('✅ Datos cargados de ' + nombre);
 }
 function guardarNuevaReceta(residente) {
@@ -6226,7 +6231,7 @@ function abrirModalEditarReceta(residente, idx) {
   document.getElementById('er-dni').value = r.dni || '';
   document.getElementById('er-fnac').value = r.fechaNacimiento || '';
   const edadEl = document.getElementById('er-edad');
-  if (edadEl) edadEl.value = r.edad || calcEdadDesde(r.fechaNacimiento) || '';
+  if (edadEl) edadEl.value = edadReceta(r);
   document.getElementById('er-dx').value = r.diagnostico || '';
   document.getElementById('er-meds').value = (r.medicamentos || []).join('\n');
   document.getElementById('er-notas').value = r.notas || '';
@@ -6318,7 +6323,7 @@ function imprimirReceta(residente, idx) {
     <div class="fila"><span class="fila-label">Paciente:</span><span class="fila-val"><b>${residente}</b></span></div>
     ${r.dni ? `<div class="fila"><span class="fila-label">DNI:</span><span class="fila-val">${r.dni}</span></div>` : ''}
     ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">F. Nacimiento:</span><span class="fila-val">${r.fechaNacimiento}</span></div>` : ''}
-    ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">Edad:</span><span class="fila-val">${r.edad || calcEdadDesde(r.fechaNacimiento) || ''} años</span></div>` : ''}
+    ${r.fechaNacimiento ? `<div class="fila"><span class="fila-label">Edad:</span><span class="fila-val">${edadReceta(r)} años</span></div>` : ''}
     ${r.sexo ? `<div class="fila"><span class="fila-label">Sexo:</span><span class="fila-val">${r.sexo === 'M' ? 'Masculino' : 'Femenino'}</span></div>` : ''}
     ${r.obraSocial ? `<div class="fila"><span class="fila-label">Obra Social:</span><span class="fila-val">${r.obraSocial === 'Otra' ? (r.obraOtra || 'Otra') : r.obraSocial}${r.nroAfiliado ? ' — Nº ' + r.nroAfiliado : ''}</span></div>` : ''}
     ${r.diagnostico ? `<div class="fila"><span class="fila-label">Diagnóstico:</span><span class="fila-val">${r.diagnostico}</span></div>` : ''}
