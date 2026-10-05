@@ -1174,7 +1174,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-05-1';
+const APP_VERSION = 'v2026-10-05-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1221,9 +1221,18 @@ function loadRecetas() {
     return result;
   } catch (e) { return Object.assign({}, RECETAS_DEFAULT); }
 }
-function saveRecetas() {
+// Sube SOLO las recetas de los residentes que se tocaron (el backend hace merge por residente).
+// Antes subía TODAS: un equipo con datos viejos que editaba una receta pisaba las correcciones
+// de los demás residentes (pasó el 5-oct-2026).
+function saveRecetas(soloResidentes) {
   localStorage.setItem(RECETAS_KEY, JSON.stringify(state.recetas));
-  cloudPush('recetas', state.recetas, true);
+  if (Array.isArray(soloResidentes) && soloResidentes.length) {
+    const parcial = {};
+    soloResidentes.forEach(function(n){ if (n) parcial[n] = (state.recetas && state.recetas[n]) || []; });
+    cloudPush('recetas', parcial, true);
+  } else {
+    cloudPush('recetas', state.recetas, true);
+  }
 }
 function saveData() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.residentes));
@@ -4097,7 +4106,7 @@ function migrarRecetasNombre(viejo, nuevo) {
     if (state.recetas && state.recetas[viejo]) {
       state.recetas[nuevo] = (state.recetas[nuevo] || []).concat(state.recetas[viejo]);
       delete state.recetas[viejo];
-      saveRecetas();
+      saveRecetas([viejo, nuevo]);
     }
     if (state.historiasCli && state.historiasCli[viejo]) {
       if (!state.historiasCli[nuevo]) state.historiasCli[nuevo] = state.historiasCli[viejo];
@@ -6199,7 +6208,7 @@ function guardarNuevaReceta(residente) {
     notas: '',
     fechaReceta: document.getElementById('nr-fecha').value
   });
-  saveRecetas();
+  saveRecetas([residente]);
   render();
   toast('✅ Receta guardada');
 }
@@ -6262,7 +6271,7 @@ function guardarEdicionReceta(residente, idx) {
   r.medicamentos = document.getElementById('er-meds').value.trim().split('\n').map(s => s.trim()).filter(Boolean);
   r.notas = document.getElementById('er-notas').value.trim();
   r.fechaReceta = document.getElementById('er-fecha').value;
-  saveRecetas();
+  saveRecetas([residente]);
   cerrarModalEditarReceta();
   render();
   toast('✅ Receta actualizada');
@@ -6270,7 +6279,7 @@ function guardarEdicionReceta(residente, idx) {
 function eliminarReceta(residente, idx) {
   if (!confirm('¿Eliminar esta receta?')) return;
   state.recetas[residente].splice(idx, 1);
-  saveRecetas();
+  saveRecetas([residente]);
   render();
 }
 function imprimirReceta(residente, idx) {
