@@ -896,6 +896,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-section">Panel</div>
     <div class="nav-item" data-view="dashboard">📊 <span>Dashboard</span></div>
     <div class="nav-item" data-view="alertas">🚨 <span>Alertas</span><span class="badge" id="badge-alertas">0</span></div>
+    <div class="nav-item" data-view="salud" id="nav-salud" style="display:none">🛡️ <span>Detector de errores</span><span class="badge" id="badge-salud" style="display:none">0</span></div>
     <div class="nav-section">Gestión</div>
     <div class="nav-item" data-view="stock">📦 <span>Stock general</span></div>
     <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
@@ -1175,7 +1176,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-06-1';
+const APP_VERSION = 'v2026-10-06-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2818,6 +2819,362 @@ function eliminarComentario(nombreResidente, idx) {
 }
 
 // ============ NAVEGACIÓN ============
+// =====================================================
+// 🛡️ DETECTOR DE ERRORES (Salud del sistema) — v2026-10-06-2
+// Revisa los datos y lista lo que parece un error de carga o algo que necesita
+// atención. SOLO LEE: no modifica ningún dato. "Está bien así" oculta un aviso
+// en este equipo (localStorage), sin tocar la nube.
+// =====================================================
+const SALUD_OK_KEY = 'vt_salud_ok_v1';
+function saludPuedeVer() {
+  try { return _evolSoloMaxi() || nombreEsAdmin(); } catch (e) { return false; }
+}
+function saludOkLeer() { try { return JSON.parse(localStorage.getItem(SALUD_OK_KEY)) || {}; } catch (e) { return {}; } }
+function saludOkGuardar(o) { try { localStorage.setItem(SALUD_OK_KEY, JSON.stringify(o)); } catch (e) {} }
+function saludNorm(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+}
+function saludISO(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function saludDDMM(iso) { const p = String(iso).split('-'); return p.length === 3 ? (p[2] + '/' + p[1]) : iso; }
+// "2/10/2026 11:54 a. m." / "02/10/2026" -> Date (00:00) o null
+function saludFechaIngreso(txt) {
+  const m = String(txt || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return null;
+  const d = new Date(+m[3], +m[2] - 1, +m[1]);
+  return isNaN(d.getTime()) ? null : d;
+}
+function saludEsSOS(m) {
+  const t = saludNorm((m.stockTxt || '') + ' ' + (m.consumoTxt || '') + ' ' + (m.med || '') + ' ' + ((state.semanal && state.semanal[m.id + '_horario']) || ''));
+  return /S\.?\s?O\.?\s?S/.test(t);
+}
+// Productos que no se cuentan por unidad (cremas, gotas, frascos, pilas...): no se les exige consumo.
+const SALUD_NO_UNIDAD = /CREMA|POMADA|VASELINA|GOTA|GTS|FRASCO|FCO|NBZ|NEBUL|PILA|QUIDEX|SPRAY|COLIRIO|GEL\b|PAF|IRUXOL|DERMEXANE|UNGUENTO|LOCION|SHAMPOO|JABON|PROBIOTICO|ATOMO|PIECIDEX|MACRIL|ESBERIVEN|PROCTOVENART|OXIGENO|SOLUCION|JARABE/;
+function saludNum(v) {
+  if (v == null) return null;
+  const s = String(v).replace(',', '.').replace(/[^\d.\-]/g, '');
+  if (!s || s === '.' || s === '-') return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+function detectarProblemas() {
+  const out = [];
+  const add = (o) => out.push(o);
+  const hoy = hoyMidnight();
+  const hoyISO = saludISO(hoy);
+  const residentes = state.residentes || [];
+  const sem = state.semanal || {};
+  const nombres = new Set(residentes.map(r => r.nombre));
+
+  // ---------- 1) MEDICACIÓN Y STOCK ----------
+  residentes.forEach(r => {
+    const vistos = {};
+    (r.meds || []).forEach(m => {
+      const nom = saludNorm(m.med);
+      const sos = saludEsSOS(m);
+      const noUnidad = SALUD_NO_UNIDAD.test(nom + ' ' + saludNorm(m.stockTxt));
+      const horarioStr = (sem[m.id + '_horario'] || '').trim();
+      const tieneHora = parseHorarios(horarioStr).length > 0;
+      const consumo = (typeof m.consumo === 'number') ? m.consumo : null;
+      const stockNum = (typeof m.stock === 'number') ? m.stock : null;
+      const base = { residente: r.nombre, med: m.med, cat: 'Medicación y stock' };
+
+      if (stockNum !== null && stockNum < 0) {
+        add({ ...base, id: 'stockneg|' + m.id + '|' + stockNum, nivel: 'rojo',
+          titulo: 'Stock negativo (' + stockNum + ')',
+          detalle: 'No puede haber stock menor a cero. Seguramente se tildaron dosis sin haber cargado el ingreso. Corregí el stock real.' });
+      }
+      if (tieneHora && !sos && !noUnidad && !(consumo > 0)) {
+        add({ ...base, id: 'horsincons|' + m.id, nivel: 'amarillo',
+          titulo: 'Tiene horario (' + horarioStr + ') pero consumo 0',
+          detalle: 'El stock no baja al tildar y la app nunca va a avisar que se termina. Cargá el consumo diario (ej. 1 comprimido = 1).' });
+      }
+      if (consumo > 0 && !tieneHora && !sos && !noUnidad) {
+        add({ ...base, id: 'conssinhor|' + m.id, nivel: 'amarillo',
+          titulo: 'Tiene consumo (' + consumo + '/día) pero no tiene horario',
+          detalle: 'No aparece casillero para tildar en la planilla semanal. Cargá el horario (ej. 08:00).' });
+      }
+      if (consumo > 0 && stockNum === null && !sos) {
+        add({ ...base, id: 'stocksinnum|' + m.id, nivel: 'amarillo',
+          titulo: 'Stock sin número',
+          detalle: 'Sin un número de stock no se puede calcular cuándo se acaba.' });
+      }
+      if (consumo > 0 && stockNum !== null && !sos) {
+        const fi = m.fechaIngreso || '';
+        if (!fi) {
+          add({ ...base, id: 'sinfecha|' + m.id, nivel: 'amarillo',
+            titulo: 'Sin fecha de ingreso',
+            detalle: 'Los días restantes se cuentan siempre desde hoy, así que nunca llega a "Sin stock". Cargá la fecha en que entró la medicación.' });
+        } else {
+          const fd = /^\d{4}-\d{2}-\d{2}$/.test(fi) ? new Date(fi + 'T00:00:00') : null;
+          const lim = new Date(hoy); lim.setDate(lim.getDate() + 62);
+          if (!fd || isNaN(fd.getTime()) || fd.getFullYear() < 2025 || fd > lim) {
+            add({ ...base, id: 'fecharara|' + m.id + '|' + fi, nivel: 'rojo',
+              titulo: 'Fecha de ingreso rara (' + fi + ')',
+              detalle: 'La fecha parece mal escrita (muy vieja o muy adelante). Con esa fecha el cálculo de días queda mal.' });
+          }
+        }
+        const ce = consumoDiarioEfectivo(m);
+        if (ce && stockNum / ce > 120) {
+          add({ ...base, id: 'stockalto|' + m.id + '|' + stockNum, nivel: 'info',
+            titulo: 'Stock para ' + Math.floor(stockNum / ce) + ' días (' + stockNum + ' u.)',
+            detalle: 'Es mucho más que un mes. ¿El número está bien cargado (ej. 300 en vez de 30)?' });
+        }
+      }
+      // Suma de dosis entre paréntesis vs consumo diario
+      if (consumo > 0 && horarioStr) {
+        const segs = horarioStr.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        const vals = segs.map(s => { const x = s.match(/\(([\d.]+)\)/); return x ? parseFloat(x[1]) : null; });
+        if (segs.length > 1 && vals.every(v => v !== null)) {
+          const tot = Math.round(vals.reduce((a, b) => a + b, 0) * 1000) / 1000;
+          if (Math.abs(tot - consumo) > 0.001) {
+            add({ ...base, id: 'suma|' + m.id + '|' + tot + '|' + consumo, nivel: 'amarillo',
+              titulo: 'Las dosis suman ' + tot + ' pero el consumo dice ' + consumo,
+              detalle: 'Horario: ' + horarioStr + '. El stock va a bajar distinto de lo que se da.' });
+          }
+        }
+      }
+      if (nom) {
+        if (vistos[nom]) {
+          add({ ...base, id: 'dupmed|' + r.nombre + '|' + nom, nivel: 'amarillo',
+            titulo: 'Medicamento repetido',
+            detalle: '"' + m.med + '" figura dos veces en este residente: el stock y los tildes quedan partidos en dos filas.' });
+        }
+        vistos[nom] = true;
+      }
+    });
+  });
+
+  // ---------- 2) INGRESOS ----------
+  const ingresos = Array.isArray(sem.ingresos) ? sem.ingresos : [];
+  const medsPorRes = {};
+  residentes.forEach(r => { medsPorRes[r.nombre] = new Set((r.meds || []).map(m => saludNorm(m.med))); });
+  const grupos = {};
+  ingresos.forEach(i => {
+    const f = saludFechaIngreso(i.fecha);
+    if (!f) return;
+    const dias = Math.round((hoy - f) / 86400000);
+    if (dias > 45 || dias < -1) return;
+    const k = i.residente + '|' + saludNorm(i.medicamento) + '|' + i.cantidad + '|' + saludISO(f);
+    (grupos[k] = grupos[k] || []).push(i);
+    const cant = saludNum(i.cantidad);
+    if (cant === null || cant <= 0 || cant > 300) {
+      add({ id: 'ingcant|' + k, nivel: 'amarillo', cat: 'Ingresos', residente: i.residente, med: i.medicamento,
+        titulo: 'Ingreso con cantidad rara (' + i.cantidad + ')',
+        detalle: 'Cargado el ' + i.fecha + '. Revisá si el número está bien.' });
+    }
+    if (dias <= 30) {
+      if (!nombres.has(i.residente)) {
+        add({ id: 'inghuerf|' + k, nivel: 'info', cat: 'Ingresos', residente: i.residente, med: i.medicamento,
+          titulo: 'Ingreso a nombre de un residente que no existe',
+          detalle: 'Cargado el ' + i.fecha + '. Puede ser un nombre viejo o mal escrito.' });
+      } else if (!medsPorRes[i.residente].has(saludNorm(i.medicamento))) {
+        add({ id: 'inghuerf|' + k, nivel: 'info', cat: 'Ingresos', residente: i.residente, med: i.medicamento,
+          titulo: 'Ingreso de un medicamento que ya no está en la ficha',
+          detalle: 'Cargado el ' + i.fecha + ' (' + i.cantidad + ' u.). Si el medicamento se renombró o se cambió, verificá que el stock del nuevo esté bien.' });
+      }
+    }
+  });
+  Object.keys(grupos).forEach(k => {
+    const g = grupos[k];
+    if (g.length > 1) {
+      add({ id: 'ingdup|' + k + '|' + g.length, nivel: 'amarillo', cat: 'Ingresos', residente: g[0].residente, med: g[0].medicamento,
+        titulo: 'Ingreso cargado ' + g.length + ' veces el mismo día',
+        detalle: g[0].cantidad + ' u. el ' + g[0].fecha.split(' ')[0] + '. Si llegó una sola vez, el stock quedó sumado de más.' });
+    }
+  });
+
+  // ---------- 3) PLANILLA, TURNOS Y SIGNOS ----------
+  try {
+    const nd = dosisNoDadasHoy(30);
+    if (nd.length) {
+      add({ id: 'dosishoy|' + hoyISO + '|' + nd.length, nivel: 'rojo', cat: 'Planilla y turnos', ir: 'alertas',
+        titulo: nd.length + ' dosis de hoy vencidas sin tildar',
+        detalle: 'Puede ser que no se dieron o que no se registraron. Detalle en 🚨 Alertas.' });
+    }
+  } catch (e) {}
+  const cs = state.controlSignos || {};
+  const TURN = { m: 'Mañana', t: 'Tarde', n: 'Noche' };
+  Object.keys(cs).forEach(f => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return;
+    if (f > hoyISO) {
+      add({ id: 'csfutura|' + f, nivel: 'rojo', cat: 'Planilla y turnos', irCS: f,
+        titulo: 'Hay signos cargados con fecha futura (' + saludDDMM(f) + ')',
+        detalle: 'Casi siempre es el reloj/fecha mal puesto en el celular o la compu que cargó. Revisá y pasalos al día correcto.' });
+    }
+  });
+  for (let back = 1; back <= 7; back++) {
+    const d = new Date(hoy); d.setDate(d.getDate() - back);
+    const f = saludISO(d);
+    const dia = cs[f];
+    if (!dia) continue;
+    const fin = dia.turnoFin || {};
+    const falta = [];
+    ['m', 't', 'n'].forEach(t => {
+      let hay = false;
+      ['signos', 'novedades'].forEach(sec => {
+        const o = dia[sec] || {};
+        Object.keys(o).forEach(res => { const v = o[res] && o[res][t]; if (v && (typeof v !== 'object' || Object.keys(v).length)) hay = true; });
+      });
+      if (hay && !(fin[t] && fin[t].by)) falta.push(TURN[t]);
+    });
+    if (falta.length) {
+      add({ id: 'turnofin|' + f + '|' + falta.join(','), nivel: 'amarillo', cat: 'Planilla y turnos', irCS: f,
+        titulo: saludDDMM(f) + ': falta "Finalizar turno" — ' + falta.join(', '),
+        detalle: 'Se cargaron datos pero nadie cerró el turno. Sirve para saber quién respondió por ese turno.' });
+    }
+  }
+  // Signos vitales fuera de rango o con pinta de error de tipeo (últimos 3 días)
+  for (let back = 0; back <= 2; back++) {
+    const d = new Date(hoy); d.setDate(d.getDate() - back);
+    const f = saludISO(d);
+    const sig = (cs[f] && cs[f].signos) || {};
+    Object.keys(sig).forEach(res => {
+      ['m', 't', 'n'].forEach(t => {
+        const s = sig[res] && sig[res][t];
+        if (!s || typeof s !== 'object') return;
+        const fuera = [], tipeo = [];
+        const ta = String(s.ta || '').match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
+        if (ta) {
+          const sis = +ta[1], dia2 = +ta[2];
+          if (sis > 260 || sis < 50 || dia2 > 160 || dia2 >= sis) tipeo.push('T/A ' + s.ta);
+          else if (sis >= 180 || sis <= 85 || dia2 >= 110) fuera.push('T/A ' + s.ta);
+        }
+        const fc = saludNum(s.fc);
+        if (fc !== null) { if (fc > 220 || fc < 20) tipeo.push('F/C ' + s.fc); else if (fc > 120 || fc < 45) fuera.push('F/C ' + s.fc); }
+        const fr = saludNum(s.fr);
+        if (fr !== null) { if (fr > 60 || fr < 4) tipeo.push('F/R ' + s.fr); else if (fr > 28 || fr < 8) fuera.push('F/R ' + s.fr); }
+        const te = saludNum(s.temp);
+        if (te !== null) { if (te > 43 || te < 30) tipeo.push('Tº ' + s.temp); else if (te >= 38 || te < 35) fuera.push('Tº ' + s.temp); }
+        const sp = saludNum(s.spo2);
+        if (sp !== null) { if (sp > 100 || sp < 50) tipeo.push('SPO2 ' + s.spo2); else if (sp < 90) fuera.push('SPO2 ' + s.spo2); }
+        const hg = saludNum(s.hgt);
+        if (hg !== null) { if (hg > 700 || hg < 20) tipeo.push('HGT ' + s.hgt); else if (hg > 300 || hg < 70) fuera.push('HGT ' + s.hgt); }
+        if (tipeo.length) {
+          add({ id: 'sigtipeo|' + f + '|' + res + '|' + t + '|' + tipeo.join(','), nivel: 'rojo', cat: 'Signos vitales', residente: res, irCS: f,
+            titulo: saludDDMM(f) + ' ' + TURN[t] + ': valor imposible — ' + tipeo.join(' · '),
+            detalle: 'Parece un error de tipeo. Corregilo en Control de signos.' });
+        }
+        if (fuera.length) {
+          add({ id: 'sigfuera|' + f + '|' + res + '|' + t + '|' + fuera.join(','), nivel: 'amarillo', cat: 'Signos vitales', residente: res, irCS: f,
+            titulo: saludDDMM(f) + ' ' + TURN[t] + ': fuera de rango — ' + fuera.join(' · '),
+            detalle: 'Verificá que esté bien cargado y que figure en las novedades del turno / se haya avisado a la médica.' });
+        }
+      });
+    });
+  }
+
+  // ---------- 4) RECETAS E HISTORIAS CLÍNICAS ----------
+  const rec = state.recetas || {};
+  Object.keys(rec).forEach(k => {
+    if (!nombres.has(k) && Array.isArray(rec[k]) && rec[k].length) {
+      add({ id: 'rechuerf|' + k + '|' + rec[k].length, nivel: 'amarillo', cat: 'Recetas e historias clínicas', residente: k,
+        titulo: rec[k].length + ' receta(s) a nombre de "' + k + '", que no coincide con ningún residente',
+        detalle: 'Suele pasar cuando se renombra un residente. Esas recetas no se ven en la ficha actual.' });
+    }
+  });
+  const hc = state.historiasCli || {};
+  const sinHC = residentes.filter(r => !String(((hc[r.nombre] || {}).diagnostico) || '').trim()).map(r => nomRes(r.nombre));
+  if (sinHC.length) {
+    add({ id: 'hcvacia|' + sinHC.length, nivel: 'info', cat: 'Recetas e historias clínicas', ir: 'historiasCli',
+      titulo: sinHC.length + ' residente(s) sin diagnóstico en la historia clínica',
+      detalle: sinHC.join(', ') + '.' });
+  }
+
+  // ---------- 5) SINCRONIZACIÓN ----------
+  try {
+    const cola = leerColaDeltas();
+    if (cola.length) {
+      add({ id: 'cola|' + cola.length, nivel: 'amarillo', cat: 'Sincronización', fijo: true,
+        titulo: cola.length + ' cambio(s) de este equipo esperando subir a la nube',
+        detalle: 'Si no baja a 0 en unos minutos, revisá la conexión de este equipo y tocá el cartel de arriba para sincronizar.' });
+    }
+    const ult = syncState.lastOk || getLastPull();
+    if (syncHabilitado() && ult) {
+      const min = Math.round((Date.now() - new Date(ult).getTime()) / 60000);
+      if (min > 15) {
+        add({ id: 'pull|' + Math.floor(min / 15), nivel: 'rojo', cat: 'Sincronización', fijo: true,
+          titulo: 'Este equipo no actualiza datos hace ' + min + ' min',
+          detalle: 'Puede estar viendo datos viejos. Revisá internet y tocá el cartel de sincronización.' });
+      }
+    }
+  } catch (e) {}
+
+  const ord = { rojo: 0, amarillo: 1, info: 2 };
+  out.sort((a, b) => (ord[a.nivel] - ord[b.nivel]) || String(a.cat).localeCompare(String(b.cat)) || String(a.residente || '').localeCompare(String(b.residente || '')));
+  return out;
+}
+
+function saludContar() {
+  if (!saludPuedeVer()) return 0;
+  try {
+    const ok = saludOkLeer();
+    return detectarProblemas().filter(p => p.nivel !== 'info' && !ok[p.id]).length;
+  } catch (e) { return 0; }
+}
+
+function viewSalud() {
+  if (!saludPuedeVer()) {
+    return '<div style="padding:40px;color:#6c7a8a;font-size:15px">🛡️ El <b>Detector de errores</b> es una función del administrador.</div>';
+  }
+  let lista;
+  try { lista = detectarProblemas(); }
+  catch (e) { return '<div style="padding:24px;color:#c0392b">No se pudo revisar: ' + escapeHtml(e.message || String(e)) + '</div>'; }
+  const ok = saludOkLeer();
+  const verOcultos = !!state.saludVerOcultos;
+  const visibles = lista.filter(p => verOcultos || p.fijo || !ok[p.id]);
+  const ocultos = lista.filter(p => !p.fijo && ok[p.id]).length;
+  const n = { rojo: 0, amarillo: 0, info: 0 };
+  lista.forEach(p => { if (p.fijo || !ok[p.id]) n[p.nivel]++; });
+  const COL = { rojo: ['#c0392b', '#fdecea', '🔴 Urgente'], amarillo: ['#d68910', '#fef5e7', '🟡 Revisar'], info: ['#2e86c1', '#eaf2f8', 'ℹ️ Para tener en cuenta'] };
+  const tile = (k) => '<div style="flex:1;min-width:110px;background:' + COL[k][1] + ';border-left:5px solid ' + COL[k][0] + ';border-radius:8px;padding:10px 14px">' +
+    '<div style="font-size:26px;font-weight:700;color:' + COL[k][0] + '">' + n[k] + '</div><div style="font-size:12px;color:#444">' + COL[k][2] + '</div></div>';
+  const card = (p) => {
+    const c = COL[p.nivel];
+    const esOk = !p.fijo && ok[p.id];
+    const btns = [];
+    if (p.residente && nombres_salud_has(p.residente)) btns.push('<button class="btn secondary small" data-salud-res="' + escapeHtml(p.residente) + '" onclick="saludIr(this)">👤 Ver ficha</button>');
+    if (p.ir) btns.push('<button class="btn secondary small" data-salud-ir="' + escapeHtml(p.ir) + '" onclick="saludIr(this)">➡️ Ir</button>');
+    if (p.irCS) btns.push('<button class="btn secondary small" data-salud-cs="' + escapeHtml(p.irCS) + '" onclick="saludIr(this)">🩺 Ver signos</button>');
+    if (!p.fijo) btns.push(esOk
+      ? '<button class="btn secondary small" data-salud-id="' + escapeHtml(p.id) + '" onclick="saludMarcarOk(this,false)">↩️ Volver a mostrar</button>'
+      : '<button class="btn secondary small" data-salud-id="' + escapeHtml(p.id) + '" onclick="saludMarcarOk(this,true)">✓ Está bien así</button>');
+    return '<div style="background:#fff;border:1px solid #e3e8ee;border-left:5px solid ' + c[0] + ';border-radius:8px;padding:10px 14px;margin-bottom:8px;' + (esOk ? 'opacity:.55' : '') + '">' +
+      '<div style="font-weight:600;color:#1f2d3d">' + (p.residente ? escapeHtml(nomRes(p.residente)) + (p.med ? ' · ' + escapeHtml(p.med) : '') + ' — ' : '') + escapeHtml(p.titulo) + '</div>' +
+      '<div style="font-size:13px;color:#5a6a7a;margin:3px 0 6px">' + escapeHtml(p.detalle || '') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' + btns.join('') + '</div></div>';
+  };
+  const cats = [];
+  visibles.forEach(p => { if (!cats.includes(p.cat)) cats.push(p.cat); });
+  const ahora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  return '<div style="padding:24px;max-width:980px">' +
+    '<h2 style="color:var(--azul-1)">🛡️ Detector de errores</h2>' +
+    '<p style="color:#6c7a8a;font-size:13px;margin:4px 0 14px">Revisa automáticamente la medicación, el stock, los ingresos, la planilla, los signos y las recetas, y te muestra lo que parece un error de carga. <b>No cambia ningún dato</b>: vos decidís qué corregir. Revisado a las ' + ahora + '</p>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">' + tile('rojo') + tile('amarillo') + tile('info') + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">' +
+      '<button class="btn small" onclick="render()">🔄 Revisar de nuevo</button>' +
+      (ocultos ? '<button class="btn secondary small" onclick="state.saludVerOcultos=!state.saludVerOcultos;render()">' + (verOcultos ? '🙈 Esconder' : '👁️ Mostrar') + ' los marcados "está bien" (' + ocultos + ')</button>' : '') +
+    '</div>' +
+    (visibles.length ? cats.map(cat => '<h3 style="margin:18px 0 8px;color:#34495e;font-size:16px">' + escapeHtml(cat) + '</h3>' + visibles.filter(p => p.cat === cat).map(card).join('')).join('')
+      : '<div style="background:#f0fff4;border:1.5px solid #27ae60;border-radius:10px;padding:16px"><b style="color:#1e8449">✅ No se encontraron errores.</b></div>') +
+    '</div>';
+}
+function nombres_salud_has(n) { return (state.residentes || []).some(r => r.nombre === n); }
+function saludIr(el) {
+  const d = el.dataset;
+  if (d.saludRes) return navigate('residente', d.saludRes);
+  if (d.saludCs) { state.csFecha = d.saludCs; state.csSubtab = 'signos'; return navigate('controlsignos'); }
+  if (d.saludIr) return navigate(d.saludIr);
+}
+function saludMarcarOk(el, v) {
+  const o = saludOkLeer();
+  if (v) o[el.dataset.saludId] = new Date().toISOString(); else delete o[el.dataset.saludId];
+  saludOkGuardar(o);
+  render();
+}
+
 function navigate(view, residente = null) {
   state.view = view;
   state.residenteSel = residente;
@@ -2847,6 +3204,7 @@ function render() {
   const tot = totales();
   document.getElementById('badge-alertas').textContent = tot.cri + tot.sin;
   document.getElementById('badge-alertas').style.display = (tot.cri + tot.sin) > 0 ? 'inline-block' : 'none';
+  try { var _sNav = document.getElementById('nav-salud'); if (_sNav) { var _sOk = saludPuedeVer(); _sNav.style.display = _sOk ? '' : 'none'; var _sB = document.getElementById('badge-salud'); var _sN = _sOk ? saludContar() : 0; _sB.textContent = _sN; _sB.style.display = _sN > 0 ? 'inline-block' : 'none'; } } catch (e) {}
 
   // Sidebar residentes (con indicador de dosis atrasadas/ahora)
   const lista = document.getElementById('lista-residentes-sidebar');
@@ -2868,6 +3226,7 @@ function render() {
   const main = document.getElementById('main');
   if (state.view === 'dashboard') main.innerHTML = viewDashboard();
   else if (state.view === 'alertas') main.innerHTML = viewAlertas();
+  else if (state.view === 'salud') { main.innerHTML = viewSalud(); return; }
   else if (state.view === 'stock') main.innerHTML = viewStock();
   else if (state.view === 'ingresos') main.innerHTML = viewIngresos();
   else if (state.view === 'ingresosMes') main.innerHTML = viewIngresosMes();
