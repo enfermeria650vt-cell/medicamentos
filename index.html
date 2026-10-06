@@ -944,6 +944,55 @@ input:focus, select:focus, textarea:focus {
             max-width:330px;line-height:1.25;background:#7a7a7a;transition:background .3s"></div>
 
 <script>
+// =====================================================
+// 📱 REGISTRO DE ERRORES DE LOS EQUIPOS — captura temprana (v2026-10-06-4)
+// Script aparte y chiquito: aunque el programa principal falle al cargar, esto ya
+// está escuchando. Guarda cada error en este equipo (localStorage vt_err_buf_v1) y el
+// programa principal lo sube a la nube (state.semanal.errDisp) por delta granular.
+// No toca medicación, stock ni ningún otro dato.
+// =====================================================
+(function () {
+  var K = 'vt_err_buf_v1', cuenta = 0, vistos = {};
+  function guardar(e) {
+    try {
+      var msg = String((e && e.msg) || '').replace(/^Uncaught\s+/, '').slice(0, 300);
+      if (!msg) return;
+      if (/ResizeObserver loop/i.test(msg)) return;
+      // Cortes de internet: ya los avisa el cartel de sincronización, no son errores de pantalla.
+      if (/Failed to fetch|NetworkError|Load failed|network error|AbortError|aborted|The user aborted/i.test(msg)) return;
+      var src = String((e && e.src) || '').split('?')[0].split('/').pop().slice(0, 80);
+      var sig = msg + '|' + src + '|' + ((e && e.lin) || 0);
+      vistos[sig] = (vistos[sig] || 0) + 1;
+      if (vistos[sig] > 5) return;      // el mismo error en bucle: con 5 por carga alcanza
+      if (++cuenta > 40) return;        // tope por carga de página
+      var vista = '';
+      try { vista = (typeof state !== 'undefined' && state) ? String(state.view || '') : ''; } catch (x) {}
+      var b; try { b = JSON.parse(localStorage.getItem(K)) || []; } catch (x) { b = []; }
+      if (!Array.isArray(b)) b = [];
+      b.push({ tipo: (e && e.tipo) || 'error', msg: msg, src: src, lin: (e && e.lin) || 0, col: (e && e.col) || 0,
+               stack: String((e && e.stack) || '').slice(0, 700), vista: vista, at: new Date().toISOString() });
+      if (b.length > 60) b = b.slice(-60);
+      localStorage.setItem(K, JSON.stringify(b));
+      if (typeof window.errDispProgramar === 'function') window.errDispProgramar();
+    } catch (x) {}
+  }
+  window.addEventListener('error', function (ev) {
+    try {
+      var t = ev && ev.target;
+      if (t && t !== window && t.tagName) {
+        if (t.tagName === 'SCRIPT') guardar({ tipo: 'recurso', msg: 'No cargó un archivo del programa: ' + String(t.src || '').slice(0, 150) });
+        return;
+      }
+      guardar({ tipo: 'error', msg: ev.message, src: ev.filename, lin: ev.lineno, col: ev.colno, stack: ev.error && ev.error.stack });
+    } catch (x) {}
+  }, true);
+  window.addEventListener('unhandledrejection', function (ev) {
+    try { var r = ev && ev.reason; guardar({ tipo: 'promesa', msg: (r && r.message) || String(r), stack: r && r.stack }); } catch (x) {}
+  });
+  window.vtErrGuardar = guardar;
+})();
+</script>
+<script>
 
 // ===== SISTEMA DE LOGIN PIN =====
 const VT_USERS = [
@@ -1176,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-06-3';
+const APP_VERSION = 'v2026-10-06-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1262,8 +1311,8 @@ const _esClaveMarca = (k) => /_[0-6](_[0-9]+)?(_by|_at)?$/.test(k);
 // por otros (causa raíz del error de "tildes que se borran").
 function cloudSemMerge() {
   if (!(typeof syncHabilitado === 'function' && syncHabilitado())) return;
-  // ingresosPend / ingresosPendFotos viajan solo por delta granular (ver INGRESOS POR FOTO): nunca se suben enteros.
-  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k) && k !== 'ingresosPend' && k !== 'ingresosPendFotos').map(k => [[k], state.semanal[k]]);
+  // ingresosPend / ingresosPendFotos / errDisp viajan solo por delta granular (ver INGRESOS POR FOTO y REGISTRO DE ERRORES): nunca se suben enteros.
+  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k) && k !== 'ingresosPend' && k !== 'ingresosPendFotos' && k !== 'errDisp').map(k => [[k], state.semanal[k]]);
   if (sets.length) cloudPushDelta('semanal', sets, []);
 }
 // Borrado explícito de claves de la planilla en la nube (limpiar / cerrar semana).
@@ -3091,6 +3140,21 @@ function detectarProblemas() {
       detalle: sinHC.join(', ') + '.' });
   }
 
+  // ---------- 4b) ERRORES DE LOS EQUIPOS (registro de errores de pantalla) ----------
+  try {
+    errDispGrupos(7).forEach(function (g) {
+      const nDev = Object.keys(g.devs).length;
+      const hace = Date.now() - new Date(g.ultimo).getTime();
+      const prueba = errDispEsPrueba(g.msg);
+      const nivel = prueba ? 'info' : ((hace < 86400000 && (g.n >= 3 || nDev >= 2)) ? 'rojo' : 'amarillo');
+      add({ id: 'errdisp|' + g.firma + '|' + g.n, nivel: nivel, cat: 'Errores de los equipos',
+        titulo: (prueba ? 'Error de prueba registrado' : 'Falla de pantalla') + (g.n > 1 ? ' (se repitió ' + g.n + ' veces' + (nDev > 1 ? ' en ' + nDev + ' equipos' : '') + ')' : '') + ': "' + String(g.msg).slice(0, 120) + '"',
+        detalle: 'Último: ' + errDispFechaHora(g.ultimo) + ' · Usuarios: ' + Object.keys(g.users).join(', ') + ' · Equipos: ' + Object.keys(g.equipos).join(', ') +
+          ' · Versión: ' + Object.keys(g.vers).join(', ') + (Object.keys(g.vistas).length ? ' · Pantalla: ' + Object.keys(g.vistas).join(', ') : '') +
+          '. Si es una versión vieja, ese equipo se actualiza solo. Si se repite en la versión nueva, avisame. Detalle completo al pie.' });
+    });
+  } catch (e) {}
+
   // ---------- 5) SINCRONIZACIÓN ----------
   try {
     const cola = leerColaDeltas();
@@ -3167,6 +3231,7 @@ function viewSalud() {
     '</div>' +
     (visibles.length ? cats.map(cat => '<h3 style="margin:18px 0 8px;color:#34495e;font-size:16px">' + escapeHtml(cat) + '</h3>' + visibles.filter(p => p.cat === cat).map(card).join('')).join('')
       : '<div style="background:#f0fff4;border:1.5px solid #27ae60;border-radius:10px;padding:16px"><b style="color:#1e8449">✅ No se encontraron errores.</b></div>') +
+    errDispSeccion() +
     '</div>';
 }
 function nombres_salud_has(n) { return (state.residentes || []).some(r => r.nombre === n); }
@@ -3182,6 +3247,155 @@ function saludMarcarOk(el, v) {
   saludOkGuardar(o);
   render();
 }
+
+// =====================================================
+// 📱 REGISTRO DE ERRORES DE LOS EQUIPOS — v2026-10-06-4
+// La captura la hace el script chico de arriba (vt_err_buf_v1). Acá se agrupan los
+// errores por firma y por equipo y se suben a la nube en state.semanal.errDisp
+// {id:{...}} SOLO por delta granular (cloudSemMerge los excluye, como ingresosPend).
+// Cada equipo escribe solo sus propias filas (id = firma + equipo), así dos equipos
+// nunca se pisan el contador. El Detector de errores los muestra y avisa si se repiten.
+// =====================================================
+const ERRDISP_BUF_KEY = 'vt_err_buf_v1';
+const ERRDISP_DEV_KEY = 'vt_dev_id_v1';
+const ERRDISP_DIAS = 30;
+function errDispDevId() {
+  let d = '';
+  try { d = localStorage.getItem(ERRDISP_DEV_KEY) || ''; } catch (e) {}
+  if (!d) { d = 'D' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); try { localStorage.setItem(ERRDISP_DEV_KEY, d); } catch (e) {} }
+  return d;
+}
+function errDispObj() {
+  if (!state.semanal.errDisp || typeof state.semanal.errDisp !== 'object' || Array.isArray(state.semanal.errDisp)) state.semanal.errDisp = {};
+  return state.semanal.errDisp;
+}
+function errDispFirma(e) {
+  const s = String(e.tipo || '') + '|' + String(e.msg || '') + '|' + String(e.src || '') + '|' + String(e.lin || 0);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+let _errDispTimer = null;
+function errDispProgramar() {
+  if (_errDispTimer) return;
+  _errDispTimer = setTimeout(function () { _errDispTimer = null; try { errDispSubir(); } catch (e) {} }, 5000);
+}
+window.errDispProgramar = errDispProgramar;
+function errDispSubir() {
+  let buf;
+  try { buf = JSON.parse(localStorage.getItem(ERRDISP_BUF_KEY)) || []; } catch (e) { buf = []; }
+  if (!Array.isArray(buf)) buf = [];
+  // Esperar a tener la nube bajada al menos una vez (si no, no sabríamos el contador previo).
+  if (!syncHabilitado() || !state || !state.semanal || !getLastPull()) return false;
+  const o = errDispObj();
+  const dev = errDispDevId();
+  const sets = [], dels = [];
+  if (buf.length) {
+    const user = getCurrentUser() || '(sin usuario)';
+    const equipo = detectarDispositivo();
+    const tocados = {};
+    buf.forEach(function (e) {
+      const firma = errDispFirma(e);
+      const id = 'E' + firma + '_' + dev;
+      const prev = tocados[id] || o[id];
+      const it = prev
+        ? Object.assign({}, prev, { n: (prev.n || 1) + 1, ultimo: e.at, user: user, equipo: equipo, ver: APP_VERSION, vista: e.vista || prev.vista || '' })
+        : { id: id, firma: firma, tipo: e.tipo || 'error', msg: String(e.msg || '').slice(0, 300), src: e.src || '', lin: e.lin || 0, col: e.col || 0,
+            stack: String(e.stack || '').slice(0, 700), vista: e.vista || '', user: user, equipo: equipo, dev: dev, ver: APP_VERSION,
+            primero: e.at, ultimo: e.at, n: 1 };
+      o[id] = it; tocados[id] = it;
+    });
+    Object.keys(tocados).forEach(function (id) { sets.push([['errDisp', id], tocados[id]]); });
+  }
+  // Limpieza: cada equipo borra SUS filas de más de 30 días.
+  const corte = Date.now() - ERRDISP_DIAS * 86400000;
+  Object.keys(o).forEach(function (id) {
+    const it = o[id];
+    if (it && it.dev === dev && new Date(it.ultimo || it.primero || 0).getTime() < corte) { delete o[id]; dels.push(['errDisp', id]); }
+  });
+  try { localStorage.removeItem(ERRDISP_BUF_KEY); } catch (e) {}
+  if (!sets.length && !dels.length) return false;
+  ingPendGuardarLocal();
+  cloudPushDelta('semanal', sets, dels);
+  return true;
+}
+function errDispLista(dias) {
+  const o = (state.semanal && state.semanal.errDisp) || {};
+  const corte = Date.now() - (dias || ERRDISP_DIAS) * 86400000;
+  return Object.keys(o).map(function (k) { return o[k]; })
+    .filter(function (it) { return it && typeof it === 'object' && it.msg && new Date(it.ultimo || it.primero || 0).getTime() >= corte; })
+    .sort(function (a, b) { return String(b.ultimo || '').localeCompare(String(a.ultimo || '')); });
+}
+// Agrupa por firma (el mismo error en distintos equipos) para el Detector.
+function errDispGrupos(dias) {
+  const g = {};
+  errDispLista(dias).forEach(function (it) {
+    const k = it.firma || it.id;
+    if (!g[k]) g[k] = { firma: k, msg: it.msg, tipo: it.tipo, src: it.src, lin: it.lin, n: 0, devs: {}, users: {}, equipos: {}, vers: {}, vistas: {}, ultimo: '', primero: it.primero || '' };
+    const x = g[k];
+    x.n += (it.n || 1);
+    x.devs[it.dev || it.id] = 1;
+    if (it.user) x.users[it.user] = 1;
+    if (it.equipo) x.equipos[it.equipo] = 1;
+    if (it.ver) x.vers[it.ver] = 1;
+    if (it.vista) x.vistas[it.vista] = 1;
+    if (String(it.ultimo || '') > x.ultimo) x.ultimo = String(it.ultimo || '');
+    if (it.primero && (!x.primero || it.primero < x.primero)) x.primero = it.primero;
+  });
+  return Object.keys(g).map(function (k) { return g[k]; }).sort(function (a, b) { return b.ultimo.localeCompare(a.ultimo); });
+}
+function errDispFechaHora(iso) {
+  try { const d = new Date(iso); return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return String(iso || ''); }
+}
+function errDispEsPrueba(msg) { return /PRUEBA del registro de errores/.test(String(msg || '')); }
+// Sección al pie del Detector: el registro completo de los últimos 30 días.
+function errDispSeccion() {
+  const lista = errDispLista(ERRDISP_DIAS);
+  const filas = lista.slice(0, 80).map(function (it) {
+    return '<tr>' +
+      '<td style="white-space:nowrap">' + escapeHtml(errDispFechaHora(it.ultimo)) + '</td>' +
+      '<td style="text-align:center;font-weight:700">' + (it.n || 1) + '</td>' +
+      '<td>' + escapeHtml(it.user || '') + '<div style="font-size:11px;color:#7f8c8d">' + escapeHtml(it.equipo || '') + '</div></td>' +
+      '<td style="font-size:12px">' + escapeHtml(it.ver || '') + (it.vista ? '<div style="color:#7f8c8d">pantalla: ' + escapeHtml(it.vista) + '</div>' : '') + '</td>' +
+      '<td style="font-size:12px;word-break:break-word">' + escapeHtml(it.msg || '') +
+        (it.src || it.lin ? '<div style="color:#7f8c8d">' + escapeHtml((it.src || '') + (it.lin ? ':' + it.lin : '')) + '</div>' : '') +
+        (it.stack ? '<details><summary style="cursor:pointer;color:#2e86c1">detalle técnico</summary><pre style="white-space:pre-wrap;font-size:11px;background:#f6f8fa;padding:6px;border-radius:6px;max-height:180px;overflow:auto">' + escapeHtml(it.stack) + '</pre></details>' : '') +
+      '</td></tr>';
+  }).join('');
+  let pend = 0; try { pend = (JSON.parse(localStorage.getItem(ERRDISP_BUF_KEY)) || []).length; } catch (e) {}
+  return '<div id="errdisp-seccion" style="margin-top:26px;background:#fff;border:1px solid #e3e8ee;border-radius:10px;padding:14px 16px">' +
+    '<h3 style="margin:0 0 4px;color:#34495e;font-size:16px">📱 Registro de errores de los equipos <span style="font-weight:400;color:#7f8c8d;font-size:13px">(últimos ' + ERRDISP_DIAS + ' días)</span></h3>' +
+    '<p style="font-size:12.5px;color:#6c7a8a;margin:0 0 10px">Cada vez que a alguien le falla la pantalla (celular o compu) queda anotado acá con la fecha, quién era y qué equipo usaba. Si un error se repite, aparece arriba como aviso.' + (pend ? ' <b>' + pend + ' error(es) de este equipo esperando subir.</b>' : '') + '</p>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">' +
+      '<button class="btn secondary small" onclick="errDispProbar()">🧪 Generar un error de prueba</button>' +
+      (lista.length ? '<button class="btn secondary small" onclick="errDispBorrarTodo()">🧹 Vaciar el registro</button>' : '') +
+    '</div>' +
+    (lista.length
+      ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px" class="errdisp-tabla"><thead><tr style="background:#f4f6f8;text-align:left"><th style="padding:6px">Último</th><th style="padding:6px">Veces</th><th style="padding:6px">Usuario / equipo</th><th style="padding:6px">Versión</th><th style="padding:6px">Error</th></tr></thead><tbody>' + filas + '</tbody></table></div>' +
+        (lista.length > 80 ? '<div style="font-size:12px;color:#7f8c8d;margin-top:6px">Se muestran los 80 más recientes de ' + lista.length + '.</div>' : '')
+      : '<div style="color:#1e8449;font-size:13px">✅ Ningún equipo registró errores en los últimos ' + ERRDISP_DIAS + ' días.</div>') +
+    '</div>';
+}
+function errDispProbar() {
+  toast('🧪 Se generó un error de prueba. En unos segundos aparece en el registro.');
+  setTimeout(function () { throw new Error('PRUEBA del registro de errores (' + (getCurrentUser() || 'sin usuario') + ')'); }, 50);
+  setTimeout(function () { try { errDispSubir(); } catch (e) {} if (state.view === 'salud') render(); }, 1500);
+}
+async function errDispBorrarTodo() {
+  if (bloquearSiNoAdmin('vaciar el registro de errores')) return;
+  if (!confirm('¿Vaciar el registro de errores de todos los equipos? (no toca ningún otro dato)')) return;
+  // Bajar primero lo último de la nube, para borrar también lo que subieron otros equipos.
+  try { await cloudPull(true); } catch (e) {}
+  const o = errDispObj();
+  const dels = Object.keys(o).map(function (id) { return ['errDisp', id]; });
+  Object.keys(o).forEach(function (id) { delete o[id]; });
+  ingPendGuardarLocal();
+  if (dels.length) cloudPushDelta('semanal', [], dels);
+  toast('🧹 Registro de errores vaciado');
+  render();
+}
+setTimeout(function () { try { errDispSubir(); } catch (e) {} }, 20000);
+setInterval(function () { try { errDispSubir(); } catch (e) {} }, 60000);
 
 // =====================================================
 // 📷 INGRESOS POR FOTO CON APROBACIÓN — v2026-10-06-3
@@ -11400,7 +11614,7 @@ function imprimirPedidoBlanco() {
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/medicamentos/sw.js');
+  navigator.serviceWorker.register('/medicamentos/sw.js').catch(function () {});
 }
 </script>
 </body>
