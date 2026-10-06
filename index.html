@@ -606,6 +606,7 @@ input:focus, select:focus, textarea:focus {
 .pm-tabla-res tr.pm-fila-ok td { background: #E2F4E6 !important; color: #1a5c2e; }
 .pm-tabla-res tr[class^="pm-fila-"]:not(.pm-fila-sos) td strong { font-size: 14px; }
 .pm-tabla-res tr[class^="pm-fila-"] td input { font-weight: 700; color: #000; }
+.pm-tabla-res tr.pm-fila-pendiente td { background: #E3F0FB !important; color: #1F4E78; }
 .pm-tabla-res .pm-falta { font-size: 11px; font-weight: 700; }
 .pm-banner { background: #F1EEFF; border-left: 4px solid #6c5ce7; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
 .pm-tabla td.pm-lleg { white-space: nowrap; }
@@ -1174,7 +1175,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-05-2';
+const APP_VERSION = 'v2026-10-06-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -3558,7 +3559,7 @@ function viewResidente() {
         <button class="btn small" style="background:#2e7d32" onclick="informeFamilia('${nombreEsc}')" title="Hoja para la familia con stock, consumo y hasta cuándo alcanza">👪 Informe familia (PDF)</button>
         ${admin ? `<button class="btn small" onclick="abrirNuevoMedicamento('${nombreEsc}')">➕ Nuevo medicamento</button>` : ''}
       </div>
-      ${state.stockVistaProx ? pmTablaResidente(r, admin) : `<table class="tabla">
+      ${state.stockVistaProx ? pmTablaResidente(r, admin) : `${pmAvisoPendiente(admin)}<table class="tabla pm-tabla-res">
         <thead><tr>
           <th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
         </tr></thead>
@@ -3566,7 +3567,7 @@ function viewResidente() {
           ${r.meds.length === 0 ? `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados. ${admin ? 'Tocá ➕ Nuevo medicamento.' : ''}</td></tr>` : r.meds.slice().sort(ordenStockMeds).map(m => {
             const e = estadoMed(m);
             return `
-              <tr>
+              <tr class="pm-fila-${e.tipo}">
                 <td><strong>${escapeHtml(m.med)}</strong></td>
                 <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" ${ro} onchange="actualizarStock('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
                 <td><input type="number" value="${m.consumo ?? ''}" step="0.25" min="0" ${ro} onchange="actualizarConsumo('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
@@ -3932,10 +3933,18 @@ function registrarIngreso() {
   if (!residente || !medId || isNaN(cantidad) || cantidad <= 0) { toast('Faltan datos: residente, medicamento y cantidad', 'error'); return; }
   const r = state.residentes.find(x => x.nombre === residente);
   const m = r.meds.find(x => x.id === medId);
-  m.stock = (m.stock || 0) + cantidad;
-  // Usar la fecha seleccionada (o hoy si no se eligió)
-  const fechaIng = fechaInput || new Date().toISOString().slice(0, 10);
-  m.fechaIngreso = fechaIng;
+  // Usar la fecha seleccionada (o hoy si no se eligió) — fecha LOCAL (antes toISOString daba el día siguiente a la noche)
+  const fechaIng = fechaInput || pmISO(hoyMidnight());
+  // 6-oct-2026: si el medicamento tenía cargado un mes que ya empezó y no se pasó a stock, se pasa primero (así no se pierde el stock armado)
+  const pasado = pmPasarMedSiPendiente(m, residente);
+  // Antes se sumaba al stock viejo sin descontar lo consumido desde el ingreso anterior → el stock quedaba inflado.
+  // Ahora: lo que queda a la fecha del ingreso + lo que llegó, y la fecha de ingreso pasa a ser la de hoy.
+  let quedaban = typeof m.stock === 'number' ? m.stock : 0;
+  if (!m.fechaIngreso || fechaIng >= m.fechaIngreso) {
+    quedaban = stockQuedaAl(m, fechaIng);
+    m.fechaIngreso = fechaIng;
+  }
+  m.stock = pmNum(quedaban + cantidad);
   // Log
   if (!state.semanal.ingresos) state.semanal.ingresos = [];
   const fechaDisplay = new Date(fechaIng + 'T00:00:00').toLocaleDateString('es-AR') + ' ' + new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
@@ -3943,9 +3952,9 @@ function registrarIngreso() {
     fecha: fechaDisplay,
     residente, medicamento: m.med, cantidad, recibido, obs
   });
-  logCambio('ingreso', `Ingreso: +${cantidad} ${m.med} (${residente}) → stock ${m.stock}`, {recibido, obs});
+  logCambio('ingreso', `Ingreso: +${cantidad} ${m.med} (${residente}) → stock ${m.stock} (quedaban ${quedaban})`, {recibido, obs});
   saveData(); saveSem();
-  cloudPushResidenteDelta(m.id, { stock: m.stock, fechaIngreso: m.fechaIngreso });
+  cloudPushResidenteDelta(m.id, pasado ? { stock: m.stock, fechaIngreso: m.fechaIngreso, proxMes: null, proxCant: null, proxQueda: null } : { stock: m.stock, fechaIngreso: m.fechaIngreso });
   toast(`✅ Ingreso registrado: +${cantidad} ${m.med} → stock ${m.stock}`);
   document.getElementById('ing-cantidad').value = '';
   document.getElementById('ing-recibido').value = '';
@@ -10236,7 +10245,42 @@ function pmPasarAStock() {
   saveData();
   cloudPushDelta('residentes', sets, []);
   toast('✅ ' + cambios.length + ' medicamentos pasados a stock');
+  state.proxMesYM = null;
   render();
+}
+// ---- 6-oct-2026: una sola tabla de Stock y consumo ----
+// Unidades que quedan a la fecha 'iso' (AAAA-MM-DD), descontando el consumo de cada día que corresponde tomarlo desde la fecha de ingreso.
+function stockQuedaAl(m, iso) {
+  const stock = typeof m.stock === 'number' ? m.stock : 0;
+  if (stock <= 0) return 0;
+  if (typeof m.consumo !== 'number' || m.consumo <= 0 || !m.fechaIngreso) return stock;
+  const fin = new Date(iso + 'T00:00:00');
+  let d = new Date(m.fechaIngreso + 'T00:00:00');
+  if (isNaN(d.getTime()) || isNaN(fin.getTime())) return stock;
+  let usado = 0;
+  for (let i = 0; d.getTime() < fin.getTime() && i < 800; i++) {
+    if (medActivoEnFecha(m, pmISO(d))) usado += m.consumo;
+    d.setDate(d.getDate() + 1);
+    if (usado >= stock) return 0;
+  }
+  return pmNum(Math.max(0, stock - usado));
+}
+// Si el medicamento tiene cargado un mes que YA empezó y no se pasó a stock, lo pasa (stock = queda + llegó, ingreso = día 1).
+function pmPasarMedSiPendiente(m, residente) {
+  const h = new Date(), actual = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0');
+  if (!m.proxMes || m.proxMes > actual) return false;
+  if (!((typeof m.proxCant === 'number' && m.proxCant > 0) || typeof m.proxQueda === 'number')) return false;
+  const ym = m.proxMes, antes = m.stock, queda = pmSobrante(m, ym);
+  m.stock = pmNum(queda + (m.proxCant || 0)); m.fechaIngreso = ym + '-01'; m.proxCant = null; m.proxMes = null; m.proxQueda = null;
+  logCambio('stock', `Pasado a stock (${pmMesLabel(ym)}) al cargar un ingreso: ${m.med} (${residente}) — stock ${antes} → ${m.stock}`);
+  return true;
+}
+// Aviso arriba de la tabla del mes actual si hay un mes que ya empezó y no se pasó a stock.
+function pmAvisoPendiente(admin) {
+  const pend = pmMesPendiente();
+  if (!pend) return '';
+  return `<div class="card" style="background:#FFF4E5;border-left:4px solid #E58E26;margin-bottom:10px;padding:10px 12px"><b>⚠️ ${escapeHtml(pmMesLabel(pend))} ya empezó y el stock armado todavía no se pasó.</b> Los números de esta tabla pueden no ser los reales hasta pasarlo.
+    ${admin ? `<button class="btn small" style="margin-left:8px" onclick="state.proxMesYM='${pend}';pmPasarAStock()">✅ Pasar ${escapeHtml(pmMesLabel(pend))} a stock (todos)</button>` : ''}</div>`;
 }
 // Mensaje para la familia (texto aprobado por Maxi 30-sep-2026): va impreso arriba del aviso y se copia para WhatsApp.
 const PM_MENSAJE_FAMILIA = [
