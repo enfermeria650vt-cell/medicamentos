@@ -899,7 +899,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="salud" id="nav-salud" style="display:none">🛡️ <span>Detector de errores</span><span class="badge" id="badge-salud" style="display:none">0</span></div>
     <div class="nav-section">Gestión</div>
     <div class="nav-item" data-view="stock">📦 <span>Stock general</span></div>
-    <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span></div>
+    <div class="nav-item" data-view="ingresos">📥 <span>Cargar ingreso</span><span class="badge" id="badge-ingpend" style="display:none;background:#E58E26">0</span></div>
     <div class="nav-item" data-view="ingresosMes">📜 <span>Ingresos por mes</span></div>
     <div class="nav-item" data-view="proxmes">🗓️ <span>Stock próximo mes</span></div>
     <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
@@ -1176,7 +1176,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-06-2';
+const APP_VERSION = 'v2026-10-06-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1262,7 +1262,8 @@ const _esClaveMarca = (k) => /_[0-6](_[0-9]+)?(_by|_at)?$/.test(k);
 // por otros (causa raíz del error de "tildes que se borran").
 function cloudSemMerge() {
   if (!(typeof syncHabilitado === 'function' && syncHabilitado())) return;
-  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k)).map(k => [[k], state.semanal[k]]);
+  // ingresosPend / ingresosPendFotos viajan solo por delta granular (ver INGRESOS POR FOTO): nunca se suben enteros.
+  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k) && k !== 'ingresosPend' && k !== 'ingresosPendFotos').map(k => [[k], state.semanal[k]]);
   if (sets.length) cloudPushDelta('semanal', sets, []);
 }
 // Borrado explícito de claves de la planilla en la nube (limpiar / cerrar semana).
@@ -2986,6 +2987,13 @@ function detectarProblemas() {
     }
   });
 
+  try {
+    const pend = ingPendLista();
+    if (pend.length) add({ id: 'ingpend|' + pend.length, nivel: 'amarillo', cat: 'Ingresos', ir: 'ingresos', fijo: true,
+      titulo: pend.length + ' ingreso(s) por foto esperando tu aprobación',
+      detalle: 'Hasta que los apruebes no suman al stock.' });
+  } catch (e) {}
+
   // ---------- 3) PLANILLA, TURNOS Y SIGNOS ----------
   try {
     const nd = dosisNoDadasHoy(30);
@@ -3175,6 +3183,324 @@ function saludMarcarOk(el, v) {
   render();
 }
 
+// =====================================================
+// 📷 INGRESOS POR FOTO CON APROBACIÓN — v2026-10-06-3
+// Cualquier usuario saca la foto → la IA (Gemini) lee residente/medicamento/cantidad →
+// queda en "Ingresos pendientes" SIN tocar el stock → el admin aprueba (stock actual o
+// mes que viene) o rechaza. Pendientes en state.semanal.ingresosPend {id:{...}} y fotos
+// en state.semanal.ingresosPendFotos {lote:dataURL}; viajan SOLO por delta granular
+// (cloudSemMerge los excluye) para que un equipo atrasado no los pise.
+// =====================================================
+let ingFotoState = { leyendo: false, items: null, lote: null, foto: null, error: '' };
+function ingPendObj() { if (!state.semanal.ingresosPend || typeof state.semanal.ingresosPend !== 'object') state.semanal.ingresosPend = {}; return state.semanal.ingresosPend; }
+function ingPendFotos() { if (!state.semanal.ingresosPendFotos || typeof state.semanal.ingresosPendFotos !== 'object') state.semanal.ingresosPendFotos = {}; return state.semanal.ingresosPendFotos; }
+function ingPendLista() {
+  const o = (state.semanal && state.semanal.ingresosPend) || {};
+  return Object.keys(o).map(k => o[k]).filter(x => x && x.id).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+function ingPendGuardarLocal() { try { localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal)); } catch (e) {} }
+// Achica una imagen (File) a un dataURL JPEG con lado mayor `max`.
+function ingFotoAchicar(file, max, calidad) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(new Error('No se pudo leer la foto'));
+    fr.onload = ev => {
+      const img = new Image();
+      img.onerror = () => rej(new Error('El archivo no es una imagen válida'));
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', calidad));
+      };
+      img.src = ev.target.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+// Busca el medicamento del residente que mejor coincide con el texto leído.
+function ingFotoMatchMed(r, texto) {
+  if (!r || !texto) return null;
+  const t = saludNorm(texto);
+  let m = r.meds.find(x => saludNorm(x.med) === t);
+  if (m) return m;
+  m = r.meds.find(x => { const n = saludNorm(x.med); return n && (t.includes(n) || n.includes(t)); });
+  if (m) return m;
+  const pal = t.split(/[^A-Z0-9]+/).filter(w => w.length >= 4);
+  let mejor = null, pts = 0;
+  r.meds.forEach(x => {
+    const n = saludNorm(x.med);
+    const p = pal.filter(w => n.includes(w)).length;
+    if (p > pts) { pts = p; mejor = x; }
+  });
+  return mejor;
+}
+function ingFotoMatchRes(texto) {
+  if (!texto) return null;
+  const t = saludNorm(texto);
+  const rs = state.residentes || [];
+  let r = rs.find(x => saludNorm(x.nombre) === t || saludNorm(nomRes(x.nombre)) === t);
+  if (r) return r;
+  const pal = t.split(/[^A-Z]+/).filter(w => w.length >= 3);
+  let mejor = null, pts = 0;
+  rs.forEach(x => {
+    const n = saludNorm(x.nombre) + ' ' + saludNorm(nomRes(x.nombre));
+    const p = pal.filter(w => n.includes(w)).length;
+    if (p > pts) { pts = p; mejor = x; }
+  });
+  return pts > 0 ? mejor : null;
+}
+async function ingFotoLeerGemini(dataUrl, residenteFijo) {
+  const geminiKey = localStorage.getItem('vt_gemini_key') || '';
+  if (!geminiKey) throw new Error('Este equipo no tiene la clave de la IA. Tocá ⬇️ Sincronizar nube y probá de nuevo, o cargá los datos a mano.');
+  const rs = residenteFijo ? (state.residentes || []).filter(r => r.nombre === residenteFijo) : (state.residentes || []);
+  const lista = rs.map(r => '- ' + r.nombre + ': ' + r.meds.map(m => m.med).join(' | ')).join('\n');
+  const prompt = 'Sos asistente de enfermería de un geriátrico argentino. La foto muestra medicación que llegó (cajas, blisters, frascos, una bolsa con nombre o un remito/ticket de farmacia).\n' +
+    'Identificá cada medicamento y cuántas unidades llegaron (comprimidos/cápsulas/sobres/ampollas: si la caja dice "x 30 comprimidos" y hay 2 cajas, son 60). Para frascos, gotas, cremas o aerosoles contá envases.\n' +
+    (residenteFijo ? 'Todo es para el residente: ' + residenteFijo + '.\n' : 'Si en la foto figura el nombre del residente (escrito en la bolsa, caja o remito), usalo.\n') +
+    'Residentes y sus medicamentos cargados:\n' + lista + '\n' +
+    'Devolvé SOLO un JSON {"items":[{"residente":"","medicamento":"","cantidad":0,"leido":""}]}.\n' +
+    '"residente" y "medicamento" tienen que ser EXACTAMENTE uno de la lista (si no estás seguro dejalo ""). "leido" = lo que dice la caja tal cual (nombre, dosis, presentación). "cantidad" = número de unidades (0 si no se ve).';
+  const payload = {
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: dataUrl.split(',')[1] } }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } }
+  };
+  const modelos = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash-lite'];
+  let ultimo = '';
+  for (let i = 0; i < modelos.length; i++) {
+    let r;
+    try {
+      r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + modelos[i] + ':generateContent?key=' + geminiKey,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    } catch (e) { ultimo = e.message; await new Promise(s => setTimeout(s, 1200)); continue; }
+    if (r.status === 503 || r.status === 429) { ultimo = 'IA saturada (' + r.status + ')'; await new Promise(s => setTimeout(s, 1200)); continue; }
+    const json = await r.json();
+    if (json.error) { ultimo = json.error.message; if (/overload|high demand|quota|UNAVAILABLE|503|429/i.test(ultimo)) { await new Promise(s => setTimeout(s, 1200)); continue; } throw new Error(ultimo); }
+    const text = (((json.candidates || [])[0] || {}).content || { parts: [{}] }).parts[0].text || '';
+    const mm = text.match(/\{[\s\S]*\}/);
+    if (!mm) throw new Error('La IA no devolvió datos legibles');
+    const j = JSON.parse(mm[0]);
+    return Array.isArray(j.items) ? j.items : [];
+  }
+  throw new Error('La IA está saturada en este momento (' + ultimo + '). Esperá unos segundos y probá de nuevo.');
+}
+async function ingFotoElegida(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const resFijo = (document.getElementById('ingf-residente') || {}).value || '';
+  ingFotoState = { leyendo: true, items: null, lote: null, foto: null, error: '', resFijo: resFijo };
+  render();
+  try {
+    const grande = await ingFotoAchicar(file, 1600, 0.82);
+    const chica = await ingFotoAchicar(file, 420, 0.5);
+    ingFotoState.foto = chica;
+    let items = [];
+    try { items = await ingFotoLeerGemini(grande, resFijo); }
+    catch (e) { ingFotoState.error = e.message || String(e); }
+    const filas = items.map(it => {
+      const r = resFijo ? (state.residentes || []).find(x => x.nombre === resFijo) : ingFotoMatchRes(it.residente);
+      const m = r ? (ingFotoMatchMed(r, it.medicamento) || ingFotoMatchMed(r, it.leido)) : null;
+      return { residente: r ? r.nombre : '', medId: m ? m.id : '', cantidad: Number(it.cantidad) > 0 ? Number(it.cantidad) : '', leido: String(it.leido || it.medicamento || '') };
+    });
+    if (!filas.length) filas.push({ residente: resFijo, medId: '', cantidad: '', leido: '' });
+    ingFotoState.items = filas;
+    ingFotoState.lote = 'L' + Date.now() + Math.random().toString(36).slice(2, 6);
+  } catch (e) {
+    ingFotoState.error = e.message || String(e);
+  }
+  ingFotoState.leyendo = false;
+  render();
+}
+function ingOpcionesRes(sel) {
+  return '<option value="">— Residente —</option>' + (state.residentes || []).map(r => '<option value="' + escapeHtml(r.nombre) + '"' + (r.nombre === sel ? ' selected' : '') + '>' + escapeHtml(nomRes(r.nombre)) + '</option>').join('');
+}
+function ingOpcionesMed(res, sel) {
+  const r = (state.residentes || []).find(x => x.nombre === res);
+  if (!r) return '<option value="">— Primero el residente —</option>';
+  return '<option value="">— Medicamento —</option>' + r.meds.map(m => '<option value="' + escapeHtml(m.id) + '"' + (m.id === sel ? ' selected' : '') + '>' + escapeHtml(m.med) + '</option>').join('');
+}
+// Al cambiar el residente de una fila, recargar sus medicamentos.
+function ingFilaResCambio(sel) {
+  const med = document.getElementById(sel.dataset.medSel);
+  if (med) med.innerHTML = ingOpcionesMed(sel.value, '');
+}
+function ingFotoLeerFilasDOM() {
+  return (ingFotoState.items || []).map((f, i) => ({
+    residente: (document.getElementById('ingf-r-' + i) || {}).value || '',
+    medId: (document.getElementById('ingf-m-' + i) || {}).value || '',
+    cantidad: (document.getElementById('ingf-c-' + i) || {}).value || '',
+    leido: f.leido
+  }));
+}
+function ingFotoAgregarFila() {
+  ingFotoState.items = ingFotoLeerFilasDOM();
+  ingFotoState.items.push({ residente: ingFotoState.resFijo || '', medId: '', cantidad: '', leido: '' });
+  render();
+}
+function ingFotoQuitarFila(i) {
+  ingFotoState.items = ingFotoLeerFilasDOM();
+  ingFotoState.items.splice(i, 1);
+  render();
+}
+function ingFotoCancelar() { ingFotoState = { leyendo: false, items: null, lote: null, foto: null, error: '' }; render(); }
+function ingFotoEnviar() {
+  const filas = ingFotoLeerFilasDOM();
+  const malas = filas.filter(f => !f.residente || !f.medId || !(parseFloat(String(f.cantidad).replace(',', '.')) > 0));
+  if (!filas.length) { toast('No hay nada para enviar', 'error'); return; }
+  if (malas.length) { toast('Completá residente, medicamento y cantidad en todas las filas (o quitá las que sobran)', 'error'); return; }
+  const lote = ingFotoState.lote || ('L' + Date.now());
+  const quien = getCurrentUser() || 'anónimo';
+  const at = new Date().toISOString();
+  const sets = [];
+  if (ingFotoState.foto) { ingPendFotos()[lote] = ingFotoState.foto; sets.push([['ingresosPendFotos', lote], ingFotoState.foto]); }
+  filas.forEach((f, i) => {
+    const r = state.residentes.find(x => x.nombre === f.residente);
+    const m = r && r.meds.find(x => x.id === f.medId);
+    const id = 'P' + Date.now().toString(36) + i + Math.random().toString(36).slice(2, 6);
+    const it = { id: id, lote: lote, residente: f.residente, medId: f.medId, medicamento: m ? m.med : '', cantidad: parseFloat(String(f.cantidad).replace(',', '.')), leido: f.leido || '', by: quien, at: at };
+    ingPendObj()[id] = it;
+    sets.push([['ingresosPend', id], it]);
+  });
+  ingPendGuardarLocal();
+  cloudPushDelta('semanal', sets, []);
+  logCambio('ingreso', 'Ingreso por foto enviado para aprobación: ' + filas.length + ' medicamento(s)', { lote: lote });
+  ingFotoCancelar();
+  toast('📨 Enviado. Queda pendiente hasta que el administrador lo apruebe (el stock todavía no cambió).');
+}
+// Saca el pendiente (y la foto del lote si ya no la usa nadie). Devuelve los dels para la nube.
+function ingPendQuitar(id) {
+  const o = ingPendObj();
+  const it = o[id];
+  delete o[id];
+  const dels = [['ingresosPend', id]];
+  if (it && it.lote && !Object.keys(o).some(k => o[k] && o[k].lote === it.lote)) {
+    delete ingPendFotos()[it.lote];
+    dels.push(['ingresosPendFotos', it.lote]);
+  }
+  return dels;
+}
+function ingPendAprobar(id) {
+  if (bloquearSiNoAdmin('aprobar ingresos')) return;
+  const it = ingPendObj()[id];
+  if (!it) { toast('Ese ingreso ya no está pendiente (lo aprobó o rechazó otro equipo)', 'error'); render(); return; }
+  const residente = (document.getElementById('ip-r-' + id) || {}).value || it.residente;
+  const medId = (document.getElementById('ip-m-' + id) || {}).value || it.medId;
+  const cantidad = parseFloat(String((document.getElementById('ip-c-' + id) || {}).value || it.cantidad).replace(',', '.'));
+  const destino = (document.getElementById('ip-d-' + id) || {}).value || 'actual';
+  const fechaIng = (document.getElementById('ip-f-' + id) || {}).value || pmISO(hoyMidnight());
+  const r = state.residentes.find(x => x.nombre === residente);
+  const m = r && r.meds.find(x => x.id === medId);
+  if (!m || !(cantidad > 0)) { toast('Falta residente, medicamento o cantidad', 'error'); return; }
+  const yo = getCurrentUser() || 'admin';
+  const obs = 'Por foto (' + (it.by || '?') + ') · aprobado por ' + yo + (it.leido ? ' · leído: ' + it.leido : '');
+  if (destino === 'prox') {
+    pmSetCant(residente, medId, pmNum(pmCargado(m, pmYM()) + cantidad), '+' + cantidad + ' por foto');
+    if (!state.semanal.ingresos) state.semanal.ingresos = [];
+    state.semanal.ingresos.push({ fecha: new Date().toLocaleDateString('es-AR') + ' ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), residente: residente, medicamento: m.med, cantidad: cantidad, recibido: it.by || '', obs: obs + ' · para ' + pmMesLabel(pmYM()) });
+  } else {
+    const pasado = pmPasarMedSiPendiente(m, residente);
+    let quedaban = typeof m.stock === 'number' ? m.stock : 0;
+    if (!m.fechaIngreso || fechaIng >= m.fechaIngreso) { quedaban = stockQuedaAl(m, fechaIng); m.fechaIngreso = fechaIng; }
+    m.stock = pmNum(quedaban + cantidad);
+    if (!state.semanal.ingresos) state.semanal.ingresos = [];
+    state.semanal.ingresos.push({ fecha: new Date(fechaIng + 'T00:00:00').toLocaleDateString('es-AR') + ' ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }), residente: residente, medicamento: m.med, cantidad: cantidad, recibido: it.by || '', obs: obs });
+    logCambio('ingreso', 'Ingreso por foto aprobado: +' + cantidad + ' ' + m.med + ' (' + residente + ') → stock ' + m.stock + ' (quedaban ' + quedaban + ')', { enviadoPor: it.by });
+    saveData();
+    cloudPushResidenteDelta(m.id, pasado ? { stock: m.stock, fechaIngreso: m.fechaIngreso, proxMes: null, proxCant: null, proxQueda: null } : { stock: m.stock, fechaIngreso: m.fechaIngreso });
+    toast('✅ Aprobado: +' + cantidad + ' ' + m.med + ' → stock ' + m.stock);
+  }
+  const dels = ingPendQuitar(id);
+  saveSem();
+  cloudPushDelta('semanal', [], dels);
+  render();
+}
+function ingPendRechazar(id) {
+  if (bloquearSiNoAdmin('rechazar ingresos')) return;
+  const it = ingPendObj()[id];
+  if (!it) { render(); return; }
+  if (!confirm('¿Rechazar este ingreso? (' + (it.medicamento || '') + ' x ' + it.cantidad + ' de ' + nomRes(it.residente) + ')\nNo cambia el stock.')) return;
+  logCambio('ingreso', 'Ingreso por foto RECHAZADO: ' + it.cantidad + ' ' + it.medicamento + ' (' + it.residente + '), enviado por ' + it.by);
+  const dels = ingPendQuitar(id);
+  ingPendGuardarLocal();
+  cloudPushDelta('semanal', [], dels);
+  render();
+}
+function ingVerFoto(lote) {
+  const f = (state.semanal.ingresosPendFotos || {})[lote];
+  if (!f) return;
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.onclick = () => bg.remove();
+  bg.innerHTML = '<div class="modal" style="max-width:520px;text-align:center"><img src="' + f + '" style="max-width:100%;border-radius:8px"><div style="font-size:12px;color:#6c7a8a;margin-top:6px">Tocá para cerrar</div></div>';
+  document.body.appendChild(bg);
+}
+function viewIngresoFotoCard() {
+  const s = ingFotoState;
+  // Conservar lo que se venía corrigiendo si la pantalla se redibuja (ej. sync automático)
+  if (s.items && document.getElementById('ingf-r-0')) s.items = ingFotoLeerFilasDOM();
+  let cuerpo = '';
+  if (s.leyendo) {
+    cuerpo = '<div style="padding:14px;color:var(--azul-1);font-weight:600">⏳ Leyendo la foto con la IA… (unos segundos)</div>';
+  } else if (s.items) {
+    cuerpo = (s.foto ? '<img src="' + s.foto + '" style="max-width:160px;border-radius:6px;float:right;margin:0 0 8px 10px">' : '') +
+      (s.error ? '<div style="color:#c0392b;font-size:13px;margin-bottom:6px">⚠️ ' + escapeHtml(s.error) + ' — completá los datos a mano.</div>' : '<div style="font-size:13px;color:#6c7a8a;margin-bottom:6px">Revisá lo que leyó la IA y corregí lo que haga falta.</div>') +
+      '<div style="clear:both"></div>' +
+      s.items.map((f, i) => '<div style="border:1px solid var(--gris-borde);border-radius:8px;padding:8px;margin-bottom:8px">' +
+        (f.leido ? '<div style="font-size:12px;color:#6c7a8a;margin-bottom:4px">Leído: ' + escapeHtml(f.leido) + '</div>' : '') +
+        '<div class="form-row"><div><select id="ingf-r-' + i + '" data-med-sel="ingf-m-' + i + '" onchange="ingFilaResCambio(this)">' + ingOpcionesRes(f.residente) + '</select></div>' +
+        '<div><select id="ingf-m-' + i + '">' + ingOpcionesMed(f.residente, f.medId) + '</select></div></div>' +
+        '<div style="display:flex;gap:8px;align-items:center"><input type="number" id="ingf-c-' + i + '" min="0" step="0.5" placeholder="Cantidad" value="' + escapeHtml(String(f.cantidad)) + '" style="max-width:130px">' +
+        '<button class="btn secondary small" onclick="ingFotoQuitarFila(' + i + ')">✖ Quitar</button></div></div>').join('') +
+      '<div class="btn-group"><button class="btn secondary small" onclick="ingFotoAgregarFila()">➕ Agregar otro</button>' +
+      '<button class="btn" onclick="ingFotoEnviar()">📨 Enviar para aprobación</button>' +
+      '<button class="btn secondary" onclick="ingFotoCancelar()">Cancelar</button></div>';
+  } else {
+    cuerpo = (s.error ? '<div style="color:#c0392b;font-size:13px;margin-bottom:6px">⚠️ ' + escapeHtml(s.error) + '</div>' : '') +
+      '<div class="form-row"><div><label>Residente (opcional, ayuda a la IA)</label><select id="ingf-residente">' + ingOpcionesRes('') + '</select></div></div>' +
+      '<label class="btn" style="display:inline-block;cursor:pointer">📷 Sacar o elegir foto<input type="file" accept="image/*" capture="environment" style="display:none" onchange="ingFotoElegida(this)"></label>';
+  }
+  return '<div class="card" style="max-width:520px;margin-bottom:18px;border:2px solid var(--azul-2)">' +
+    '<h3 style="margin-top:0">📷 Cargar ingreso por foto</h3>' +
+    '<div style="font-size:13px;color:#6c7a8a;margin-bottom:10px">Sacale una foto a la caja, a la bolsa con el nombre o al remito. Queda <b>pendiente</b> y el stock no cambia hasta que el administrador lo apruebe.</div>' +
+    cuerpo + '</div>';
+}
+function viewIngresosPendientes() {
+  const lista = ingPendLista();
+  if (!lista.length) return '';
+  const admin = esAdmin() || saludPuedeVer();
+  const mesProx = pmMesLabel(pmYM());
+  const hoyIso = pmISO(hoyMidnight());
+  const prev = {};
+  lista.forEach(it => ['r', 'm', 'c', 'd', 'f'].forEach(k => { const el = document.getElementById('ip-' + k + '-' + it.id); if (el) prev[k + it.id] = el.value; }));
+  return '<div class="card" style="max-width:820px;margin-bottom:18px;border:2px solid #E58E26">' +
+    '<h3 style="margin-top:0">📥 Ingresos pendientes de aprobar (' + lista.length + ')</h3>' +
+    (admin ? '<div style="font-size:13px;color:#6c7a8a;margin-bottom:10px">Compará con la foto, corregí si hace falta, elegí a qué stock va y aprobá. Recién ahí se suma.</div>'
+           : '<div style="font-size:13px;color:#6c7a8a;margin-bottom:10px">Esperando que el administrador los apruebe. El stock todavía no cambió.</div>') +
+    lista.map(it => {
+      const id = it.id;
+      const vRes = prev['r' + id] || it.residente, vMed = prev['m' + id] || it.medId, vCant = prev['c' + id] || it.cantidad, vDest = prev['d' + id] || 'actual', vFecha = prev['f' + id] || hoyIso;
+      const foto = it.lote && (state.semanal.ingresosPendFotos || {})[it.lote];
+      const cuando = it.at ? new Date(it.at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      return '<div style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--gris-borde);border-radius:8px;padding:8px;margin-bottom:8px;flex-wrap:wrap">' +
+        (foto ? '<img src="' + foto + '" data-lote="' + escapeHtml(it.lote) + '" onclick="ingVerFoto(this.dataset.lote)" style="width:90px;height:90px;object-fit:cover;border-radius:6px;cursor:zoom-in">' : '') +
+        '<div style="flex:1;min-width:220px">' +
+        '<div style="font-size:12px;color:#6c7a8a">Enviado por <b>' + escapeHtml(it.by || '?') + '</b> · ' + cuando + (it.leido ? ' · leído: ' + escapeHtml(it.leido) : '') + '</div>' +
+        (admin
+          ? '<div class="form-row" style="margin-top:4px"><div><select id="ip-r-' + id + '" data-med-sel="ip-m-' + id + '" onchange="ingFilaResCambio(this)">' + ingOpcionesRes(vRes) + '</select></div>' +
+            '<div><select id="ip-m-' + id + '">' + ingOpcionesMed(vRes, vMed) + '</select></div></div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
+            '<input type="number" id="ip-c-' + id + '" min="0" step="0.5" value="' + escapeHtml(String(vCant)) + '" style="max-width:90px" title="Cantidad">' +
+            '<select id="ip-d-' + id + '" title="A qué stock va"><option value="actual">Stock actual</option><option value="prox"' + (vDest === 'prox' ? ' selected' : '') + '>Mes que viene (' + escapeHtml(mesProx) + ')</option></select>' +
+            '<input type="date" id="ip-f-' + id + '" value="' + vFecha + '" style="max-width:150px" title="Fecha de ingreso (stock actual)">' +
+            '</div><div class="btn-group" style="margin-top:6px"><button class="btn small" onclick="ingPendAprobar(\'' + id + '\')">✅ Aprobar</button>' +
+            '<button class="btn secondary small" onclick="ingPendRechazar(\'' + id + '\')">🗑️ Rechazar</button></div>'
+          : '<div style="font-weight:600;margin-top:4px">' + escapeHtml(nomRes(it.residente)) + ' · ' + escapeHtml(it.medicamento) + ' · ' + escapeHtml(String(it.cantidad)) + ' u.</div>') +
+        '</div></div>';
+    }).join('') + '</div>';
+}
+
 function navigate(view, residente = null) {
   state.view = view;
   state.residenteSel = residente;
@@ -3204,6 +3530,7 @@ function render() {
   const tot = totales();
   document.getElementById('badge-alertas').textContent = tot.cri + tot.sin;
   document.getElementById('badge-alertas').style.display = (tot.cri + tot.sin) > 0 ? 'inline-block' : 'none';
+  try { var _ipB = document.getElementById('badge-ingpend'); if (_ipB) { var _ipN = ingPendLista().length; _ipB.textContent = _ipN; _ipB.style.display = _ipN > 0 ? 'inline-block' : 'none'; } } catch (e) {}
   try { var _sNav = document.getElementById('nav-salud'); if (_sNav) { var _sOk = saludPuedeVer(); _sNav.style.display = _sOk ? '' : 'none'; var _sB = document.getElementById('badge-salud'); var _sN = _sOk ? saludContar() : 0; _sB.textContent = _sN; _sB.style.display = _sN > 0 ? 'inline-block' : 'none'; } } catch (e) {}
 
   // Sidebar residentes (con indicador de dosis atrasadas/ahora)
@@ -3839,6 +4166,7 @@ function viewIngresos() {
   return `
     <h2>📥 Cargar ingreso de medicamentos</h2>
     <div class="subtitle">Cuando llegan medicamentos nuevos, cargálos acá para sumar al stock.</div>
+    ${viewIngresosPendientes()}${viewIngresoFotoCard()}
     <div class="card" style="max-width:520px">
       <div class="form-row">
         <div>
