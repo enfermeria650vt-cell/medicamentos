@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-06-4';
+const APP_VERSION = 'v2026-10-07-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2469,7 +2469,31 @@ async function cloudPush(key, valueObj, silencioso = true) {
 // Si falla la conexion, el cambio queda en cola local y se reintenta en el proximo sync.
 const DELTA_QUEUE_KEY = 'vt_delta_queue_v1';
 function leerColaDeltas() { try { return JSON.parse(localStorage.getItem(DELTA_QUEUE_KEY)) || []; } catch(e) { return []; } }
-function guardarColaDeltas(q) { try { localStorage.setItem(DELTA_QUEUE_KEY, JSON.stringify(q.slice(-300))); } catch(e) {} }
+// 7-oct-2026: tope 300 -> 3000. Con Google lento la cola llegaba a 300 y se DESCARTABA lo más viejo (signos/tildes perdidos).
+const DELTA_QUEUE_MAX = 3000;
+function guardarColaDeltas(q) {
+  try { localStorage.setItem(DELTA_QUEUE_KEY, JSON.stringify(q.slice(-DELTA_QUEUE_MAX))); }
+  catch(e) { try { localStorage.setItem(DELTA_QUEUE_KEY, JSON.stringify(q.slice(-1000))); } catch(e2) {} }
+}
+// 7-oct-2026: ENVÍO EN PAQUETES. Antes se mandaba un pedido por casillero, de a uno; con Apps Script
+// tardando 5-40 s por pedido, 400 casilleros tardaban HORAS en llegar a la nube ("cargaron en la otra
+// compu y acá no aparece"). Ahora se juntan los deltas CONSECUTIVOS de la misma key en un solo pushDelta.
+// Seguridad: un delta con borrados (dels) viaja SOLO (no se mezcla), así nunca cambia el orden set/del.
+const DELTA_LOTE_MAX_SETS = 150, DELTA_LOTE_MAX_BYTES = 150000;
+function armarLoteDeltas(q) {
+  const first = q[0];
+  if (!first) return null;
+  if ((first.dels || []).length) return { key: first.key, sets: first.sets || [], dels: first.dels || [], n: 1 };
+  let sets = (first.sets || []).slice(), n = 1, bytes = JSON.stringify(sets).length;
+  while (n < q.length) {
+    const it = q[n];
+    if (!it || it.key !== first.key || (it.dels || []).length) break;
+    const s2 = it.sets || [], b2 = JSON.stringify(s2).length;
+    if (sets.length + s2.length > DELTA_LOTE_MAX_SETS || bytes + b2 > DELTA_LOTE_MAX_BYTES) break;
+    sets = sets.concat(s2); bytes += b2; n++;
+  }
+  return { key: first.key, sets: sets, dels: [], n: n };
+}
 // Cambios locales recientes (estén subidos o no): se re-aplican sobre CADA pull durante una
 // ventana de gracia, para que un pull "viejo" del servidor no revierta una marca/signo recién
 // cargado (la cola normal solo guarda lo que aún NO se subió; esto cubre la ventana posterior).
@@ -2511,7 +2535,8 @@ async function flushColaDeltas() {
   try {
     let q = leerColaDeltas();
     while (q.length) {
-      const it = q[0];
+      const it = armarLoteDeltas(q);
+      const _tsPrimero = q[0] && q[0].ts;
       try {
         const fd = new URLSearchParams();
         fd.append('action', 'pushDelta');
@@ -2560,7 +2585,9 @@ async function flushColaDeltas() {
           syncState.lastOk = new Date().toISOString(); syncState.lastError = null;
           // FIX carrera: re-leer la cola ANTES de escribir, para no pisar deltas que se
           // agregaron mientras se enviaba esta (marcar varias casillas rapido perdia las demas).
-          q = leerColaDeltas(); q.shift(); guardarColaDeltas(q);
+          q = leerColaDeltas();
+          if (q.length && q[0].ts === _tsPrimero) q.splice(0, it.n); else q.shift();
+          guardarColaDeltas(q);
           continue;
         }
         // Ningún backend aceptó el delta: NO descartar. Dejarlo en cola y reintentar luego.
@@ -9275,6 +9302,14 @@ async function chequearVersionApp(){
     const t = await r.text();
     const m = t.match(/APP_VERSION\s*=\s*'([^']+)'/);
     if(m && m[1] && m[1] !== APP_VERSION){
+      // 7-oct-2026: no recargar si hay algo tecleado sin guardar (insumos pendientes o un casillero
+      // con el cursor adentro): se reintenta al minuto siguiente. La cola de envío vive en
+      // localStorage, así que esa sí sobrevive a la recarga.
+      try{
+        const ae = document.activeElement;
+        if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+        if (typeof insumosState !== 'undefined' && insumosState && insumosState._pend && Object.keys(insumosState._pend).length) return;
+      }catch(e){}
       try{ mostrarPantallaActualizando(); }catch(e){}
       setTimeout(function(){ try{ location.reload(true); }catch(e){ location.reload(); } }, 1800);
     }
