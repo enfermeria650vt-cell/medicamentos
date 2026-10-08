@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-07-1';
+const APP_VERSION = 'v2026-10-08-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -2614,8 +2614,24 @@ async function flushColaDeltas() {
   } finally {
     _flushDeltasCorriendo = false;
     try { actualizarBadgeSync(); } catch (e) {}
+    try { colaAvisarSiTrabada(); } catch (e) {}
   }
   return ultimo;
+}
+// 8-oct-2026: si la cola de este equipo lleva >10 min sin poder subir, dejar aviso en el REGISTRO
+// (va por el servidor de Indicaciones, que es otro camino), como mucho cada 15 min. Así el
+// administrador lo ve en el Detector de errores aunque el equipo trabado esté en otra compu.
+function colaAvisarSiTrabada() {
+  const q = leerColaDeltas();
+  if (!q.length) return;
+  const edad = Date.now() - (q[0].ts || Date.now());
+  if (edad < 10 * 60000) return;
+  let ult = 0; try { ult = +localStorage.getItem('vt_cola_aviso_ts') || 0; } catch (e) {}
+  if (Date.now() - ult < 15 * 60000) return;
+  try { localStorage.setItem('vt_cola_aviso_ts', String(Date.now())); } catch (e) {}
+  let nd = 0; q.forEach(function (it) { nd += (it.sets || []).length + (it.dels || []).length; });
+  let disp = ''; try { disp = localStorage.getItem('vt_dev_id_v1') || ''; } catch (e) {}
+  logCambio('sistema', '⚠️ COLA TRABADA: ' + nd + ' dato(s) sin subir hace ' + Math.round(edad / 60000) + ' min · equipo ' + disp + ' · ' + APP_VERSION + ' · ' + String(syncState.lastError || 'sin error').slice(0, 80));
 }
 
 // Cambios locales aun no subidos: re-aplicarlos sobre lo que baja de la nube (que no "desaparezcan" en pantalla)
@@ -2746,6 +2762,19 @@ function actualizarBannerSync() {
     b.textContent = '🔴 SIN CONEXIÓN — estás viendo datos guardados (última actualización: ' + fmtHora(ultima) + '). Tocá para reintentar.';
     return;
   }
+  // 1b) 8-oct-2026: datos cargados en ESTE equipo que todavía no subieron. Antes el banner decía
+  // "🟢 Datos actualizados" aunque hubiera cientos de casilleros esperando en la cola.
+  try {
+    const q = leerColaDeltas();
+    if (q.length && Date.now() - (q[0].ts || Date.now()) > 60000) {
+      let nd = 0; q.forEach(function (it) { nd += (it.sets || []).length + (it.dels || []).length; });
+      const minC = Math.floor((Date.now() - q[0].ts) / 60000);
+      b.style.background = minC >= 10 ? '#C0392B' : '#E67E22';
+      b.textContent = (minC >= 10 ? '🔴 ' : '🟠 ') + nd + ' dato(s) cargados en este equipo TODAVÍA NO subieron a la nube (desde ' +
+        fmtHora(new Date(q[0].ts).toISOString()) + '). NO cierres ni apagues este equipo. Tocá para reintentar.';
+      return;
+    }
+  } catch (e) {}
   // 2) Falta/!coincide la clave de sync
   if (syncState.lastError && /autoriz/i.test(syncState.lastError)) {
     b.style.background = '#C0392B';
@@ -3259,7 +3288,97 @@ function viewSalud() {
     (visibles.length ? cats.map(cat => '<h3 style="margin:18px 0 8px;color:#34495e;font-size:16px">' + escapeHtml(cat) + '</h3>' + visibles.filter(p => p.cat === cat).map(card).join('')).join('')
       : '<div style="background:#f0fff4;border:1.5px solid #27ae60;border-radius:10px;padding:16px"><b style="color:#1e8449">✅ No se encontraron errores.</b></div>') +
     errDispSeccion() +
+    recuSeccion() +
     '</div>';
+}
+// ===== 8-oct-2026: REGISTRO vs NUBE (signos/novedades/baño/hidratación) =====
+// Cada casillero de Control de signos queda anotado en el registro de cambios (servidor de Indicaciones).
+// Si un equipo no pudo subirlo a la nube, acá se ve y el administrador lo puede recuperar.
+// Regla segura: SOLO rellena casilleros que en la nube están VACÍOS. Nunca pisa un dato.
+let _recu = { estado: 'nada', faltan: [], difer: [], avisos: [], error: '', at: '' };
+function recuSeccion() {
+  const r = _recu;
+  let cuerpo = '';
+  if (r.estado === 'cargando') cuerpo = '<div style="color:#6c7a8a">⏳ Comparando… (puede tardar hasta 1-2 minutos, Google es lento)</div>';
+  else if (r.estado === 'error') cuerpo = '<div style="color:#c0392b">No se pudo comparar: ' + escapeHtml(r.error) + '</div>';
+  else if (r.estado === 'listo') {
+    const porRes = {};
+    r.faltan.forEach(function (s) { const k = s[0][0] + ' · ' + nomRes(s[0][2]); porRes[k] = (porRes[k] || 0) + 1; });
+    cuerpo = '<div style="font-size:12px;color:#7f8c8d;margin-bottom:6px">Comparado a las ' + escapeHtml(r.at) + '</div>' +
+      (r.avisos.length ? '<div style="background:#fdecea;border-left:4px solid #c0392b;padding:8px 10px;border-radius:6px;margin-bottom:8px;font-size:13px"><b>Equipos con datos trabados (últimas 24 h):</b><br>' + r.avisos.map(escapeHtml).join('<br>') + '</div>' : '') +
+      (r.faltan.length
+        ? '<div style="background:#fef5e7;border-left:4px solid #d68910;padding:8px 10px;border-radius:6px;font-size:13px"><b>' + r.faltan.length + ' casillero(s) están en el registro pero NO en la nube:</b><br>' +
+            Object.keys(porRes).map(function (k) { return escapeHtml(k) + ': ' + porRes[k]; }).join('<br>') +
+            '<div style="margin-top:8px"><button class="btn small" onclick="recuAplicar()">⬆️ Recuperar ' + r.faltan.length + ' casillero(s) vacíos</button></div></div>'
+        : '<div style="color:#1e8449;font-size:13px">✅ Todo lo cargado en Control de signos (últimos 3 días) está en la nube.</div>') +
+      (r.difer.length ? '<details style="margin-top:8px;font-size:12px"><summary style="cursor:pointer">' + r.difer.length + ' casillero(s) con valor distinto entre el registro y la nube (no se tocan)</summary>' + r.difer.slice(0, 40).map(escapeHtml).join('<br>') + '</details>' : '');
+  }
+  return '<div style="margin-top:26px;background:#fff;border:1px solid #e3e8ee;border-radius:10px;padding:14px 16px">' +
+    '<h3 style="margin:0 0 4px;color:#34495e;font-size:16px">📡 ¿Llegó todo a la nube? <span style="font-weight:400;color:#7f8c8d;font-size:13px">(Control de signos, últimos 3 días)</span></h3>' +
+    '<p style="font-size:12.5px;color:#6c7a8a;margin:0 0 10px">Compara el registro de cambios con lo que hay en la nube, para ver si algún equipo cargó datos que no subieron.</p>' +
+    '<button class="btn secondary small" onclick="recuComparar()" ' + (r.estado === 'cargando' ? 'disabled' : '') + '>🔍 Comparar registro con la nube</button>' +
+    '<div style="margin-top:10px">' + cuerpo + '</div></div>';
+}
+function recuFechaIso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+async function recuComparar() {
+  _recu = { estado: 'cargando', faltan: [], difer: [], avisos: [], error: '', at: '' };
+  if (state.view === 'salud') render();
+  try {
+    try { await cloudPull(true); } catch (e) {}
+    const url = getIndicUrl();
+    const r = await fetch(url + '?action=getHistorial&limit=3000&t=' + Date.now());
+    const j = await r.json();
+    const filas = (j && (j.data || j.historial)) || [];
+    if (!Array.isArray(filas)) throw new Error('el registro no respondió bien');
+    const fechasOk = new Set();
+    for (let i = 0; i < 3; i++) { const d = new Date(); d.setDate(d.getDate() - i); fechasOk.add(recuFechaIso(d)); }
+    const nombres = new Set((state.residentes || []).map(function (x) { return x.nombre; }));
+    const SECC = { signos: 1, novedades: 1, hidro: 1, bano: 1, catarsis: 1 };
+    const visto = new Set(), faltan = [], difer = [], avisos = [];
+    const lim24 = Date.now() - 86400000;
+    filas.forEach(function (x) {   // el registro viene del más nuevo al más viejo
+      const det = String(x.detalle || '');
+      if (/COLA TRABADA/.test(det)) {
+        const p = String(x.fecha || '').match(/^(\d\d)\/(\d\d)\/(\d{4}) (\d\d):(\d\d)/);
+        const t = p ? new Date(+p[3], +p[2] - 1, +p[1], +p[4], +p[5]).getTime() : 0;
+        if (t >= lim24 || !p) avisos.push(x.usuario + ': ' + det.replace(/^⚠️ /, ''));
+        return;
+      }
+      if (x.accion !== 'controlsignos') return;
+      const m = det.match(/^(\S+) (\S+) = ([\s\S]*) \(([^()]+)\) - (\d{4}-\d\d-\d\d)$/);
+      if (!m) return;
+      const sec = m[1], campo = m[2], val = m[3], res = m[4], f = m[5];
+      if (!SECC[sec] || !fechasOk.has(f) || !nombres.has(res)) return;
+      const path = [f, sec, res].concat(campo.split('.'));
+      const k = JSON.stringify(path);
+      if (visto.has(k)) return;      // solo el valor MÁS NUEVO de cada casillero
+      visto.add(k);
+      let o = state.controlSignos;
+      for (let i = 0; i < path.length; i++) o = (o && typeof o === 'object') ? o[path[i]] : undefined;
+      if (o === undefined || o === null || o === '') { if (val !== '') faltan.push([path, val]); }
+      else if (String(o) !== val) difer.push(f + ' · ' + nomRes(res) + ' · ' + sec + ' ' + campo + ': nube "' + o + '" / registro "' + val + '"');
+    });
+    _recu = { estado: 'listo', faltan: faltan, difer: difer, avisos: avisos.slice(0, 10), error: '', at: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) };
+  } catch (e) {
+    _recu = { estado: 'error', faltan: [], difer: [], avisos: [], error: e.message || String(e), at: '' };
+  }
+  if (state.view === 'salud') render();
+}
+async function recuAplicar() {
+  if (bloquearSiNoAdmin('recuperar datos del registro')) return;
+  const sets = (_recu.faltan || []).filter(function (s) {
+    let o = state.controlSignos;
+    for (let i = 0; i < s[0].length; i++) o = (o && typeof o === 'object') ? o[s[0][i]] : undefined;
+    return o === undefined || o === null || o === '';   // re-chequeo: sigue vacío
+  });
+  if (!sets.length) { toast('No queda nada para recuperar.'); return recuComparar(); }
+  if (!confirm('Se van a copiar ' + sets.length + ' casillero(s) del registro a la nube.\nSolo se rellenan casilleros VACÍOS; no se pisa ningún dato.\n\n¿Seguir?')) return;
+  sets.forEach(function (s) { _setPathLocal(state.controlSignos, s[0], s[1]); });
+  try { localStorage.setItem(CS_KEY, JSON.stringify(state.controlSignos)); } catch (e) {}
+  const r = await cloudPushDelta('controlSignos', sets, []);
+  try { logCambio('sistema', 'Recuperados del registro ' + sets.length + ' casillero(s) de Control de signos'); } catch (e) {}
+  toast(r && r.ok ? '✅ Recuperados ' + sets.length + ' casillero(s).' : '⏳ Quedaron en la cola de envío; se suben solos en cuanto responda la nube.');
+  setTimeout(recuComparar, 1500);
 }
 function nombres_salud_has(n) { return (state.residentes || []).some(r => r.nombre === n); }
 function saludIr(el) {
