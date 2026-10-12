@@ -11,6 +11,7 @@ jobs:
         env:
           WA_PHONE: ${{ secrets.WHATSAPP_PHONE }}
           WA_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           set +e
           SITE="https://enfermeria650vt-cell.github.io/medicamentos/index.html"
@@ -21,7 +22,7 @@ jobs:
           if [ -z "$fail" ]; then
             ok=""
             for i in 1 2 3; do
-              body=$(curl -sL --max-time 60 "$API&t=$(date +%s)")
+              body=$(curl -sL --max-time 60 "$API&t=$(date +%s)&token=$SYNC_TOKEN")
               size=${#body}
               if echo "$body" | grep -q '"ok":true' && [ "$size" -gt 50000 ]; then ok="1"; break; fi
               sleep 20
