@@ -904,6 +904,7 @@ input:focus, select:focus, textarea:focus {
     <div class="nav-item" data-view="proxmes">🗓️ <span>Stock próximo mes</span></div>
     <div class="nav-item" data-view="semanal">📅 <span>Planilla semanal</span></div>
     <div class="nav-item" data-view="historial">📚 <span>Historial semanas</span></div>
+    <div class="nav-item" data-view="archivo">🗄️ <span>Archivo de meses</span></div>
     <div class="nav-item" data-view="controlsignos">🩺 <span>Control de signos</span></div>
     <div class="nav-section">Indicaciones</div>
     <div class="nav-item" data-view="indicaciones">📋 <span>Indicaciones médicas</span></div>
@@ -1225,7 +1226,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-09-1';
+const APP_VERSION = 'v2026-10-12-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1837,6 +1838,7 @@ function archivarSemana(lunesISO, origen = 'manual', excluir) {
   // Ordenar por fecha descendente y limitar a últimas 26 (medio año)
   state.historial.sort((a, b) => b.semanaLunes.localeCompare(a.semanaLunes));
   if (state.historial.length > 26) state.historial = state.historial.slice(0, 26);
+  state.historial = archFiltrarHistorial(state.historial);
   saveHist();
 }
 function limpiarMarcasSemanaActual(preservar) {
@@ -2057,6 +2059,217 @@ function bloquearSiNoAdmin(accion = 'editar') {
     return true;
   }
   return false;
+}
+
+// =====================================================
+// 📦 ARCHIVO DE MESES CERRADOS (12-oct-2026)
+// Los meses viejos se guardan en archivos (MEDICAMENTOS\ARCHIVO_MESES\AAAA-MM\VT_archivo_AAAA-MM.json
+// + Excel). Esta vista los ABRE SOLO PARA LEER (no escribe nada en la nube).
+// "Sacar de la app" (solo admin) borra de la nube un mes SOLO si el archivo elegido coincide
+// casillero por casillero con lo que hay en la nube. Deja la marca controlSignos._archivadoHasta
+// para que ningún equipo vuelva a subir esas fechas.
+// =====================================================
+var ARCH_MARK = '_archivadoHasta';
+var ARCH_MESES_EN_APP = 3; // mes actual + 2 anteriores
+function archivadoHasta() {
+  try { var v = (state.controlSignos || {})[ARCH_MARK]; return (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ? v : ''; } catch (e) { return ''; }
+}
+function archFinSemana(lunes) {
+  var p = String(lunes).split('-').map(Number); var d = new Date(p[0], p[1] - 1, p[2] + 6);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function archSemanaArchivada(h, marca) { return !!(marca && h && h.semanaLunes && archFinSemana(h.semanaLunes) <= marca); }
+function archFiltrarHistorial(arr, marca) {
+  marca = marca || archivadoHasta();
+  if (!marca || !Array.isArray(arr)) return arr;
+  return arr.filter(function (h) { return !archSemanaArchivada(h, marca); });
+}
+function archCanon(o) {
+  if (o === null || typeof o !== 'object') return JSON.stringify(o);
+  if (Array.isArray(o)) return '[' + o.map(archCanon).join(',') + ']';
+  return '{' + Object.keys(o).sort().map(function (k) { return JSON.stringify(k) + ':' + archCanon(o[k]); }).join(',') + '}';
+}
+function archUltimoDiaMes(mes) { var p = mes.split('-').map(Number); var d = new Date(p[0], p[1], 0); return mes + '-' + String(d.getDate()).padStart(2, '0'); }
+// Último mes que se puede sacar de la app hoy (deja el actual + 2 anteriores).
+function archMesLimite() { var d = new Date(); var x = new Date(d.getFullYear(), d.getMonth() - ARCH_MESES_EN_APP, 1); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0'); }
+function archFechasVivas() { return Object.keys(state.controlSignos || {}).filter(function (f) { return /^\d{4}-\d{2}-\d{2}$/.test(f); }).sort(); }
+
+function archEstado() { if (!state.archivo) state.archivo = { meses: {}, sel: '', tab: 'signos', dia: '', semana: '', filtro: '' }; return state.archivo; }
+
+function archivoAbrir(input) {
+  var A = archEstado(); var files = Array.prototype.slice.call(input.files || []); var pend = files.length;
+  if (!pend) return;
+  files.forEach(function (f) {
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        var o = JSON.parse(rd.result);
+        if (!o || o.tipo !== 'vt-archivo-mes' || !/^\d{4}-\d{2}$/.test(o.mes || '')) throw new Error('no es un archivo de mes de Villa Teresa');
+        A.meses[o.mes] = o; A.sel = o.mes; A.dia = ''; A.semana = '';
+      } catch (e) { toast('No se pudo abrir ' + f.name + ': ' + (e.message || e), 'error'); }
+      if (--pend === 0) render();
+    };
+    rd.onerror = function () { toast('No se pudo leer ' + f.name, 'error'); if (--pend === 0) render(); };
+    rd.readAsText(f, 'utf-8');
+  });
+}
+function archSet(k, v) { var A = archEstado(); A[k] = v; if (k === 'sel') { A.dia = ''; A.semana = ''; } render(); }
+
+function viewArchivo() {
+  var A = archEstado(); var marca = archivadoHasta(); var vivas = archFechasVivas();
+  var e = escapeHtml;
+  var h = '<h2>📦 Archivo de meses</h2><div class="subtitle">Meses cerrados guardados fuera de la app. Se abren solo para leer.</div>';
+  h += '<div style="background:#eef6f3;border-left:5px solid #2F5D50;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:14px;line-height:1.5">' +
+    'La app guarda adentro el <b>mes actual y los 2 anteriores</b>. Los meses más viejos están en la carpeta <b>MEDICAMENTOS › ARCHIVO_MESES</b> de la compu de administración, un archivo por mes (copia exacta + Excel).<br>' +
+    'En la app: ' + (vivas.length ? 'signos desde el <b>' + e(fmtFechaArch(vivas[0])) + '</b>' : 'sin signos') +
+    (marca ? ' · archivado hasta el <b>' + e(fmtFechaArch(marca)) + '</b>' : ' · todavía no se sacó ningún mes de la app') + '</div>';
+  h += '<div style="margin-bottom:14px"><label class="btn primary" style="cursor:pointer;display:inline-block;width:auto">📂 Abrir archivo de un mes (.json)' +
+    '<input type="file" accept=".json,application/json" multiple style="display:none" onchange="archivoAbrir(this)"></label>' +
+    ' <span style="font-size:12px;color:#6c7a8a">Solo lectura: abrir un archivo no cambia nada en la nube.</span></div>';
+  var meses = Object.keys(A.meses).sort();
+  if (meses.length) {
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + meses.map(function (m) {
+      return '<button class="btn small ' + (m === A.sel ? 'primary' : 'secondary') + '" onclick="archSet(\'sel\',\'' + m + '\')">' + e(nombreMesArch(m)) + '</button>';
+    }).join('') + '</div>';
+    if (A.sel && A.meses[A.sel]) h += archVistaMes(A.meses[A.sel]);
+  }
+  if (esAdmin() || saludPuedeVer()) h += archSeccionRetiro();
+  return h;
+}
+function fmtFechaArch(f) { var p = String(f).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : f; }
+function nombreMesArch(m) {
+  var N = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  var p = m.split('-'); return N[Number(p[1]) - 1] + ' ' + p[0];
+}
+function archTabla(cab, filas) {
+  if (!filas.length) return '<div style="padding:14px;color:#6c7a8a">Sin datos.</div>';
+  return '<div style="overflow-x:auto"><table class="tabla" style="font-size:13px"><thead><tr>' + cab.map(function (c) { return '<th>' + escapeHtml(c) + '</th>'; }).join('') +
+    '</tr></thead><tbody>' + filas.map(function (f) { return '<tr>' + f.map(function (c) { return '<td>' + escapeHtml(c == null ? '' : String(c)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+function archVistaMes(a) {
+  var A = archEstado(); var e = escapeHtml; var r = a.resumen || {};
+  var h = '<div class="card" style="padding:14px;margin-bottom:14px">';
+  h += '<div style="font-size:13px;color:#555;margin-bottom:10px">Archivo de <b>' + e(nombreMesArch(a.mes)) + '</b> · creado ' + e(String(a.creado || '').replace('T', ' ')) +
+    ' · ' + (r.diasSignos || 0) + ' días de signos · ' + ((r.semanas || []).length) + ' semanas de medicación · ' + (r.ingresos || 0) + ' ingresos</div>';
+  var tabs = [['signos', '🩺 Signos y novedades'], ['med', '📅 Medicación semanal'], ['tildes', '✔️ Tildes por dosis'], ['ing', '📥 Ingresos']];
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">' + tabs.map(function (t) {
+    return '<button class="btn small ' + (A.tab === t[0] ? 'primary' : 'secondary') + '" onclick="archSet(\'tab\',\'' + t[0] + '\')">' + t[1] + '</button>';
+  }).join('') + '</div>';
+  var T = { m: 'Mañana', t: 'Tarde', n: 'Noche' };
+  if (A.tab === 'signos') {
+    var dias = Object.keys(a.controlSignos || {}).sort();
+    if (!dias.length) return h + '<div style="color:#6c7a8a">Este mes no tiene control de signos.</div></div>';
+    var dia = (A.dia && a.controlSignos[A.dia]) ? A.dia : dias[0];
+    h += '<label style="font-size:13px">Día: <select onchange="archSet(\'dia\',this.value)">' + dias.map(function (d) { return '<option value="' + d + '"' + (d === dia ? ' selected' : '') + '>' + fmtFechaArch(d) + '</option>'; }).join('') + '</select></label>';
+    var D = a.controlSignos[dia] || {}; var S = [], H = [], N = [];
+    Object.keys(D.signos || {}).sort().forEach(function (res) { var x = D.signos[res] || {}; ['m', 't', 'n'].forEach(function (t) { var v = x[t]; if (v && typeof v === 'object' && Object.keys(v).some(function (c) { return String(v[c] || '').trim(); })) S.push([nomRes(res), T[t], v.ta, v.fc, v.fr, v.temp, v.spo2, v.hgt]); }); });
+    Object.keys(D.hidro || {}).sort().forEach(function (res) { var x = D.hidro[res] || {}; ['m', 't', 'n'].forEach(function (t) { var v = x[t]; if (v && typeof v === 'object') H.push([nomRes(res), T[t], v.ing, v.diu, v.egr, ((D.bano || {})[res] || {})[t] || '']); }); });
+    Object.keys(D.novedades || {}).sort().forEach(function (res) { var x = D.novedades[res] || {}; if (typeof x === 'object') N.push([nomRes(res), x.m, x.t, x.n]); });
+    var tf = D.turnoFin || {};
+    h += '<div style="font-size:12px;color:#555;margin:8px 0">Turnos finalizados: ' + ['m', 't', 'n'].map(function (t) { return T[t] + ': ' + (tf[t] && tf[t].by ? e(tf[t].by) : '—'); }).join(' · ') + '</div>';
+    h += '<h4 style="margin:10px 0 4px">Signos vitales</h4>' + archTabla(['Residente', 'Turno', 'T/A', 'F/C', 'F/R', 'Tº', 'SPO2', 'HGT'], S);
+    h += '<h4 style="margin:14px 0 4px">Hidratación y baño</h4>' + archTabla(['Residente', 'Turno', 'Ingesta', 'Diuresis', 'Egresos', 'Baño'], H);
+    h += '<h4 style="margin:14px 0 4px">Novedades</h4>' + archTabla(['Residente', 'Mañana', 'Tarde', 'Noche'], N);
+  } else if (A.tab === 'med') {
+    var sems = a.historialSemanas || [];
+    if (!sems.length) return h + '<div style="color:#6c7a8a">Este mes no tiene semanas cerradas guardadas.</div></div>';
+    var sem = sems.filter(function (s) { return s.semanaLunes === A.semana; })[0] || sems[0];
+    h += '<label style="font-size:13px">Semana del lunes: <select onchange="archSet(\'semana\',this.value)">' + sems.map(function (s) { return '<option value="' + s.semanaLunes + '"' + (s === sem ? ' selected' : '') + '>' + fmtFechaArch(s.semanaLunes) + '</option>'; }).join('') + '</select></label>';
+    var F = [];
+    (sem.residentes || []).forEach(function (r) { (r.meds || []).forEach(function (m) { var mk = m.marcas || []; F.push([nomRes(r.nombre), m.med, m.horario].concat([0, 1, 2, 3, 4, 5, 6].map(function (i) { return mk[i] ? '✓' : ''; }))); }); });
+    h += '<div style="font-size:12px;color:#6c7a8a;margin:6px 0">✓ = todas las tomas de ese día tildadas.</div>' + archTabla(['Residente', 'Medicamento', 'Horario', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'], F);
+  } else if (A.tab === 'tildes') {
+    var td = a.tildesPorDosis || [];
+    if (!td.length) return h + '<div style="color:#6c7a8a">Para este mes no hay detalle por dosis (se arma con los backups diarios, que existen desde el 12/09/2026).</div></div>';
+    var q = String(A.filtro || '').toUpperCase();
+    h += '<input type="search" placeholder="Filtrar por residente o medicamento" value="' + e(A.filtro || '') + '" onchange="archSet(\'filtro\',this.value)" style="padding:6px 10px;min-width:260px">';
+    var rows = td.filter(function (x) { return !q || (x.residente + ' ' + x.medicamento).toUpperCase().indexOf(q) >= 0; }).slice(0, 1500)
+      .map(function (x) { return [fmtFechaArch(x.fecha), nomRes(x.residente), x.medicamento, x.toma, x.por, x.marcadoEl]; });
+    h += archTabla(['Fecha', 'Residente', 'Medicamento', 'Toma', 'Marcado por', 'Marcado el'], rows);
+  } else {
+    h += archTabla(['Fecha', 'Residente', 'Medicamento', 'Cantidad', 'Observaciones'], (a.ingresos || []).map(function (x) { return [x.fecha, nomRes(x.residente), x.medicamento, x.cantidad, x.obs]; }));
+  }
+  return h + '</div>';
+}
+
+// ---------- Sacar meses de la app (solo admin, con verificación contra la nube) ----------
+function archVerificarMes(a, marcaPropuesta) {
+  // Devuelve {ok, motivo, fechas:[...], semanas:[...]} comparando el archivo con lo que hay AHORA en la app (recién traído de la nube).
+  var cs = state.controlSignos || {}; var mes = a.mes;
+  var vivas = archFechasVivas().filter(function (f) { return f.slice(0, 7) === mes; });
+  var enArch = Object.keys(a.controlSignos || {});
+  for (var i = 0; i < vivas.length; i++) {
+    var f = vivas[i];
+    if (!(f in a.controlSignos)) return { ok: false, motivo: 'el día ' + fmtFechaArch(f) + ' está en la nube y no en el archivo (hay que volver a generar el archivo)' };
+    if (archCanon(cs[f]) !== archCanon(a.controlSignos[f])) return { ok: false, motivo: 'el día ' + fmtFechaArch(f) + ' cambió en la nube después de crear el archivo (hay que volver a generarlo)' };
+  }
+  var faltan = enArch.filter(function (f) { return vivas.indexOf(f) < 0; });
+  var semArch = {}; (a.historialSemanas || []).forEach(function (s) { semArch[s.semanaLunes] = s; });
+  var semanas = [];
+  var finMes = archUltimoDiaMes(mes), iniMes = mes + '-01';
+  (state.historial || []).forEach(function (s) {
+    var fin = archFinSemana(s.semanaLunes);
+    if (fin > marcaPropuesta || fin < iniMes || s.semanaLunes > finMes) return;
+    if (!semArch[s.semanaLunes] || archCanon(semArch[s.semanaLunes]) !== archCanon(s)) semanas.push({ lunes: s.semanaLunes, falta: true });
+    else semanas.push({ lunes: s.semanaLunes });
+  });
+  var mal = semanas.filter(function (s) { return s.falta; })[0];
+  if (mal) return { ok: false, motivo: 'la semana del ' + fmtFechaArch(mal.lunes) + ' no coincide con el archivo (hay que volver a generarlo)' };
+  return { ok: true, fechas: vivas, semanas: semanas.map(function (s) { return s.lunes; }), soloArchivo: faltan.length };
+}
+function archSeccionRetiro() {
+  var A = archEstado(); var e = escapeHtml; var lim = archMesLimite();
+  var vivas = archFechasVivas(); var marca = archivadoHasta();
+  var mesesViejos = {}; vivas.forEach(function (f) { if (f.slice(0, 7) <= lim) mesesViejos[f.slice(0, 7)] = 1; });
+  (state.historial || []).forEach(function (s) { var fin = archFinSemana(s.semanaLunes); if (fin.slice(0, 7) <= lim) mesesViejos[fin.slice(0, 7)] = 1; });
+  var lista = Object.keys(mesesViejos).sort();
+  var h = '<div class="card" style="padding:14px;border-left:5px solid #b9770e;margin-top:18px"><h3 style="margin:0 0 6px">🗂️ Sacar de la app meses ya archivados <span style="font-size:12px;font-weight:400;color:#6c7a8a">(solo administrador)</span></h3>';
+  if (!lista.length) return h + '<div style="font-size:14px;color:#555">No hay meses para sacar: la app ya tiene solo el mes actual y los 2 anteriores.</div></div>';
+  h += '<div style="font-size:14px;color:#555;line-height:1.5">Meses que ya se pueden sacar: <b>' + lista.map(nombreMesArch).join(', ') + '</b>.<br>' +
+    'Abrí arriba el archivo .json de <b>cada uno</b> de esos meses. La app compara el archivo con la nube casillero por casillero y solo saca los meses que coinciden exacto.</div>';
+  var filas = lista.map(function (m) {
+    var a = A.meses[m]; if (!a) return '<li>' + e(nombreMesArch(m)) + ': ⏳ falta abrir su archivo</li>';
+    var v = archVerificarMes(a, archUltimoDiaMes(m));
+    return '<li>' + e(nombreMesArch(m)) + ': ' + (v.ok ? '✅ el archivo coincide con la nube (' + v.fechas.length + ' días, ' + v.semanas.length + ' semanas)' : '❌ ' + e(v.motivo)) + '</li>';
+  }).join('');
+  h += '<ul style="font-size:14px">' + filas + '</ul>';
+  h += '<button class="btn" onclick="archivoRetirar()">🗂️ Sacar de la app los meses verificados</button></div>';
+  return h;
+}
+async function archivoRetirar() {
+  if (bloquearSiNoAdmin('sacar meses de la app')) return;
+  if (leerColaDeltas().length) { toast('Hay datos de este equipo sin subir. Esperá a que la nube quede al día y volvé a intentar.', 'error'); return; }
+  toast('Trayendo la nube para comparar…', 'success');
+  var p = await cloudPull(true);
+  if (!p || !p.ok) { toast('No se pudo traer la nube. No se sacó nada.', 'error'); return; }
+  var A = archEstado(); var lim = archMesLimite(); var vivas = archFechasVivas();
+  var meses = {}; vivas.forEach(function (f) { if (f.slice(0, 7) <= lim) meses[f.slice(0, 7)] = 1; });
+  (state.historial || []).forEach(function (s) { var fin = archFinSemana(s.semanaLunes); if (fin.slice(0, 7) <= lim) meses[fin.slice(0, 7)] = 1; });
+  // Se saca de corrido desde el mes más viejo: si falta uno, se para ahí (la marca no puede saltear meses).
+  var orden = Object.keys(meses).sort(); var ok = []; var motivo = '';
+  for (var i = 0; i < orden.length; i++) {
+    var a = A.meses[orden[i]];
+    if (!a) { motivo = 'falta abrir el archivo de ' + nombreMesArch(orden[i]); break; }
+    var v = archVerificarMes(a, archUltimoDiaMes(orden[i]));
+    if (!v.ok) { motivo = nombreMesArch(orden[i]) + ': ' + v.motivo; break; }
+    ok.push({ mes: orden[i], v: v });
+  }
+  if (!ok.length) { toast('No se sacó nada: ' + motivo, 'error'); render(); return; }
+  var marca = archUltimoDiaMes(ok[ok.length - 1].mes);
+  var fechas = []; ok.forEach(function (x) { fechas = fechas.concat(x.v.fechas); });
+  var nSem = (state.historial || []).filter(function (s) { return archSemanaArchivada(s, marca); }).length;
+  var txt = prompt('Se van a sacar de la app ' + ok.map(function (x) { return nombreMesArch(x.mes); }).join(', ') + ': ' + fechas.length + ' días de signos y ' + nSem + ' semanas de medicación.\n' +
+    'Quedan guardados en los archivos que abriste.' + (motivo ? '\n(Se frena antes de: ' + motivo + ')' : '') + '\n\nPara confirmar escribí ARCHIVAR');
+  if (String(txt || '').trim().toUpperCase() !== 'ARCHIVAR') { toast('Cancelado. No se sacó nada.', 'success'); return; }
+  var cs = state.controlSignos || {};
+  fechas.forEach(function (f) { delete cs[f]; });
+  cs[ARCH_MARK] = marca;
+  try { localStorage.setItem(CS_KEY, JSON.stringify(cs)); } catch (e) {}
+  await cloudPushDelta('controlSignos', [[[ARCH_MARK], marca]], fechas.map(function (f) { return [f]; }));
+  if (nSem) { state.historial = archFiltrarHistorial(state.historial, marca); saveHist(); }
+  try { logCambio('mantenimiento', 'Archivo de meses: se sacaron de la app ' + ok.map(function (x) { return x.mes; }).join(', ') + ' (' + fechas.length + ' días de signos, ' + nSem + ' semanas). Quedan en MEDICAMENTOS/ARCHIVO_MESES. Archivado hasta ' + marca); } catch (e) {}
+  toast('✅ Listo: se sacaron ' + fechas.length + ' días y ' + nSem + ' semanas. Archivado hasta el ' + fmtFechaArch(marca) + '.', 'success');
+  render();
 }
 
 // ============ SYNC: GOOGLE SHEETS (multi-dispositivo) ============
@@ -2355,8 +2568,13 @@ async function cloudPull(silencioso = false) {
       if (recuperados > 0) localStorage.setItem(SEM_KEY, JSON.stringify(state.semanal));
     }
     // PROTECCIÓN: no pisar un historial local con datos por una respuesta vacía del servidor (lento/parcial)
+    // Archivo de meses: marca de "archivado hasta" (vive en controlSignos._archivadoHasta).
+    const _archM = (json.data.controlSignos && typeof json.data.controlSignos === 'object' && typeof json.data.controlSignos[ARCH_MARK] === 'string') ? json.data.controlSignos[ARCH_MARK] : archivadoHasta();
+    let _histResucitado = false;
     if (json.data.historial !== undefined && Array.isArray(json.data.historial) &&
         (json.data.historial.length > 0 || (state.historial || []).length === 0)) {
+      const _hf = archFiltrarHistorial(json.data.historial, _archM);
+      if (_hf.length < json.data.historial.length) { _histResucitado = true; json.data.historial = _hf; }
       const remoto = JSON.stringify(json.data.historial);
       const local = JSON.stringify(state.historial);
       if (remoto !== local) {
@@ -2364,6 +2582,8 @@ async function cloudPull(silencioso = false) {
         localStorage.setItem(HIST_KEY, remoto);
         cambios++;
       }
+      // Un equipo viejo volvió a subir semanas ya archivadas: se vuelven a sacar de la nube.
+      if (_histResucitado && syncHabilitado()) { try { cloudPush('historial', state.historial); } catch (e) {} }
     }
     if (json.data.controlSignos !== undefined && json.data.controlSignos && typeof json.data.controlSignos === 'object' &&
         (Object.keys(json.data.controlSignos).length > 0 || Object.keys(state.controlSignos || {}).length === 0)) {
@@ -2373,13 +2593,18 @@ async function cloudPull(silencioso = false) {
       const remotoObj = json.data.controlSignos;
       const localObj = state.controlSignos || {};
       const merged = {};
+      const _esFecha = function(f){ return /^\d{4}-\d{2}-\d{2}$/.test(f); };
+      const _resucitadas = [];
       Object.keys(remotoObj).forEach(function(f){
+        // Archivo de meses: fechas ya archivadas no vuelven a la app (y si un equipo viejo las resubió, se sacan).
+        if (_archM && _esFecha(f) && f <= _archM) { _resucitadas.push(f); return; }
         // Si la nube manda esa FECHA vacia pero este equipo tiene datos cargados ahi, gana lo local.
         if (tamanoDato(remotoObj[f]) === 0 && tamanoDato(localObj[f]) > 0) { merged[f] = localObj[f]; return; }
         merged[f] = remotoObj[f];
       });
       const faltanEnNube = [];
       Object.keys(localObj).forEach(function(f){
+        if (_archM && _esFecha(f) && f <= _archM) return; // archivada: este equipo la suelta, no la resube
         if (!(f in remotoObj)) { merged[f] = localObj[f]; faltanEnNube.push(f); }
       });
       const mergedStr = JSON.stringify(merged);
@@ -2391,6 +2616,9 @@ async function cloudPull(silencioso = false) {
       // AUTO-RECUPERACIÓN: si este equipo tiene fechas que la nube perdió, re-subirlas (merge).
       if (faltanEnNube.length && syncHabilitado()) {
         try { cloudPushDelta('controlSignos', faltanEnNube.map(function(f){ return [[f], merged[f]]; }), []); } catch(e){}
+      }
+      if (_resucitadas.length && syncHabilitado()) {
+        try { cloudPushDelta('controlSignos', [], _resucitadas.map(function(f){ return [f]; })); } catch(e){}
       }
     }
     if (json.data.recetas !== undefined && json.data.recetas && typeof json.data.recetas === 'object' &&
@@ -3944,6 +4172,7 @@ function render() {
   else if (state.view === 'proxmes') main.innerHTML = viewProxMes();
   else if (state.view === 'semanal') main.innerHTML = viewSemanal();
   else if (state.view === 'historial') main.innerHTML = viewHistorial();
+  else if (state.view === 'archivo') main.innerHTML = viewArchivo();
   else if (state.view === 'historial-cambios') main.innerHTML = viewHistorialCambios();
   else if (state.view === 'residente') main.innerHTML = viewResidente();
   else if (state.view === 'indicaciones') {
