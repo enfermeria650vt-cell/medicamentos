@@ -1226,7 +1226,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-10-12-1';
+const APP_VERSION = 'v2026-11-02-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -7344,7 +7344,7 @@ function viewRecetas() {
         <label style="font-size:13px;font-weight:600;color:#1F4E78">📋 Cargar datos del residente</label>
         <select id="nr-residente-sel" class="input-field" style="width:100%;margin:4px 0 10px;background:#EAF4FF" onchange="autoCargarDatosResidente('nr')">
           <option value="">— Seleccioná un residente para auto-completar —</option>
-          ${state.residentes.map(r => `<option value="${jsAttr(r.nombre)}">${escapeHtml(nomRes(r.nombre))}</option>`).join('')}
+          ${state.residentes.map(r => `<option value="${escapeHtml(r.nombre)}"${r.nombre === sel ? ' selected' : ''}>${escapeHtml(nomRes(r.nombre))}</option>`).join('')}
         </select>
         <label style="font-size:13px;font-weight:600">Medicamento / Nombre receta *</label>
         <input id="nr-nombre" class="input-field" style="width:100%;margin:4px 0 10px" placeholder="Ej: Omeprazol">
@@ -7432,7 +7432,16 @@ function attachRecetas() {
 
 function abrirModalNuevaReceta() {
   const m = document.getElementById('modal-nueva-receta');
-  if (m) { m.style.display = 'flex'; document.getElementById('nr-nombre').focus(); }
+  if (!m) return;
+  const selEl = document.getElementById('nr-residente-sel');
+  const sel = state.recetaResidenteSel || (state.residentes[0] && state.residentes[0].nombre) || '';
+  if (selEl && sel) selEl.value = sel;
+  ['nr-nombre', 'nr-meds'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const f = document.getElementById('nr-fecha');
+  if (f && !f.value) { const h = new Date(); f.value = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0') + '-' + String(h.getDate()).padStart(2, '0'); }
+  autoCargarDatosResidente('nr', true);
+  m.style.display = 'flex';
+  document.getElementById('nr-nombre').focus();
 }
 function cerrarModalNuevaReceta() {
   const m = document.getElementById('modal-nueva-receta');
@@ -7466,36 +7475,99 @@ function calcularEdad(prefix) {
   const edadEl = document.getElementById(prefix + '-edad');
   if (edadEl) edadEl.value = calcEdadDesde(fnac);
 }
-function autoCargarDatosResidente(prefix) {
+// ── Datos personales para precargar recetas ──
+// 1) la receta MÁS NUEVA que tenga el dato (obra social + Nº afiliado van juntos),
+// 2) si falta, la Historia clínica (obra social, Nº afiliado, DNI, F. Nac., diagnóstico),
+// 3) el sexo, del perfil del residente.
+const _REC_OS_LISTA = { 'IPS':'IPS', 'MEDICUS':'MEDICUS', 'OSDE':'OSDE', 'PAMI':'PAMI', 'IOMA':'IOMA', 'JERARQUICOS SALUD':'Jerarquicos Salud', 'JERARQUICOS':'Jerarquicos Salud' };
+const _REC_MESES = { enero:1, febrero:2, marzo:3, abril:4, mayo:5, junio:6, julio:7, agosto:8, septiembre:9, setiembre:9, octubre:10, noviembre:11, diciembre:12 };
+function _recOSDesdeTexto(txt) {
+  const t = String(txt || '').trim();
+  if (!t) return null;
+  const toks = t.split(/\s+/), nom = [];
+  for (const w of toks) {
+    const lim = w.replace(/[:·]+$/, '');
+    if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+$/.test(lim)) break;
+    nom.push(lim);
+    if (lim !== w) break;
+  }
+  const nombre = nom.join(' ').trim();
+  if (!nombre) return null;
+  const resto = t.slice(t.indexOf(nombre) + nombre.length);
+  const mN = resto.match(/[A-Za-z]?\d[\d .\-\/]*\d|[A-Za-z]?\d/);
+  const nro = mN ? mN[0].trim() : '';
+  const up = nombre.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  if (/^(PARTICULAR|SIN|NO|NINGUNA)\b/.test(up)) return { obraSocial: '', obraOtra: '', nroAfiliado: '' };
+  if (_REC_OS_LISTA[up]) return { obraSocial: _REC_OS_LISTA[up], obraOtra: '', nroAfiliado: nro };
+  return { obraSocial: 'Otra', obraOtra: nombre, nroAfiliado: nro };
+}
+function _recDatosDesdeHC(nombre) {
+  const hc = (state.historiasCli || {})[nombre];
+  if (!hc || typeof hc !== 'object') return {};
+  const out = {};
+  const os = _recOSDesdeTexto(hc.obraSocial);
+  if (os) Object.assign(out, os);
+  const notas = String(hc.notas || '').split(/Última evoluci/i)[0];
+  const mD = notas.match(/D\.?\s*N\.?\s*I\.?\s*:?\s*(\d[\d.\s]{3,12}\d)/i);
+  if (mD) out.dni = mD[1].replace(/\s+/g, '');
+  const mF = notas.match(/(?:F\s*\/\s*N|\bFN|FECHA\s+DE\s+NACIMIENTO|F\.\s*NAC\.?)\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}\s+(?:de\s+)?[a-záéíóú]+\s+(?:de\s+)?\d{4})/i);
+  if (mF) {
+    let f = mF[1].trim(), d, m, y;
+    if (f.indexOf('/') >= 0) { [d, m, y] = f.split('/').map(Number); if (y < 100) y += 1900; }
+    else { const p = f.toLowerCase().replace(/\bde\b/g, ' ').split(/\s+/).filter(Boolean); d = +p[0]; m = _REC_MESES[p[1].normalize('NFD').replace(/[̀-ͯ]/g, '')]; y = +p[2]; }
+    if (d && m && y) out.fechaNacimiento = String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + '/' + y;
+  }
+  if (String(hc.diagnostico || '').trim()) out.diagnostico = String(hc.diagnostico).trim();
+  return out;
+}
+function datosRecetaResidente(nombre) {
+  const recs = ((state.recetas || {})[nombre] || []).slice().reverse(); // la última cargada primero
+  const val = (r, k) => String((r && r[k]) || '').trim();
+  const primero = k => { const r = recs.find(x => val(x, k)); return r ? val(r, k) : ''; };
+  const out = { obraSocial: '', obraOtra: '', nroAfiliado: '', dni: '', fechaNacimiento: '', sexo: '', diagnostico: '' };
+  const fuentes = new Set();
+  const rOS = recs.find(x => val(x, 'obraSocial'));
+  if (rOS) { out.obraSocial = val(rOS, 'obraSocial'); out.obraOtra = val(rOS, 'obraOtra'); out.nroAfiliado = val(rOS, 'nroAfiliado') || primero('nroAfiliado'); fuentes.add('receta'); }
+  ['dni', 'fechaNacimiento', 'sexo', 'diagnostico'].forEach(k => { const v = primero(k); if (v) { out[k] = v; fuentes.add('receta'); } });
+  const hc = _recDatosDesdeHC(nombre);
+  if (!rOS && hc.obraSocial !== undefined) { out.obraSocial = hc.obraSocial; out.obraOtra = hc.obraOtra || ''; out.nroAfiliado = hc.nroAfiliado || ''; fuentes.add('hc'); }
+  else if (!out.nroAfiliado && hc.nroAfiliado && hc.obraSocial === out.obraSocial) { out.nroAfiliado = hc.nroAfiliado; fuentes.add('hc'); }
+  ['dni', 'fechaNacimiento', 'diagnostico'].forEach(k => { if (!out[k] && hc[k]) { out[k] = hc[k]; fuentes.add('hc'); } });
+  if (!out.sexo) { const sx = (typeof perfilResidente === 'function') ? perfilResidente(nombre).sexo : ''; if (sx === 'M' || sx === 'F') out.sexo = sx; }
+  out._fuentes = fuentes;
+  return out;
+}
+function _recPonerOS(prefix, datos) {
+  const os = document.getElementById(prefix + '-os');
+  const otraEl = document.getElementById(prefix + '-os-otra');
+  if (!os) return;
+  const opts = Array.from(os.options).map(o => o.value);
+  const v = datos.obraSocial || '';
+  os.value = !v ? '' : (opts.includes(v) ? v : 'Otra');
+  if (otraEl) {
+    otraEl.style.display = os.value === 'Otra' ? '' : 'none';
+    otraEl.value = os.value === 'Otra' ? (datos.obraOtra || (v !== 'Otra' ? v : '')) : '';
+  }
+}
+function autoCargarDatosResidente(prefix, silencioso) {
   const nombre = document.getElementById(prefix + '-residente-sel')?.value;
   if (!nombre) return;
-  // Buscar datos en recetas existentes del residente
-  const recetasRes = state.recetas?.[nombre];
-  let datos = null;
-  if (recetasRes && recetasRes.length > 0) {
-    // Tomar la receta más completa
-    datos = recetasRes.find(r => r.dni) || recetasRes[0];
-  }
-  if (!datos) { toast('No hay datos previos para este residente. Completá manualmente.', 'info'); return; }
-  // Llenar los campos
-  const setVal = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
-  const os = document.getElementById(prefix + '-os');
-  if (os && datos.obraSocial) {
-    const opts = Array.from(os.options).map(o => o.value);
-    if (opts.includes(datos.obraSocial)) { os.value = datos.obraSocial; }
-    else { os.value = 'Otra'; }
-    const otraEl = document.getElementById(prefix + '-os-otra');
-    if (otraEl) { otraEl.style.display = os.value === 'Otra' ? '' : 'none'; otraEl.value = datos.obraOtra || datos.obraSocial || ''; }
-  }
+  const datos = datosRecetaResidente(nombre);
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  _recPonerOS(prefix, datos);
   setVal(prefix + '-afiliado', datos.nroAfiliado);
   setVal(prefix + '-dni', datos.dni);
   setVal(prefix + '-fnac', datos.fechaNacimiento);
-  const sexoEl = document.getElementById(prefix + '-sexo');
-  if (sexoEl && datos.sexo) sexoEl.value = datos.sexo;
-  // Calcular edad
-  const edadEl = document.getElementById(prefix + '-edad');
-  if (edadEl) edadEl.value = edadReceta(datos);
-  toast('✅ Datos cargados de ' + nombre);
+  setVal(prefix + '-sexo', datos.sexo);
+  setVal(prefix + '-dx', datos.diagnostico);
+  setVal(prefix + '-edad', calcEdadDesde(datos.fechaNacimiento));
+  const faltan = [];
+  if (!datos.dni) faltan.push('DNI');
+  if (!datos.fechaNacimiento) faltan.push('fecha de nacimiento');
+  if (!datos.obraSocial && !datos._fuentes.size) faltan.push('obra social');
+  if (!datos._fuentes.size) toast('No hay datos guardados de ' + nomRes(nombre) + '. Completá a mano.', 'info');
+  else if (faltan.length) toast('Datos cargados. Falta: ' + faltan.join(', ') + '.', 'info');
+  else if (!silencioso) toast('✅ Datos cargados de ' + nomRes(nombre) + (datos._fuentes.has('receta') ? '' : ' (de la Historia clínica)'));
 }
 function guardarNuevaReceta(residente) {
   const nombre = document.getElementById('nr-nombre').value.trim();
@@ -7555,6 +7627,16 @@ function abrirModalEditarReceta(residente, idx) {
   document.getElementById('er-meds').value = (r.medicamentos || []).join('\n');
   document.getElementById('er-notas').value = r.notas || '';
   document.getElementById('er-fecha').value = r.fechaReceta || '';
+  // Campos personales vacíos en esta receta → completarlos con los datos del residente
+  const dRes = datosRecetaResidente(residente);
+  const llenarVacio = (id, v) => { const el = document.getElementById(id); if (el && !el.value && v) el.value = v; };
+  if (!os.value && dRes.obraSocial) { _recPonerOS('er', dRes); if (!document.getElementById('er-afiliado').value) document.getElementById('er-afiliado').value = dRes.nroAfiliado || ''; }
+  else llenarVacio('er-afiliado', dRes.obraSocial === (r.obraSocial || '') ? dRes.nroAfiliado : '');
+  llenarVacio('er-dni', dRes.dni);
+  llenarVacio('er-fnac', dRes.fechaNacimiento);
+  llenarVacio('er-sexo', dRes.sexo);
+  llenarVacio('er-dx', dRes.diagnostico);
+  if (edadEl && !edadEl.value) edadEl.value = calcEdadDesde(document.getElementById('er-fnac').value);
   // Attach save handler
   const btn = document.getElementById('er-guardar-btn');
   btn.onclick = () => guardarEdicionReceta(residente, idx);
