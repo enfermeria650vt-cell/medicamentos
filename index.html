@@ -134,12 +134,12 @@ body {
 }
 .kpi .num { font-size: 28px; font-weight: 700; color: var(--azul-1); }
 .kpi .label { font-size: 12px; color: #6c7a8a; text-transform: uppercase; letter-spacing: .3px; }
-.kpi.critico { border-left-color: var(--rojo); }
-.kpi.critico .num { color: var(--rojo); }
+.kpi.critico { border-left-color: #d99000; }
+.kpi.critico .num { color: #d99000; }
 .kpi.atencion { border-left-color: #d99000; }
 .kpi.atencion .num { color: #d99000; }
-.kpi.sinstock { border-left-color: var(--negro-fill); }
-.kpi.sinstock .num { color: var(--negro-fill); }
+.kpi.sinstock { border-left-color: var(--rojo); }
+.kpi.sinstock .num { color: var(--rojo); }
 .kpi.ok { border-left-color: var(--verde-oscuro); }
 .kpi.ok .num { color: var(--verde-oscuro); }
 
@@ -182,8 +182,8 @@ body {
   font-size: 11px;
   font-weight: 600;
 }
-.pill.critico { background: var(--rojo-claro); color: #9C0006; }
-.pill.sinstock { background: var(--negro-fill); color: white; }
+.pill.critico { background: var(--amarillo); color: #9C5700; }
+.pill.sinstock { background: var(--rojo); color: white; }
 .pill.atencion { background: var(--amarillo); color: #9C5700; }
 .pill.ok { background: var(--verde); color: var(--verde-oscuro); }
 .pill.sos { background: #E5E7EB; color: #4B5563; }
@@ -599,9 +599,8 @@ input:focus, select:focus, textarea:focus {
 .indic-doc td.ind-med-comb { vertical-align: middle; background: #fff !important; }
 .pm-tabla .pm-btn { padding: 4px 8px; font-size: 12px; }
 .pm-toggle { display: inline-flex; gap: 4px; margin-left: 10px; }
-.pm-tabla-res tr.pm-fila-sinstock td { background: #3A3A3A !important; color: #fff; }
-.pm-tabla-res tr.pm-fila-sinstock td span { color: #fff !important; }
-.pm-tabla-res tr.pm-fila-critico td { background: #FDDEDE !important; color: #9C0006; }
+.pm-tabla-res tr.pm-fila-sinstock td { background: #F8C9C9 !important; color: #9C0006; }
+.pm-tabla-res tr.pm-fila-critico td { background: #FFF2CC !important; color: #7A4500; }
 .pm-tabla-res tr.pm-fila-atencion td { background: #FFF2CC !important; color: #7A4500; }
 .pm-tabla-res tr.pm-fila-ok td { background: #E2F4E6 !important; color: #1a5c2e; }
 .pm-tabla-res tr[class^="pm-fila-"]:not(.pm-fila-sos) td strong { font-size: 14px; }
@@ -1226,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-02-1';
+const APP_VERSION = 'v2026-11-09-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1508,8 +1507,8 @@ function estadoMed(med) {
   }
   const d = calcDiasRestantes(med);
   if (d === null) return { tipo: 'sos', label: 'S.O.S.', clase: 'sos' };
-  if (d <= 0) return { tipo: 'sinstock', label: '⚫ SIN STOCK', clase: 'sinstock', dias: 0 };
-  if (d <= 7) return { tipo: 'critico', label: '🔴 CRÍTICO', clase: 'critico', dias: d };
+  if (d <= 0) return { tipo: 'sinstock', label: '🔴 SIN STOCK', clase: 'sinstock', dias: 0 };
+  if (d <= 7) return { tipo: 'critico', label: '🟡 CRÍTICO', clase: 'critico', dias: d };
   if (d <= 14) return { tipo: 'atencion', label: '🟡 ATENCIÓN', clase: 'atencion', dias: d };
   return { tipo: 'ok', label: '🟢 OK', clase: 'ok', dias: d };
 }
@@ -4469,9 +4468,9 @@ function viewDashboard() {
         <div class="nombre">👤 ${escapeHtml(nomRes(r.nombre))}</div>
         <div class="info">
           <span>💊 ${s.total} meds</span>
-          ${s.cri > 0 ? `<span class="pill critico">🔴 ${s.cri} crít.</span>` : ''}
+          ${s.cri > 0 ? `<span class="pill critico">🟡 ${s.cri} crít.</span>` : ''}
           ${s.aten > 0 ? `<span class="pill atencion">🟡 ${s.aten} aten.</span>` : ''}
-          ${s.sin > 0 ? `<span class="pill sinstock">⚫ ${s.sin} sin stock</span>` : ''}
+          ${s.sin > 0 ? `<span class="pill sinstock">🔴 ${s.sin} sin stock</span>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -4482,9 +4481,9 @@ function viewDashboard() {
     <div class="kpis">
       <div class="kpi"><div class="num">${state.residentes.length}</div><div class="label">Residentes</div></div>
       <div class="kpi"><div class="num">${t.total}</div><div class="label">Medicamentos</div></div>
-      <div class="kpi critico"><div class="num">${t.cri}</div><div class="label">🔴 Críticos</div></div>
+      <div class="kpi critico"><div class="num">${t.cri}</div><div class="label">🟡 Críticos</div></div>
       <div class="kpi atencion"><div class="num">${t.aten}</div><div class="label">🟡 Atención</div></div>
-      <div class="kpi sinstock"><div class="num">${t.sin}</div><div class="label">⚫ Sin stock</div></div>
+      <div class="kpi sinstock"><div class="num">${t.sin}</div><div class="label">🔴 Sin stock</div></div>
       <div class="kpi ok"><div class="num">${t.ok}</div><div class="label">🟢 OK</div></div>
     </div>
     <h3 style="margin-bottom:12px;color:var(--azul-1)">Residentes</h3>
@@ -4603,11 +4602,11 @@ function viewAlertas() {
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
       <div style="flex:1;min-width:130px;background:#fff0f0;border:1.5px solid #e74c3c;border-radius:10px;padding:16px;text-align:center">
         <div style="font-size:28px;font-weight:700;color:#e74c3c">${sinStock.length}</div>
-        <div style="font-size:12px;color:#666;margin-top:2px">⚫ Sin stock</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">🔴 Sin stock</div>
       </div>
-      <div style="flex:1;min-width:130px;background:#fff5f5;border:1.5px solid #e67e22;border-radius:10px;padding:16px;text-align:center">
-        <div style="font-size:28px;font-weight:700;color:#e67e22">${criticos.length}</div>
-        <div style="font-size:12px;color:#666;margin-top:2px">🔴 Crítico (≤7 días)</div>
+      <div style="flex:1;min-width:130px;background:#fff5f5;border:1.5px solid #f1c40f;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#b7950b">${criticos.length}</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">🟡 Crítico (≤7 días)</div>
       </div>
       <div style="flex:1;min-width:130px;background:#fffbf0;border:1.5px solid #f1c40f;border-radius:10px;padding:16px;text-align:center">
         <div style="font-size:28px;font-weight:700;color:#b7950b">${atencion.length}</div>
@@ -4626,8 +4625,8 @@ function viewAlertas() {
         <p style="color:#6c7a8a;margin-top:6px">Todos los medicamentos tienen stock suficiente.</p>
       </div>
     ` : `
-      ${tablaGrupo('SIN STOCK', '⚫', sinStock, '#ffe0e0')}
-      ${tablaGrupo('CRÍTICO — 7 días o menos', '🔴', criticos, '#fff0e0')}
+      ${tablaGrupo('SIN STOCK', '🔴', sinStock, '#ffe0e0')}
+      ${tablaGrupo('CRÍTICO — 7 días o menos', '🟡', criticos, '#fffbe0')}
       ${tablaGrupo('ATENCIÓN — 8 a 14 días', '🟡', atencion, '#fffbe0')}
     `}
   `;
@@ -4649,8 +4648,8 @@ function mostrarAlertaLoginSiHay() {
   toastEl.className = 'toast error';
   toastEl.style.cssText = 'cursor:pointer;font-size:13px;max-width:320px';
   toastEl.innerHTML = `⚠️ <strong>${total} med${total!==1?'s':''} con stock bajo</strong> `
-    + (sinStock.length ? `· ⚫ ${sinStock.length} sin stock ` : '')
-    + (criticos.length ? `· 🔴 ${criticos.length} crítico${criticos.length!==1?'s':''}` : '');
+    + (sinStock.length ? `· 🔴 ${sinStock.length} sin stock ` : '')
+    + (criticos.length ? `· 🟡 ${criticos.length} crítico${criticos.length!==1?'s':''}` : '');
   toastEl.onclick = () => { navigate('alertas'); toastEl.remove(); };
   document.getElementById('toast-container').appendChild(toastEl);
   setTimeout(() => toastEl.remove(), 8000);
@@ -11738,8 +11737,8 @@ function pmImprimirAvisos(todos, nombre) {
     .med { text-align: left; text-transform: uppercase; }
     .pie { margin-top: 14px; font-size: 8pt; color: #444; text-align: right; }
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .e-sinstock td, span.e-sinstock { background: #3A3A3A; color: #fff; }
-    .e-critico td, span.e-critico { background: #FDDEDE; color: #9C0006; }
+    .e-sinstock td, span.e-sinstock { background: #F8C9C9; color: #9C0006; }
+    .e-critico td, span.e-critico { background: #FFF2CC; color: #7A4500; }
     .e-atencion td, span.e-atencion { background: #FFF2CC; color: #7A4500; }
     .e-ok td, span.e-ok { background: #E2F4E6; color: #1a5c2e; }
     .ley { margin-top: 8px; font-size: 7pt; }
@@ -11764,7 +11763,7 @@ function pmToggleMes() {
 // Estado de cada medicamento para el mes que viene, contando desde el día 1 (mismos cortes que Stock y consumo:
 // SIN STOCK = 0 días · CRÍTICO ≤ 7 · ATENCIÓN ≤ 14 · OK). Orden: sin stock → crítico → atención → OK → S.O.S., y por fecha.
 const PM_ESTADOS = {
-  sinstock: { r: 0, label: '⚫ SIN STOCK' }, critico: { r: 1, label: '🔴 CRÍTICO' },
+  sinstock: { r: 0, label: '🔴 SIN STOCK' }, critico: { r: 1, label: '🟡 CRÍTICO' },
   atencion: { r: 2, label: '🟡 ATENCIÓN' }, ok: { r: 3, label: '🟢 OK' }, sos: { r: 4, label: 'S.O.S.' }
 };
 function pmFilasMes(r, ym) {
