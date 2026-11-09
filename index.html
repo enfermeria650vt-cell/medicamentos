@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-09-1';
+const APP_VERSION = 'v2026-11-09-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4860,17 +4860,16 @@ function viewResidente() {
       </div>
       ${state.stockVistaProx ? pmTablaResidente(r, admin) : `${pmAvisoPendiente(admin)}<table class="tabla pm-tabla-res">
         <thead><tr>
-          <th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
+          <th>Medicamento</th><th>Stock</th><th>Consumo/día</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
         </tr></thead>
         <tbody>
-          ${r.meds.length === 0 ? `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados. ${admin ? 'Tocá ➕ Nuevo medicamento.' : ''}</td></tr>` : r.meds.slice().sort(ordenStockMeds).map(m => {
+          ${r.meds.length === 0 ? `<tr><td colspan="${admin ? 8 : 7}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados. ${admin ? 'Tocá ➕ Nuevo medicamento.' : ''}</td></tr>` : r.meds.slice().sort(ordenStockMeds).map(m => {
             const e = estadoMed(m);
             return `
               <tr class="pm-fila-${e.tipo}">
-                <td><strong>${escapeHtml(m.med)}</strong></td>
+                <td><strong>${escapeHtml(m.med)}</strong>${descDias(m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(m))}</span>` : ''}</td>
                 <td><input type="number" value="${m.stock ?? ''}" step="0.5" min="0" ${ro} onchange="actualizarStock('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
                 <td><input type="number" value="${m.consumo ?? ''}" step="0.25" min="0" ${ro} onchange="actualizarConsumo('${nombreEsc}','${jsAttr(m.id)}',this.value)"></td>
-                <td style="font-size:11px;color:#6c7a8a">${escapeHtml(m.consumoTxt || m.stockTxt || '')}${descDias(m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(m))}</span>` : ''}</td>
                 <td><input type="date" value="${m.fechaIngreso || ''}" ${ro} onchange="actualizarFechaIngreso('${nombreEsc}','${jsAttr(m.id)}',this.value)" style="width:140px;font-size:12px"></td>
                 <td>${calcDiasRestantes(m) ?? '—'}</td>
                 <td>${fechaAgotamiento(m)}</td>
@@ -11801,19 +11800,18 @@ function pmTablaResidente(r, admin) {
     </div>
     <table class="tabla pm-tabla-res">
       <thead><tr>
-        <th>Medicamento</th><th>Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}</th><th>Consumo/día</th><th>Detalle</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
+        <th>Medicamento</th><th>Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}</th><th>Consumo/día</th><th>Fecha ingreso</th><th>Días</th><th>Fecha agot.</th><th>Estado</th>${admin ? '<th>Acciones</th>' : ''}
       </tr></thead>
       <tbody>${filas.length ? filas.map(f => {
         const aM = escapeHtml(JSON.stringify(f.m.id));
         const est = f.nec === null ? '<span class="pill sos">S.O.S.</span>'
           : `<span class="pill ${f.tipo}">${PM_ESTADOS[f.tipo].label}</span><br><span class="pm-falta">${f.falta > 0 ? 'Falta ' + f.falta : '✓ Cubre el mes'}</span>`;
         return `<tr class="pm-fila-${f.tipo}">
-          <td><strong>${escapeHtml(f.m.med)}</strong></td>
+          <td><strong>${escapeHtml(f.m.med)}</strong>${descDias(f.m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(f.m))}</span>` : ''}</td>
           <td>${admin
             ? `<input type="number" value="${f.stockMes}" step="0.5" min="0" onchange="pmSetStockMes(${aR}, ${aM}, this.value)" title="Escribí lo que realmente va a haber el día 1. Borrá para volver a la cuenta automática.">`
             : `<b style="font-size:15px">${f.stockMes}</b>`}<br><span style="font-size:11px;color:${f.manual ? '#6c5ce7' : '#6c7a8a'}">${f.manual ? '✍️ ajustado · ' : ''}${f.sobra} quedan + ${f.lleg} llegaron</span></td>
           <td>${f.nec === null ? '—' : escapeHtml(String(f.m.consumo))}</td>
-          <td style="font-size:11px;color:#6c7a8a">${escapeHtml(f.m.consumoTxt || f.m.stockTxt || '')}${descDias(f.m) !== 'Todos los días' ? `<br><span class="chip-dias estatico">📅 ${escapeHtml(descDias(f.m))}</span>` : ''}</td>
           <td>${ddmm}</td>
           <td>${f.dias ?? '—'}</td>
           <td>${f.nec === null ? '—' : f.agot}</td>
@@ -11823,7 +11821,7 @@ function pmTablaResidente(r, admin) {
             <button class="btn small secondary" title="Corregir lo que llegó" onclick="pmCorregir(${aR}, ${aM})">✏️</button>
           </td>` : ''}
         </tr>`;
-      }).join('') : `<tr><td colspan="${admin ? 9 : 8}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.</td></tr>`}</tbody>
+      }).join('') : `<tr><td colspan="${admin ? 8 : 7}" style="text-align:center;color:#6c7a8a;padding:24px">No hay medicamentos cargados.</td></tr>`}</tbody>
     </table>
     <p style="color:#6c7a8a;font-size:12px;margin:8px 0 0">Stock ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())} = lo que va a quedar del stock actual el ${ddmm} + lo que ya llegó para ${escapeHtml(_PM_MESES[p[1] - 1].toLowerCase())}. Si no coincide con lo real (por ejemplo, se dieron dosis S.O.S.), escribí el número correcto en el casillero; si lo borrás vuelve a la cuenta automática. "Falta" es lo que hay que pedir para cubrir el mes entero.</p>`;
 }
