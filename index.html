@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-09-3';
+const APP_VERSION = 'v2026-11-09-4';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -11992,7 +11992,7 @@ function imprimirPedidoMensual(nombre) {
   win.document.close();
 }
 // ─── INFORME PARA LA FAMILIA (PDF) — datos en vivo ──────────────────
-// Hoja imprimible/PDF con: medicamento, lo que tiene, inicio de mes,
+// Hoja imprimible/PDF con: medicamento, inicio de mes,
 // hasta cuándo alcanza y qué le falta (sin stock / crítico). Toma el stock ACTUAL, así que si cargaron un
 // ingreso recién, ya sale corregido.
 function informeFamilia(nombre) {
@@ -12004,11 +12004,10 @@ function informeFamilia(nombre) {
   const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
     .toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
   const fechaHoy = hoy.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
-  const meds = (r.meds || []).slice().sort((a, b) =>
-    ((parseFloat(a.consumo) > 0 ? 0 : 1) - (parseFloat(b.consumo) > 0 ? 0 : 1)));
+  // Orden: SIN STOCK → CRÍTICO → resto por fecha de agotamiento (la más cercana arriba) → S.O.S. al final
+  const meds = (r.meds || []).slice().sort(ordenStockMeds);
   const filas = meds.map(m => {
     const tieneConsumo = parseFloat(m.consumo) > 0;
-    const stock = (m.stock ?? m.stockTxt ?? '—');
     const hasta = tieneConsumo ? fechaAgotamiento(m) : '—';
     const dias = tieneConsumo ? (calcDiasRestantes(m) ?? '—') : '—';
     const est = estadoMed(m);
@@ -12018,7 +12017,6 @@ function informeFamilia(nombre) {
       : '<span class="lf lf-ok">Tiene stock</span>';
     return `<tr>
       <td class="med">${escapeHtml(m.med)}</td>
-      <td>${escapeHtml(String(stock))}</td>
       <td>${escapeHtml(inicioMes)}</td>
       <td><b>${escapeHtml(String(hasta))}</b>${tieneConsumo ? `<br><span class="dias">(${dias} días)</span>` : ''}</td>
       <td>${falta}</td>
@@ -12047,6 +12045,7 @@ function informeFamilia(nombre) {
     .lf-cri { background:#FFE699; color:#7A4500; }
     .lf-ok { background:#C6EFCE; color:#006100; }
     .lf-sos { color:#666; font-weight:normal; }
+    .lf, .lf-sin, .lf-cri, .lf-ok { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .nota { margin-top: 16px; font-size: 9pt; color:#444; line-height:1.5; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style></head><body>
@@ -12055,14 +12054,13 @@ function informeFamilia(nombre) {
   <div class="res">Residente: ${escapeHtml(nomRes(r.nombre))}</div>
   <div class="gen">Stock al día ${escapeHtml(fechaHoy)}</div>
   <table>
-    <colgroup><col style="width:32%"><col style="width:12%"><col style="width:17%"><col style="width:20%"><col style="width:19%"></colgroup>
+    <colgroup><col style="width:40%"><col style="width:19%"><col style="width:21%"><col style="width:20%"></colgroup>
     <thead><tr>
-      <th>Medicamento</th><th>Tiene</th><th>Inicio de mes</th><th>Alcanza hasta</th><th>Le falta</th>
+      <th>Medicamento</th><th>Inicio de mes</th><th>Alcanza hasta</th><th>Le falta</th>
     </tr></thead>
-    <tbody>${filas || '<tr><td colspan="5">Sin medicamentos cargados</td></tr>'}</tbody>
+    <tbody>${filas || '<tr><td colspan="4">Sin medicamentos cargados</td></tr>'}</tbody>
   </table>
   <div class="nota">
-    <b>Tiene:</b> cantidad disponible al día de la fecha.<br>
     <b>Alcanza hasta:</b> fecha estimada en que se agota. Le pedimos reponer antes de esa fecha.<br>
     <b>Le falta:</b> <span class="lf lf-sin">SIN STOCK</span> se terminó · <span class="lf lf-cri">CRÍTICO</span> se termina en los próximos días · <span class="lf lf-ok">Tiene stock</span> por ahora alcanza.<br>
     <i>Este informe se genera con los datos actualizados del sistema; si ingresan nuevos medicamentos, las fechas se recalculan automáticamente.</i>
