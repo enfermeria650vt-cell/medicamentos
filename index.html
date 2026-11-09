@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-09-2';
+const APP_VERSION = 'v2026-11-09-3';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -11992,8 +11992,8 @@ function imprimirPedidoMensual(nombre) {
   win.document.close();
 }
 // ─── INFORME PARA LA FAMILIA (PDF) — datos en vivo ──────────────────
-// Hoja imprimible/PDF con: medicamento, stock, consumo/día, inicio de mes
-// y hasta cuándo alcanza. Toma el stock ACTUAL, así que si cargaron un
+// Hoja imprimible/PDF con: medicamento, lo que tiene, inicio de mes,
+// hasta cuándo alcanza y qué le falta (sin stock / crítico). Toma el stock ACTUAL, así que si cargaron un
 // ingreso recién, ya sale corregido.
 function informeFamilia(nombre) {
   const r = state.residentes.find(x => x.nombre === nombre);
@@ -12009,15 +12009,19 @@ function informeFamilia(nombre) {
   const filas = meds.map(m => {
     const tieneConsumo = parseFloat(m.consumo) > 0;
     const stock = (m.stock ?? m.stockTxt ?? '—');
-    const consumo = tieneConsumo ? (m.consumo + '/día') : (m.consumoTxt || 'A demanda / S.O.S.');
     const hasta = tieneConsumo ? fechaAgotamiento(m) : '—';
     const dias = tieneConsumo ? (calcDiasRestantes(m) ?? '—') : '—';
+    const est = estadoMed(m);
+    const falta = !tieneConsumo || est.tipo === 'sos' ? '<span class="lf lf-sos">A demanda</span>'
+      : est.tipo === 'sinstock' ? '<span class="lf lf-sin">SIN STOCK</span>'
+      : (est.tipo === 'critico' || est.tipo === 'atencion') ? '<span class="lf lf-cri">CRÍTICO</span>'
+      : '<span class="lf lf-ok">Tiene stock</span>';
     return `<tr>
       <td class="med">${escapeHtml(m.med)}</td>
       <td>${escapeHtml(String(stock))}</td>
-      <td>${escapeHtml(String(consumo))}</td>
       <td>${escapeHtml(inicioMes)}</td>
       <td><b>${escapeHtml(String(hasta))}</b>${tieneConsumo ? `<br><span class="dias">(${dias} días)</span>` : ''}</td>
+      <td>${falta}</td>
     </tr>`;
   }).join('');
   const win = window.open('', '_blank', 'width=800,height=950');
@@ -12038,6 +12042,11 @@ function informeFamilia(nombre) {
     td.med { text-align: left; font-weight: bold; text-transform: uppercase; }
     tbody tr:nth-child(even) { background:#f2f6fb; }
     .dias { font-size: 8.5pt; color:#666; font-weight: normal; }
+    .lf { display:inline-block; padding:3px 8px; border-radius:4px; font-weight:bold; font-size:9.5pt; white-space:nowrap; }
+    .lf-sin { background:#C00000; color:#fff; }
+    .lf-cri { background:#FFE699; color:#7A4500; }
+    .lf-ok { background:#C6EFCE; color:#006100; }
+    .lf-sos { color:#666; font-weight:normal; }
     .nota { margin-top: 16px; font-size: 9pt; color:#444; line-height:1.5; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style></head><body>
@@ -12046,15 +12055,16 @@ function informeFamilia(nombre) {
   <div class="res">Residente: ${escapeHtml(nomRes(r.nombre))}</div>
   <div class="gen">Stock al día ${escapeHtml(fechaHoy)}</div>
   <table>
-    <colgroup><col style="width:30%"><col style="width:13%"><col style="width:20%"><col style="width:17%"><col style="width:20%"></colgroup>
+    <colgroup><col style="width:32%"><col style="width:12%"><col style="width:17%"><col style="width:20%"><col style="width:19%"></colgroup>
     <thead><tr>
-      <th>Medicamento</th><th>Stock actual</th><th>Consumo</th><th>Inicio de mes</th><th>Alcanza hasta</th>
+      <th>Medicamento</th><th>Tiene</th><th>Inicio de mes</th><th>Alcanza hasta</th><th>Le falta</th>
     </tr></thead>
     <tbody>${filas || '<tr><td colspan="5">Sin medicamentos cargados</td></tr>'}</tbody>
   </table>
   <div class="nota">
-    <b>Stock actual:</b> cantidad disponible al día de la fecha.<br>
-    <b>Alcanza hasta:</b> fecha estimada en que se agota según el consumo diario. Le pedimos reponer antes de esa fecha.<br>
+    <b>Tiene:</b> cantidad disponible al día de la fecha.<br>
+    <b>Alcanza hasta:</b> fecha estimada en que se agota. Le pedimos reponer antes de esa fecha.<br>
+    <b>Le falta:</b> <span class="lf lf-sin">SIN STOCK</span> se terminó · <span class="lf lf-cri">CRÍTICO</span> se termina en los próximos días · <span class="lf lf-ok">Tiene stock</span> por ahora alcanza.<br>
     <i>Este informe se genera con los datos actualizados del sistema; si ingresan nuevos medicamentos, las fechas se recalculan automáticamente.</i>
   </div>
   <script>window.onload = () => { window.print(); }<\/script>
