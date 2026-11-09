@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-09-4';
+const APP_VERSION = 'v2026-11-09-5';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -11992,7 +11992,7 @@ function imprimirPedidoMensual(nombre) {
   win.document.close();
 }
 // ─── INFORME PARA LA FAMILIA (PDF) — datos en vivo ──────────────────
-// Hoja imprimible/PDF con: medicamento, inicio de mes,
+// Hoja imprimible/PDF con: medicamento,
 // hasta cuándo alcanza y qué le falta (sin stock / crítico). Toma el stock ACTUAL, así que si cargaron un
 // ingreso recién, ya sale corregido.
 function informeFamilia(nombre) {
@@ -12017,8 +12017,7 @@ function informeFamilia(nombre) {
       : '<span class="lf lf-ok">Tiene stock</span>';
     return `<tr>
       <td class="med">${escapeHtml(m.med)}</td>
-      <td>${escapeHtml(inicioMes)}</td>
-      <td><b>${escapeHtml(String(hasta))}</b>${tieneConsumo ? `<br><span class="dias">(${dias} días)</span>` : ''}</td>
+      <td>${est.tipo === 'sinstock' ? '<b class="nt">NO TIENE PARA INICIAR MES</b>' : `<b>${escapeHtml(String(hasta))}</b>${tieneConsumo ? `<br><span class="dias">(${dias} días)</span>` : ''}`}</td>
       <td>${falta}</td>
     </tr>`;
   }).join('');
@@ -12045,6 +12044,7 @@ function informeFamilia(nombre) {
     .lf-cri { background:#FFE699; color:#7A4500; }
     .lf-ok { background:#C6EFCE; color:#006100; }
     .lf-sos { color:#666; font-weight:normal; }
+    .nt { color:#C00000; font-size:9.5pt; }
     .lf, .lf-sin, .lf-cri, .lf-ok { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .nota { margin-top: 16px; font-size: 9pt; color:#444; line-height:1.5; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
@@ -12054,11 +12054,11 @@ function informeFamilia(nombre) {
   <div class="res">Residente: ${escapeHtml(nomRes(r.nombre))}</div>
   <div class="gen">Stock al día ${escapeHtml(fechaHoy)}</div>
   <table>
-    <colgroup><col style="width:40%"><col style="width:19%"><col style="width:21%"><col style="width:20%"></colgroup>
+    <colgroup><col style="width:46%"><col style="width:32%"><col style="width:22%"></colgroup>
     <thead><tr>
-      <th>Medicamento</th><th>Inicio de mes</th><th>Alcanza hasta</th><th>Le falta</th>
+      <th>Medicamento</th><th>Alcanza hasta</th><th>Le falta</th>
     </tr></thead>
-    <tbody>${filas || '<tr><td colspan="4">Sin medicamentos cargados</td></tr>'}</tbody>
+    <tbody>${filas || '<tr><td colspan="3">Sin medicamentos cargados</td></tr>'}</tbody>
   </table>
   <div class="nota">
     <b>Alcanza hasta:</b> fecha estimada en que se agota. Le pedimos reponer antes de esa fecha.<br>
