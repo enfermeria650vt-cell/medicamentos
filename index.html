@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-09-5';
+const APP_VERSION = 'v2026-11-11-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -1312,7 +1312,7 @@ const _esClaveMarca = (k) => /_[0-6](_[0-9]+)?(_by|_at)?$/.test(k);
 function cloudSemMerge() {
   if (!(typeof syncHabilitado === 'function' && syncHabilitado())) return;
   // ingresosPend / ingresosPendFotos / errDisp viajan solo por delta granular (ver INGRESOS POR FOTO y REGISTRO DE ERRORES): nunca se suben enteros.
-  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k) && k !== 'ingresosPend' && k !== 'ingresosPendFotos' && k !== 'errDisp').map(k => [[k], state.semanal[k]]);
+  const sets = Object.keys(state.semanal).filter(k => !_esClaveMarca(k) && k !== 'ingresos' && k !== 'ingresosPend' && k !== 'ingresosPendFotos' && k !== 'errDisp').map(k => [[k], state.semanal[k]]);
   if (sets.length) cloudPushDelta('semanal', sets, []);
 }
 // 9-oct-2026: al registrar/aprobar un ingreso solo cambia la lista de ingresos (y el stock, que va
@@ -1325,6 +1325,21 @@ function subirIngresosLog(delsExtra) {
   const sets = Array.isArray(state.semanal.ingresos) ? [[['ingresos'], state.semanal.ingresos]] : [];
   const dels = delsExtra || [];
   if (sets.length || dels.length) cloudPushDelta('semanal', sets, dels);
+}
+// 11-nov-2026: la lista de ingresos de medicación se perdía ("hice ingresos y no los veo en el historial").
+// Causa: cualquier equipo con una copia VIEJA de la lista la volvía a subir entera (cloudSemMerge al guardar la
+// planilla, o un ingreso que quedó en cola sin internet) y pisaba los ingresos nuevos de la nube.
+// Arreglo: (1) cloudSemMerge ya no sube 'ingresos'; (2) al traer de la nube se UNE la lista local con la de la
+// nube (nunca se borra un ingreso: la app no tiene forma de borrar ingresos de medicación) y, si la nube tenía
+// menos, se vuelve a subir la lista completa (auto-reparación).
+function unirListasIngresos(remota, local) {
+  const R = Array.isArray(remota) ? remota : [], L = Array.isArray(local) ? local : [];
+  const firma = function(x){ try { const o = {}; Object.keys(x || {}).sort().forEach(function(k){ o[k] = x[k]; }); return JSON.stringify(o); } catch (e) { return String(Math.random()); } };
+  const cuentaR = {};
+  R.forEach(function(x){ const f = firma(x); cuentaR[f] = (cuentaR[f] || 0) + 1; });
+  const usados = {}, extra = [];
+  L.forEach(function(x){ const f = firma(x); usados[f] = (usados[f] || 0) + 1; if (usados[f] > (cuentaR[f] || 0)) extra.push(x); });
+  return { lista: extra.length ? R.concat(extra) : R, agregados: extra.length };
 }
 // Borrado explícito de claves de la planilla en la nube (limpiar / cerrar semana).
 function cloudSemDel(keys) {
@@ -2548,7 +2563,14 @@ async function cloudPull(silencioso = false) {
           if (!remoto[k]) remoto[k] = state.semanal[k];
         });
       }
+      // 11-nov-2026: no perder ingresos de medicación que este equipo tiene y la nube no (ver unirListasIngresos).
+      let _ingCurar = 0;
+      try {
+        const _u = unirListasIngresos(remoto.ingresos, state.semanal && state.semanal.ingresos);
+        if (_u.agregados > 0) { remoto.ingresos = _u.lista; _ingCurar = _u.agregados; }
+      } catch (e) {}
       const remotoStr = JSON.stringify(remoto);
+      if (_ingCurar > 0) setTimeout(function(){ try { subirIngresosLog(); logCambio('sistema', 'Ingresos: se recuperaron ' + _ingCurar + ' ingresos que faltaban en la nube'); } catch (e) {} }, 1500);
       if (remotoStr !== JSON.stringify(state.semanal)) {
         state.semanal = remoto;
         localStorage.setItem(SEM_KEY, remotoStr);
