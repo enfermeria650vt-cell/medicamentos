@@ -1225,7 +1225,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-11-1';
+const APP_VERSION = 'v2026-11-11-2';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
@@ -4843,7 +4843,7 @@ function viewIngresos() {
     </div>
     <div class="card" style="max-width:520px;margin-top:18px">
       <h3>Últimos ingresos</h3>
-      ${(state.semanal.ingresos || []).slice(-10).reverse().map(i => `
+      ${(state.semanal.ingresos || []).map((x, ix) => ({ x: x, ix: ix })).sort((p, q) => (String(ingFechaSortKey(q.x.fecha)).localeCompare(String(ingFechaSortKey(p.x.fecha)))) || (q.ix - p.ix)).slice(0, 30).map(o => o.x).map(i => `
         <div style="padding:6px 0;border-bottom:1px solid var(--gris-borde);font-size:13px">
           <strong>${escapeHtml(i.fecha)}</strong> — ${escapeHtml(nomRes(i.residente))} | ${escapeHtml(i.medicamento)} → +${i.cantidad}
         </div>
@@ -11350,6 +11350,9 @@ function ingFechaSortKey(fechaStr) {
   const d = (partes[0] || '').split('/').map(x => parseInt(x,10));
   if (d.length < 3 || d.some(n => isNaN(n))) return '0';
   const hm = (partes[1] || '00:00').split(':').map(x => parseInt(x,10));
+  // 11-nov-2026: respetar a. m. / p. m. (antes 01:26 p. m. quedaba antes que 11:00 a. m.)
+  const _pm = /p\.?\s*m/i.test(s), _am = /a\.?\s*m/i.test(s);
+  if (_pm && hm[0] < 12) hm[0] += 12; else if (_am && hm[0] === 12) hm[0] = 0;
   const pad = (n,l)=>String(n||0).padStart(l,'0');
   return pad(d[2],4)+pad(d[1],2)+pad(d[0],2)+pad(hm[0]||0,2)+pad(hm[1]||0,2);
 }
