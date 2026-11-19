@@ -848,6 +848,11 @@ input:focus, select:focus, textarea:focus {
     <img class="login-logo-img" src="icon-192.png" alt="Logo">
     <p class="login-title">Residencia Villa Teresa</p>
     <p class="login-sub">Sistema de Medicamentos</p>
+    <style>.res-switch { display:flex; gap:4px; background:rgba(255,255,255,.16); border-radius:12px; padding:4px; margin:0 auto 16px; width:100%; max-width:260px; }
+.res-sw-btn { flex:1; text-align:center; padding:9px 0; border-radius:9px; font-size:14px; font-weight:700; color:#fff; text-decoration:none; letter-spacing:.3px; transition:background .15s; }
+.res-sw-btn:hover { background:rgba(255,255,255,.12); }
+.res-sw-btn.on { background:#fff; color:#1F4E78; box-shadow:0 1px 4px rgba(0,0,0,.18); cursor:default; }
+</style><div class="res-switch" id="res-switch"><a class="res-sw-btn on" href="/medicamentos/">VT I</a><a class="res-sw-btn" href="/vtii/">VT II</a></div>
     <div class="login-card">
       <div class="login-role-lbl">Enfermeros/as</div>
       <div class="login-user-grid" id="lg-enf"></div>
@@ -1227,7 +1232,7 @@ const DATOS_INICIALES = [{"nombre": "Fernanda Arenas", "meds": [{"id": "Fernanda
 // ============ STORAGE ============
 const STORAGE_KEY = 'med_geri_v1';
 const RECETAS_KEY = 'med_geri_recetas_v1';
-const APP_VERSION = 'v2026-11-18-1';
+const APP_VERSION = 'v2026-11-19-1';
 const SEM_KEY = 'med_geri_sem_v1';
 const HIST_KEY = 'med_geri_hist_v1';
 const CS_KEY = 'med_geri_cs_v1';
